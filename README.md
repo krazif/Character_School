@@ -26,6 +26,8 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - Delete cards with confirmation (also removes associated avatar PNGs)
 - Download cards as PNG or JSON
 
+
+![School Mode](school.png)
 ### Real-Time LLM Analysis
 
 - Two independent LLM endpoints — one for character responses, one for analysis
