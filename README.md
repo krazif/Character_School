@@ -36,6 +36,8 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - Analysis triggers only on the first real character response to a user message (not on `first_mes` display)
 - Typing indicators for both character responding and analyzer thinking
 
+
+![RP Mode](rp.png)
 ### RP Mode Features
 
 - **Turn routing**: auto (all characters respond) or directed (target a specific character)
@@ -52,6 +54,10 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - 6 starter personas included
 - Upload and manage personas via the UI
 - Persona selection affects both School and RP modes
+
+
+
+![Settings](settings.png)
 
 ### Settings & Configuration
 
