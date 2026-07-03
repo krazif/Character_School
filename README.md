@@ -32,7 +32,7 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - Two independent LLM endpoints — one for character responses, one for analysis
 - Analyzer checks rule compliance, character consistency, and tone
 - Fix suggestions per issue: specifies the card field to edit, action (add/replace/append), ready-to-paste fix text, priority, and exact placement location
-- Typing indicators for both character responding and analyzer thinking
+
 
 
 ![RP Mode](rp.png)
