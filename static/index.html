@@ -1,0 +1,2418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Character School</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #21262d; --border: #30363d;
+  --text: #c9d1d9; --text-dim: #8b949e; --accent: #58a6ff; --green: #3fb950;
+  --red: #f85149; --yellow: #d29922; --purple: #bc8cff; --orange: #db6d28;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:14px; height:100vh; display:flex; flex-direction:column; }
+
+/* Header */
+header { background:var(--surface); border-bottom:1px solid var(--border); padding:10px 20px; display:flex; align-items:center; gap:16px; }
+header h1 { font-size:18px; font-weight:600; }
+header .subtitle { color:var(--text-dim); font-size:12px; }
+header .spacer { flex:1; }
+header .status { font-size:12px; color:var(--text-dim); }
+header .status.connected { color:var(--green); }
+
+/* Layout */
+.main { flex:1; display:flex; overflow:hidden; }
+.left-panel { width:240px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; }
+.center-panel { flex:1; display:flex; flex-direction:column; }
+.right-panel { width:340px; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; }
+
+/* Card List */
+.card-list-header { padding:10px 14px; font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid var(--border); }
+.card-list { flex:1; overflow-y:auto; }
+.card-item { padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.15s; }
+.card-item:hover { background:var(--surface2); }
+.card-item.active { background:var(--surface2); border-left:3px solid var(--accent); }
+.card-item .name { font-weight:500; font-size:13px; }
+.card-version { display:inline-block; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:600; font-family:monospace; margin-left:4px; vertical-align:middle; }
+.card-version.v1 { background:#4a6fa5; color:white; }
+.card-version.v2 { background:#5b8c5a; color:white; }
+.card-version.v3 { background:#b8860b; color:white; }
+.card-item .tags { font-size:11px; color:var(--text-dim); margin-top:2px; }
+.card-item .tags span { background:var(--surface2); padding:1px 5px; border-radius:3px; margin-right:3px; }
+.card-dl-btns { display:flex; gap:4px; margin-top:4px; opacity:0; transition:opacity 0.15s; }
+.card-item:hover .card-dl-btns { opacity:1; }
+.card-dl-btn { font-size:10px; padding:2px 6px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; cursor:pointer; color:var(--text-dim); }
+.card-dl-btn:hover { background:var(--surface3); color:var(--text); }
+.card-dl-btn.danger:hover { background:rgba(220,53,69,0.2); color:#dc3545; border-color:#dc3545; }
+
+/* Chat */
+.chat-header { padding:10px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+.chat-header .char-name { font-weight:600; font-size:15px; }
+.chat-messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+.message { max-width:80%; padding:10px 14px; border-radius:12px; font-size:14px; line-height:1.5; white-space:pre-wrap; word-wrap:break-word; }
+.message.user { align-self:flex-end; background:#1a5276; color:#e8f4fd; }
+.message.character { align-self:flex-start; background:var(--surface2); border:1px solid var(--border); }
+.message.system { align-self:center; background:transparent; color:var(--text-dim); font-size:12px; font-style:italic; }
+.message .role-label { font-size:11px; color:var(--text-dim); margin-bottom:4px; }
+.message .analysis-badge { display:inline-block; font-size:10px; padding:2px 6px; border-radius:3px; margin-left:6px; font-weight:600; }
+.badge-pass { background:rgba(63,185,80,0.2); color:var(--green); }
+.badge-fail { background:rgba(248,81,73,0.2); color:var(--red); }
+.badge-partial { background:rgba(210,153,34,0.2); color:var(--yellow); }
+.msg-delete-link { display:block; text-align:right; font-size:11px; color:var(--text-dim); margin-top:6px; text-decoration:none; cursor:pointer; opacity:0.6; }
+.msg-delete-link:hover { color:var(--red); opacity:1; }
+
+/* Input */
+.chat-input { padding:12px 16px; border-top:1px solid var(--border); display:flex; gap:8px; }
+.chat-input textarea { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px 12px; font-size:14px; resize:none; height:44px; font-family:inherit; }
+.chat-input textarea:focus { outline:none; border-color:var(--accent); }
+.chat-input button { padding:10px 20px; border:none; border-radius:8px; font-size:14px; cursor:pointer; font-weight:500; }
+.btn-send { background:var(--accent); color:#fff; }
+.btn-send:disabled { opacity:0.5; cursor:not-allowed; }
+.btn-reset { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
+.btn-report { background:var(--purple); color:#fff; }
+
+/* Analysis Panel */
+.analysis-header { padding:10px 14px; font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.analysis-content { flex:1; overflow-y:auto; padding:14px; }
+.analysis-empty { color:var(--text-dim); text-align:center; padding:40px 20px; font-size:13px; }
+.analysis-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:12px; }
+.analysis-card .label { font-size:11px; color:var(--text-dim); text-transform:uppercase; margin-bottom:4px; }
+.analysis-card .value { font-size:13px; }
+.analysis-card .violations { color:var(--red); }
+.analysis-card .leakage { color:var(--orange); }
+.analysis-card .fragility { font-weight:600; }
+.fragility-strong { color:var(--green); }
+.fragility-fragile { color:var(--yellow); }
+.fragility-broken { color:var(--red); }
+
+/* Fix & Enhancement cards in analysis panel */
+.fix-item { background:rgba(248,81,73,0.08); border-left:3px solid var(--red); border-radius:6px; padding:10px 12px; margin-top:8px; }
+.fix-item .fix-issue { font-size:12px; color:var(--red); font-weight:600; margin-bottom:4px; }
+.fix-item .fix-location { font-size:11px; color:var(--accent); font-weight:600; }
+.fix-item .fix-action { font-size:11px; color:var(--text-dim); }
+.fix-item .fix-text { font-size:12px; background:var(--surface3); border:1px solid var(--border); border-radius:4px; padding:8px 10px; margin-top:6px; white-space:pre-wrap; font-family:monospace; }
+.fix-item .fix-priority { display:inline-block; font-size:10px; padding:1px 6px; border-radius:3px; font-weight:600; margin-left:6px; }
+.fix-priority-critical { background:rgba(248,81,73,0.3); color:var(--red); }
+.fix-priority-high { background:rgba(210,153,34,0.3); color:var(--yellow); }
+.fix-priority-medium { background:rgba(63,185,80,0.2); color:var(--green); }
+.fix-priority-low { background:rgba(255,255,255,0.1); color:var(--text-dim); }
+.enhancement-item { background:rgba(63,185,80,0.06); border-left:3px solid var(--green); border-radius:6px; padding:10px 12px; margin-top:8px; }
+.enhancement-item .enh-suggestion { font-size:12px; color:var(--text); margin-bottom:4px; }
+.enhancement-item .enh-location { font-size:11px; color:var(--accent); font-weight:600; }
+.enhancement-item .enh-rationale { font-size:11px; color:var(--text-dim); font-style:italic; margin-top:2px; }
+.banned-word { background:rgba(248,81,73,0.2); color:var(--red); padding:2px 6px; border-radius:3px; font-size:12px; }
+
+/* Editor */
+.editor-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
+.editor-overlay.show { display:flex; }
+.editor-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:900px; height:85vh; display:flex; flex-direction:column; margin:auto; }
+.editor-header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+.editor-header h2 { font-size:16px; font-weight:600; }
+.editor-header .spacer { flex:1; }
+.version-badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; font-family:monospace; }
+.version-badge.v1 { background:#4a6fa5; color:white; }
+.version-badge.v2 { background:#5b8c5a; color:white; }
+.version-badge.v3 { background:#b8860b; color:white; }
+.editor-header button { padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:13px; }
+.editor-body { flex:1; overflow-y:auto; padding:20px; }
+.editor-field { margin-bottom:20px; }
+.editor-field label { display:block; font-size:12px; color:var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
+.editor-field input, .editor-field textarea { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:13px; font-family:inherit; }
+.editor-field input { height:32px; }
+.editor-field textarea { min-height:120px; resize:vertical; line-height:1.5; }
+.editor-field .char-count { font-size:11px; color:var(--text-dim); margin-top:4px; text-align:right; }
+.editor-field.large textarea { min-height:300px; }
+.editor-tabs { display:flex; gap:2px; padding:0 20px; border-bottom:1px solid var(--border); }
+.editor-tab { padding:8px 16px; cursor:pointer; font-size:13px; color:var(--text-dim); border-bottom:2px solid transparent; }
+.editor-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+.editor-tab:hover { color:var(--text); }
+
+/* Report */
+.report-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
+.report-overlay.show { display:flex; }
+.report-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:700px; height:85vh; display:flex; flex-direction:column; margin:auto; }
+.report-header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+.report-body { flex:1; overflow-y:auto; padding:20px; }
+.report-body h3 { font-size:15px; margin-bottom:8px; color:var(--accent); }
+.report-body .report-section { margin-bottom:20px; }
+.report-body .verdict { font-size:20px; font-weight:700; padding:12px; border-radius:8px; text-align:center; margin-bottom:16px; }
+.report-body .verdict.pass { background:rgba(63,185,80,0.15); color:var(--green); }
+.report-body .verdict.fail { background:rgba(248,81,73,0.15); color:var(--red); }
+.report-body .verdict.partial { background:rgba(210,153,34,0.15); color:var(--yellow); }
+.report-body .issue { padding:8px 12px; border-radius:6px; margin-bottom:6px; font-size:13px; }
+.report-body .issue.critical { background:rgba(248,81,73,0.1); border-left:3px solid var(--red); }
+.report-body .issue.major { background:rgba(210,153,34,0.1); border-left:3px solid var(--yellow); }
+.report-body .issue.minor { background:rgba(139,148,158,0.1); border-left:3px solid var(--text-dim); }
+.report-body .fix { background:var(--surface2); padding:10px 14px; border-radius:6px; margin-bottom:8px; border-left:3px solid var(--purple); }
+.report-body .fix .priority { font-size:11px; color:var(--purple); font-weight:600; }
+.report-body pre { background:var(--bg); padding:12px; border-radius:6px; overflow-x:auto; font-size:12px; }
+
+/* Persona */
+.persona-selector { display:flex; align-items:center; gap:8px; }
+.persona-selector select { background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:4px 8px; font-size:12px; cursor:pointer; }
+.persona-selector select:focus { outline:none; border-color:var(--accent); }
+.persona-info { font-size:11px; color:var(--text-dim); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.persona-badge { display:inline-block; font-size:10px; padding:1px 5px; border-radius:3px; background:var(--surface2); color:var(--text-dim); margin-left:6px; }
+
+/* Persona Modal */
+.persona-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
+.persona-overlay.show { display:flex; }
+.persona-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:700px; max-height:85vh; display:flex; flex-direction:column; margin:auto; }
+.persona-modal .editor-body { overflow-y:auto; padding:20px; }
+.trait-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px; }
+.trait-item label { display:block; font-size:11px; color:var(--text-dim); text-transform:uppercase; margin-bottom:4px; }
+.trait-item select { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:6px 8px; font-size:13px; }
+.trait-item select:focus { outline:none; border-color:var(--accent); }
+.persona-preview { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:12px; margin-top:12px; font-size:12px; color:var(--text-dim); }
+.persona-preview b { color:var(--text); }
+
+/* Loading */
+.loading { text-align:center; padding:20px; color:var(--text-dim); }
+.spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Console */
+.console-bar { background:var(--surface); border-top:1px solid var(--border); display:flex; align-items:center; padding:4px 12px; cursor:pointer; gap:8px; user-select:none; }
+.console-bar .label { font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; }
+.console-bar .count { font-size:11px; background:var(--surface2); padding:1px 6px; border-radius:8px; color:var(--text-dim); }
+.console-bar .spacer { flex:1; }
+.console-bar .chevron { font-size:12px; color:var(--text-dim); transition:transform 0.2s; }
+.console-bar .chevron.open { transform:rotate(180deg); }
+.console-panel { height:0; overflow:hidden; background:#0a0d12; border-top:1px solid var(--border); transition:height 0.2s ease; }
+.console-panel.open { height:240px; }
+.console-panel.open.maximized { height:calc(100vh - 80px); }
+.console-bar .max-btn { font-size:12px; color:var(--text-dim); cursor:pointer; padding:2px 6px; border-radius:4px; transition:background 0.15s; }
+.console-bar .max-btn:hover { background:var(--surface2); color:var(--text); }
+.console-inner { height:100%; overflow-y:auto; padding:8px 12px; font-family:'SF Mono','Cascadia Code',Menlo,Consolas,monospace; font-size:12px; line-height:1.6; }
+.console-entry { margin-bottom:2px; padding:2px 0; border-bottom:1px solid rgba(48,54,61,0.3); }
+.console-entry:last-child { border-bottom:none; }
+.console-entry .ts { color:#6e7681; font-size:11px; }
+.console-entry .tag { display:inline-block; font-size:10px; padding:1px 5px; border-radius:3px; margin:0 4px; font-weight:600; }
+.console-tag-req { background:rgba(88,166,255,0.15); color:var(--accent); }
+.console-tag-resp { background:rgba(63,185,80,0.15); color:var(--green); }
+.console-tag-err { background:rgba(248,81,73,0.15); color:var(--red); }
+.console-llm-char { color:var(--purple); font-size:11px; }
+.console-llm-analysis { color:var(--orange); font-size:11px; }
+.console-entry .model { color:var(--text-dim); font-size:11px; }
+.console-entry .usage { color:var(--text-dim); font-size:11px; margin-left:8px; }
+.console-entry .msg-role { color:var(--accent); font-weight:600; }
+.console-entry .msg-content { color:var(--text); white-space:pre-wrap; word-wrap:break-word; max-height:400px; overflow-y:auto; padding:4px 8px; margin:2px 0; background:rgba(13,17,23,0.5); border-radius:4px; border-left:2px solid var(--border); font-size:12px; line-height:1.4; }
+.console-entry .msg-content.system { border-left-color:var(--purple); }
+.console-entry .msg-content.user { border-left-color:var(--accent); }
+.console-entry .msg-content.assistant { border-left-color:var(--green); }
+.console-entry .expand-hint { color:var(--text-dim); font-size:11px; cursor:pointer; }
+.console-entry .expand-hint:hover { color:var(--text); }
+.console-empty { color:var(--text-dim); text-align:center; padding:20px; font-size:13px; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+::-webkit-scrollbar-thumb:hover { background:var(--text-dim); }
+
+/* ─── RP Mode ─────────────────────────────────────────────────── */
+.mode-tabs { display:flex; gap:2px; }
+.mode-tab { padding:4px 14px; cursor:pointer; font-size:13px; color:var(--text-dim); border-radius:6px; transition:all 0.15s; }
+.mode-tab.active { background:var(--surface2); color:var(--accent); }
+.mode-tab:hover { color:var(--text); }
+
+/* RP body hidden by default */
+  body:not(.rp-mode) .rp-only { display:none; }
+  body.rp-mode .rp-only { display:flex; }
+body.rp-mode .school-only { display:none; }
+
+/* RP Left Panel: Session Manager */
+.rp-left-panel { width:240px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; }
+.rp-sessions-header { padding:10px 14px; font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.rp-sessions-header button { padding:3px 10px; font-size:12px; border:1px solid var(--border); border-radius:4px; background:var(--surface2); color:var(--text); cursor:pointer; }
+.rp-sessions-header button:hover { border-color:var(--accent); color:var(--accent); }
+.rp-sessions-list { flex:1; overflow-y:auto; }
+.rp-session-item { padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.15s; }
+.rp-session-item:hover { background:var(--surface2); }
+.rp-session-item.active { background:var(--surface2); border-left:3px solid var(--purple); }
+.rp-session-item .title { font-weight:500; font-size:13px; }
+.rp-session-item .meta { font-size:11px; color:var(--text-dim); margin-top:2px; }
+.rp-session-item .del-btn { font-size:11px; color:var(--text-dim); cursor:pointer; float:right; }
+.rp-session-item .del-btn:hover { color:var(--red); }
+
+/* RP Center Panel */
+.rp-center-panel { flex:1; display:flex; flex-direction:column; }
+.rp-scene-bar { padding:8px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.rp-scene-bar .scene-chars { display:flex; gap:6px; flex-wrap:wrap; }
+.rp-scene-bar .char-chip { font-size:12px; padding:3px 10px; border-radius:12px; background:var(--surface2); border:1px solid var(--border); }
+.rp-scene-bar .char-chip .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; }
+.rp-scene-bar .spacer { flex:1; }
+.rp-scene-bar select, .rp-scene-bar .rp-setting-btn { background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:4px 10px; font-size:12px; cursor:pointer; }
+.rp-scene-bar select:focus { outline:none; border-color:var(--accent); }
+.rp-scene-bar .rp-setting-btn:hover { border-color:var(--accent); }
+.rp-scene-bar .rp-setting-btn.active { border-color:var(--purple); color:var(--purple); }
+
+/* RP Chat Messages */
+.rp-chat-messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+.rp-msg { max-width:80%; padding:10px 14px; border-radius:12px; font-size:14px; line-height:1.5; white-space:pre-wrap; word-wrap:break-word; }
+.rp-msg.user { align-self:flex-end; background:#1a5276; color:#e8f4fd; }
+.rp-msg.character { align-self:flex-start; background:var(--surface2); border:1px solid var(--border); }
+.rp-msg .rp-speaker { font-size:11px; font-weight:600; margin-bottom:4px; }
+.rp-msg .rp-delete-link { display:block; text-align:right; font-size:11px; color:var(--text-dim); margin-top:6px; text-decoration:none; cursor:pointer; opacity:0.6; }
+.rp-msg .rp-delete-link:hover { color:var(--red); opacity:1; }
+
+/* RP Typing indicator */
+.rp-typing { align-self:flex-start; padding:8px 14px; border-radius:12px; background:var(--surface2); border:1px solid var(--border); font-size:13px; color:var(--text-dim); }
+.rp-typing .dots { display:inline-block; }
+.rp-typing .dots span { animation:rp-blink 1.4s infinite both; }
+.rp-typing .dots span:nth-child(2) { animation-delay:0.2s; }
+.rp-typing .dots span:nth-child(3) { animation-delay:0.4s; }
+@keyframes rp-blink { 0%,80%,100% { opacity:0.2; } 40% { opacity:1; } }
+
+/* Settings Modal */
+.settings-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
+.settings-overlay.show { display:flex; }
+.settings-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:680px; max-height:85vh; display:flex; flex-direction:column; margin:auto; }
+.settings-header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+.settings-header h2 { font-size:16px; font-weight:600; }
+.settings-body { flex:1; overflow-y:auto; padding:20px; }
+.settings-footer { padding:10px 20px; text-align:center; font-size:12px; color:var(--text-dim); border-top:1px solid var(--border); }
+.settings-section { margin-bottom:20px; }
+.settings-section-title { font-size:12px; font-weight:700; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+.settings-field { margin-bottom:12px; }
+.settings-field label { display:block; font-size:12px; color:var(--text-dim); margin-bottom:4px; }
+.settings-field input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:13px; }
+.settings-field input:focus { outline:none; border-color:var(--accent); }
+.settings-field-row { display:flex; gap:12px; }
+.settings-field-row .settings-field { flex:1; }
+
+/* RP Session Setup Modal */
+.rp-setup-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
+.rp-setup-overlay.show { display:flex; }
+.rp-setup-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:600px; max-height:85vh; display:flex; flex-direction:column; margin:auto; }
+.rp-setup-header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+.rp-setup-header h2 { font-size:16px; font-weight:600; }
+.rp-setup-body { flex:1; overflow-y:auto; padding:20px; }
+.rp-setup-section { margin-bottom:20px; }
+.rp-setup-section label { display:block; font-size:12px; color:var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
+.rp-char-picker { display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto; }
+.rp-char-pick-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; cursor:pointer; transition:all 0.15s; }
+.rp-char-pick-item:hover { border-color:var(--accent); }
+.rp-char-pick-item.selected { border-color:var(--purple); background:rgba(188,140,255,0.08); }
+.rp-char-pick-item .checkbox { width:16px; height:16px; border:2px solid var(--border); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:11px; }
+.rp-char-pick-item.selected .checkbox { border-color:var(--purple); color:var(--purple); }
+.rp-char-pick-item .name { font-size:13px; }
+.rp-char-pick-item .tags { font-size:11px; color:var(--text-dim); margin-left:auto; }
+.rp-setup-row { display:flex; gap:16px; }
+.rp-setup-row > * { flex:1; }
+.rp-toggle-group { display:flex; gap:4px; }
+.rp-toggle-btn { flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface2); color:var(--text-dim); cursor:pointer; font-size:13px; text-align:center; transition:all 0.15s; }
+.rp-toggle-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(88,166,255,0.08); }
+.rp-toggle-btn:hover { color:var(--text); }
+.rp-num-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:13px; }
+.rp-num-input:focus { outline:none; border-color:var(--accent); }
+.rp-setup-footer { padding:12px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+.rp-selected-count { font-size:12px; color:var(--text-dim); margin-top:4px; }
+
+/* RP Summary indicator */
+.rp-summary-bar { padding:6px 16px; background:rgba(188,140,255,0.08); border-top:1px solid var(--border); font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:8px; cursor:pointer; }
+.rp-summary-bar:hover { background:rgba(188,140,255,0.12); }
+.rp-summary-bar .label { color:var(--purple); font-weight:600; }
+
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎭 Character School</h1>
+  <span class="subtitle">Character Card QA</span>
+  <div class="mode-tabs" style="margin-left:16px;">
+    <div class="mode-tab active" id="tabSchool" onclick="switchMode('school')">🏫 School</div>
+    <div class="mode-tab" id="tabRP" onclick="switchMode('rp')">🎭 RP</div>
+  </div>
+  <span class="spacer"></span>
+   <span id="tokenCounter" class="status" style="color:var(--yellow);font-size:11px;font-weight:600">~0 tok</span>
+   <button class="btn-reset" style="padding:4px 10px;font-size:14px" onclick="openSettings()" title="Settings">⚙️</button>
+   <span id="status" class="status">Disconnected</span>
+</header>
+
+<div class="main">
+  <!-- School Mode: Left Panel -->
+  <div class="left-panel school-only">
+    <div class="card-list-header" style="display:flex;align-items:center;gap:8px">
+      <span>Characters</span>
+      <span style="flex:1"></span>
+      <button onclick="document.getElementById('cardUploadInput').click()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Upload character card (JSON or PNG)">↑ Upload</button>
+      <input type="file" id="cardUploadInput" accept=".json,application/json,.png,image/png" style="display:none" onchange="uploadCard(event)" />
+    </div>
+    <div class="card-list" id="cardList">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
+  <!-- RP Mode: Left Panel (Session Manager) -->
+  <div class="rp-left-panel rp-only">
+    <div class="rp-sessions-header">
+      <span>Sessions</span>
+      <span style="flex:1"></span>
+      <button onclick="openRPSetup()">+ New</button>
+    </div>
+    <div class="rp-sessions-list" id="rpSessionsList">
+      <div class="loading" style="padding:20px;text-align:center;color:var(--text-dim)">No sessions yet. Click "+ New" to start.</div>
+    </div>
+  </div>
+
+  <!-- School Mode: Center Panel -->
+  <div class="center-panel school-only">
+    <div class="chat-header">
+      <span class="char-name" id="charName">Select a character</span>
+      <div class="persona-selector">
+        <span style="font-size:11px;color:var(--text-dim)">Persona:</span>
+        <select id="personaSelect" onchange="onPersonaChange()" disabled>
+          <option value="">None (raw you)</option>
+        </select>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn-reset" id="btnPersonaEditor" onclick="openPersonaEditor()" disabled>Persona+</button>
+      <button class="btn-reset" id="btnReset" onclick="resetChat()" disabled>Reset</button>
+      <button class="btn-report" id="btnReport" onclick="getReport()" disabled>Report</button>
+      <button class="btn-reset" id="btnEditor" onclick="openEditor()" disabled>Edit Card</button>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="analysis-empty">Select a character from the left to start testing.<br><br>You'll chat as the counterparty. The character responds via LLM. Each response is analyzed in real-time against the card's rules.</div>
+    </div>
+    <div class="chat-input">
+      <textarea id="msgInput" placeholder="Type your message... (Enter to send, Shift+Enter for newline)" disabled onkeydown="handleKey(event)"></textarea>
+      <button class="btn-send" id="btnSend" onclick="sendMessage()" disabled>Send</button>
+    </div>
+    <!-- Console -->
+    <div class="console-bar" id="consoleBar" onclick="toggleConsole()">
+      <span class="label">🖥 LLM Console</span>
+      <span class="count" id="consoleCount">0</span>
+      <span class="spacer"></span>
+      <span class="max-btn" id="consoleMaxBtn" onclick="event.stopPropagation(); toggleConsoleMax()" title="Expand to maximum">⤢</span>
+      <span class="chevron" id="consoleChevron">▲</span>
+    </div>
+    <div class="console-panel" id="consolePanel">
+      <div class="console-inner" id="consoleInner">
+        <div class="console-empty">LLM inference events will appear here. Click to expand.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RP Mode: Center Panel -->
+  <div class="rp-center-panel rp-only">
+    <div class="rp-scene-bar" id="rpSceneBar">
+      <span style="color:var(--text-dim);font-size:13px" id="rpScenePlaceholder">No active session. Click "+ New" to start a roleplay.</span>
+    </div>
+    <div class="rp-chat-messages" id="rpChatMessages">
+      <div class="analysis-empty" id="rpChatEmpty">Start a new RP session to begin.</div>
+    </div>
+    <div class="chat-input" id="rpInputArea" style="display:none">
+      <select id="rpDirectSelect" onchange="onRPDirectChange()" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:12px;cursor:pointer"></select>
+      <textarea id="rpMsgInput" placeholder="Type your message... (Enter to send, Shift+Enter for newline)" disabled onkeydown="handleRPKey(event)"></textarea>
+      <button class="btn-send" id="rpBtnSend" onclick="sendRPMessage()" disabled>Send</button>
+    </div>
+    <!-- RP Console (shared with school console) -->
+    <div class="console-bar" id="rpConsoleBar" onclick="toggleConsole()">
+      <span class="label">🖥 LLM Console</span>
+      <span class="count" id="rpConsoleCount">0</span>
+      <span class="spacer"></span>
+      <span class="max-btn" id="rpConsoleMaxBtn" onclick="event.stopPropagation(); toggleConsoleMax()" title="Expand to maximum">⤢</span>
+      <span class="chevron" id="rpConsoleChevron">▲</span>
+    </div>
+    <div class="console-panel" id="rpConsolePanel">
+      <div class="console-inner" id="rpConsoleInner">
+        <div class="console-empty">LLM inference events will appear here.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- School Mode: Right Panel -->
+  <div class="right-panel school-only">
+    <div class="analysis-header">📊 Live Analysis</div>
+    <div class="analysis-content" id="analysisPanel">
+      <div class="analysis-empty">Analysis appears here after each character response.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Overlay -->
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-modal">
+    <div class="settings-header">
+      <h2>⚙️ Settings</h2>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn-reset" onclick="closeSettings()">Cancel</button>
+      <button class="btn-send" id="settingsSaveBtn" onclick="saveSettings()">Save</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-section">
+        <div class="settings-section-title">Server</div>
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label>Host</label>
+            <input type="text" id="cfgServerHost" value="0.0.0.0" />
+          </div>
+          <div class="settings-field" style="max-width:120px">
+            <label>Port</label>
+            <input type="number" id="cfgServerPort" value="7862" />
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Chat Endpoint (Character Responses)</div>
+        <div class="settings-field">
+          <label>Base URL</label>
+          <input type="text" id="cfgChatBaseUrl" placeholder="https://openrouter.ai/api/v1" />
+        </div>
+        <div class="settings-field">
+          <label>API Key (leave as-is to keep current)</label>
+          <input type="password" id="cfgChatApiKey" placeholder="sk-..." />
+        </div>
+        <div class="settings-field">
+          <label>Model</label>
+          <input type="text" id="cfgChatModel" placeholder="deepseek/deepseek-v4-flash" />
+        </div>
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label>Temperature</label>
+            <input type="number" id="cfgChatTemp" step="0.1" min="0" max="2" value="0.8" />
+          </div>
+          <div class="settings-field">
+            <label>Max Tokens</label>
+            <input type="number" id="cfgChatMaxTok" value="2000" />
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Analysis Endpoint (QA & Fix Suggestions)</div>
+        <div class="settings-field">
+          <label>Base URL</label>
+          <input type="text" id="cfgAnalysisBaseUrl" placeholder="https://openrouter.ai/api/v1" />
+        </div>
+        <div class="settings-field">
+          <label>API Key (leave as-is to keep current)</label>
+          <input type="password" id="cfgAnalysisApiKey" placeholder="sk-..." />
+        </div>
+        <div class="settings-field">
+          <label>Model</label>
+          <input type="text" id="cfgAnalysisModel" placeholder="deepseek/deepseek-v4-flash" />
+        </div>
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label>Temperature</label>
+            <input type="number" id="cfgAnalysisTemp" step="0.1" min="0" max="2" value="0.1" />
+          </div>
+          <div class="settings-field">
+            <label>Max Tokens</label>
+            <input type="number" id="cfgAnalysisMaxTok" value="1500" />
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Paths</div>
+        <div class="settings-field">
+          <label>Characters Directory (empty = default ./characters)</label>
+          <input type="text" id="cfgCharactersDir" />
+        </div>
+        <div class="settings-field">
+          <label>Personas Directory (empty = default ./personas)</label>
+          <input type="text" id="cfgPersonasDir" />
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title" style="color:#e74c3c">Danger Zone</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 0">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600">Reset Database</div>
+            <div style="font-size:12px;color:var(--text-dim)">Deletes ALL chat sessions and RP sessions permanently. This cannot be undone.</div>
+          </div>
+          <button class="btn-reset" id="dbResetBtn" style="background:#e74c3c;border-color:#e74c3c;color:#fff;white-space:nowrap" onclick="resetDatabase()">Reset Database</button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-footer" id="settingsFooter">
+      Character School v1.0.0 © Krazif &amp; Tunas
+    </div>
+  </div>
+</div>
+
+<!-- RP Session Setup Modal -->
+<div class="rp-setup-overlay" id="rpSetupOverlay">
+  <div class="rp-setup-modal">
+    <div class="rp-setup-header">
+      <h2>🎭 New RP Session</h2>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn-reset" onclick="closeRPSetup()">Cancel</button>
+      <button class="btn-send" id="rpStartBtn" onclick="startRPSession()" disabled>Start</button>
+    </div>
+    <div class="rp-setup-body">
+      <div class="rp-setup-section">
+        <label style="display:flex;align-items:center;gap:8px">
+          <span>Characters (pick 1-4)</span>
+          <span style="flex:1"></span>
+          <button onclick="document.getElementById('rpCardUploadInput').click()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Upload character card JSON">↑ Upload</button>
+          <input type="file" id="rpCardUploadInput" accept=".json,application/json,.png,image/png" style="display:none" onchange="uploadCard(event)" />
+        </label>
+        <div class="rp-char-picker" id="rpCharPicker"></div>
+        <div class="rp-selected-count" id="rpSelectedCount">0 selected</div>
+      </div>
+      <div class="rp-setup-section">
+        <label>Persona</label>
+        <select id="rpPersonaSelect" class="rp-num-input" style="width:100%">
+          <option value="">None (raw you)</option>
+        </select>
+      </div>
+      <div class="rp-setup-row">
+        <div class="rp-setup-section">
+          <label>Turn Routing</label>
+          <div class="rp-toggle-group">
+            <div class="rp-toggle-btn active" id="rpToggleAuto" onclick="rpToggleSetting('turn','auto')">Auto (LLM picks)</div>
+            <div class="rp-toggle-btn" id="rpToggleDirected" onclick="rpToggleSetting('turn','directed')">Directed (you pick)</div>
+          </div>
+        </div>
+        <div class="rp-setup-section">
+          <label>Response Style</label>
+          <div class="rp-toggle-group">
+            <div class="rp-toggle-btn active" id="rpToggleBrief" onclick="rpToggleSetting('style','brief')">Brief (1-2 sentences)</div>
+            <div class="rp-toggle-btn" id="rpToggleFull" onclick="rpToggleSetting('style','full')">Full (paragraph)</div>
+          </div>
+        </div>
+      </div>
+      <div class="rp-setup-row">
+        <div class="rp-setup-section">
+          <label>Summarize after N messages</label>
+          <input type="number" id="rpSummaryWindow" class="rp-num-input" value="20" min="5" max="100" />
+        </div>
+        <div class="rp-setup-section">
+          <label>Keep N recent messages raw</label>
+          <input type="number" id="rpRawWindow" class="rp-num-input" value="10" min="2" max="50" />
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Persona Editor Overlay -->
+<div class="persona-overlay" id="personaOverlay">
+  <div class="persona-modal">
+    <div class="editor-header">
+      <h2>Persona Manager</h2>
+      <span id="personaEditorFilename" style="color:var(--text-dim);font-size:13px;"></span>
+      <span class="spacer"></span>
+      <button class="btn-reset" onclick="newPersona()">New</button>
+      <button class="btn-reset" onclick="document.getElementById('personaUploadInput').click()" title="Upload persona JSON">↑ Upload</button>
+      <input type="file" id="personaUploadInput" accept=".json,application/json" style="display:none" onchange="uploadPersona(event)" />
+      <button class="btn-send" onclick="savePersona()">Save</button>
+      <button class="btn-reset" onclick="closePersonaEditor()">Close</button>
+    </div>
+    <div class="editor-body" id="personaEditorBody">
+      <div style="margin-bottom:16px">
+        <label style="font-size:11px;color:var(--text-dim);text-transform:uppercase">Load Existing Persona</label>
+        <select id="personaLoadSelect" onchange="loadPersonaForEdit()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px;margin-top:4px">
+          <option value="">— Select to edit —</option>
+        </select>
+      </div>
+      <div class="editor-field">
+        <label>Name</label>
+        <input id="persona_name" type="text" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px" />
+      </div>
+      <div class="trait-grid">
+        <div class="trait-item"><label>Build</label><select id="trait_build"><option>thin</option><option>weak</option><option selected>medium</option><option>muscular</option><option>strong</option></select></div>
+        <div class="trait-item"><label>Face</label><select id="trait_face"><option>ugly</option><option selected>average</option><option>handsome</option></select></div>
+        <div class="trait-item"><label>Height</label><select id="trait_height"><option>short</option><option selected>average</option><option>tall</option></select></div>
+        <div class="trait-item"><label>Confidence</label><select id="trait_confidence"><option>shy</option><option>awkward</option><option selected>medium</option><option>confident</option><option>aggressive</option></select></div>
+        <div class="trait-item"><label>Energy</label><select id="trait_energy"><option>gentle</option><option>nervous</option><option selected>neutral</option><option>warm</option><option>intense</option><option>dominant</option></select></div>
+        <div class="trait-item"><label>Tags (comma-sep)</label><input id="persona_tags" type="text" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px" /></div>
+      </div>
+      <div class="editor-field large">
+        <label>Physical Description</label>
+        <textarea id="persona_physical" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+      </div>
+      <div class="editor-field large">
+        <label>Personality</label>
+        <textarea id="persona_personality" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+      </div>
+      <div class="editor-field large">
+        <label>Behavior Hints (how they act in interactions)</label>
+        <textarea id="persona_behavior" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+      </div>
+      <div class="editor-field large">
+        <label>What It Tests (diagnostic purpose of this persona)</label>
+        <textarea id="persona_tests" style="width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+      </div>
+      <div class="persona-preview" id="personaPreview"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Editor Overlay -->
+<div class="editor-overlay" id="editorOverlay">
+  <div class="editor-modal">
+    <div class="editor-header">
+      <h2>Edit Character Card</h2>
+      <span id="editorVersionBadge" class="version-badge">V2</span>
+      <span id="editorFilename" style="color:var(--text-dim);font-size:13px;"></span>
+      <span class="spacer"></span>
+      <button class="btn-reset" onclick="validateCard()">Validate</button>
+      <button class="btn-reset" onclick="downloadCardPNG(currentFilename)" title="Download as PNG card">🖼️ PNG</button>
+      <button class="btn-send" onclick="saveCard()">Save</button>
+      <button class="btn-reset" onclick="closeEditor()">Close</button>
+    </div>
+    <div class="editor-tabs">
+      <div class="editor-tab active" onclick="switchTab('core',this)">Core</div>
+      <div class="editor-tab" onclick="switchTab('prompt',this)">System Prompt</div>
+      <div class="editor-tab" onclick="switchTab('persona',this)">Persona</div>
+      <div class="editor-tab" onclick="switchTab('example',this)">Examples</div>
+      <div class="editor-tab" onclick="switchTab('meta',this)">Meta</div>
+    </div>
+    <div class="editor-body" id="editorBody"></div>
+  </div>
+</div>
+
+<!-- Report Overlay -->
+<div class="report-overlay" id="reportOverlay">
+  <div class="report-modal">
+    <div class="report-header">
+      <h2>📋 Session Report</h2>
+      <span class="spacer"></span>
+      <button class="btn-reset" onclick="closeReport()">Close</button>
+    </div>
+    <div class="report-body" id="reportBody"></div>
+  </div>
+</div>
+
+<script>
+// ─── State ──────────────────────────────────────
+let ws = null;
+let currentCard = null;
+let currentFilename = null;
+let currentPersona = null;
+let currentPersonaFilename = null;
+let editorData = null;
+let editorTab = 'core';
+let editorVersion = 2;
+let editorNormalized = null;
+let editorOriginal = null;
+
+// ─── Card Version Support (V1/V2/V3) ──────────────
+const V3_ALIASES = { first_mes: 'first_message', mes_example: 'message_examples' };
+function detectCardVersion(card) {
+  const spec = card.spec || '';
+  if (spec.includes('v3')) return 3;
+  if (spec.includes('v2')) return 2;
+  if (card.data) return 2;
+  return 1;
+}
+function contentToString(val) {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val)) return val.map(b => (typeof b === 'object' && b.text) ? b.text : (typeof b === 'string' ? b : '')).join('\n');
+  return String(val);
+}
+function normalizeForEditing(card) {
+  const d = card.data || card;
+  const normalized = {};
+  for (const [key, val] of Object.entries(d)) {
+    const v2Key = Object.entries(V3_ALIASES).find(([_, v3]) => v3 === key)?.[0];
+    const targetKey = v2Key || key;
+    if (targetKey === 'tags') {
+      normalized[targetKey] = Array.isArray(val) ? val : (typeof val === 'string' ? val.split(',').map(s=>s.trim()).filter(Boolean) : val);
+    } else if (targetKey === 'alternate_greetings' || targetKey === 'group_only_greetings') {
+      normalized[targetKey] = Array.isArray(val) ? val.map(v => contentToString(v)) : val;
+    } else {
+      normalized[targetKey] = contentToString(val);
+    }
+  }
+  return normalized;
+}
+function denormalizeForSaving(normalized, version, original) {
+  if (version === 1) {
+    const flat = {};
+    for (const [key, val] of Object.entries(normalized)) {
+      if (key === 'system_prompt' || key === 'post_history_instructions' || key === 'creator_notes' || key === 'alternate_greetings') continue; // V1 doesn't have these
+      flat[key] = val;
+    }
+    return flat;
+  } else if (version === 3) {
+    const d = {};
+    for (const [key, val] of Object.entries(normalized)) {
+      const v3Key = V3_ALIASES[key] || key;
+      d[v3Key] = val;
+    }
+    return { ...original, spec: 'chara_card_v3', spec_version: original.spec_version || '3.0', data: d };
+  } else {
+    return { ...original, spec: original.spec || 'chara_card_v2', spec_version: original.spec_version || '2.0', data: { ...normalized } };
+  }
+}
+let isWaiting = false;
+let personasList = [];
+let personaEditorData = null;
+let personaEditorFilename = null;
+let consoleOpen = false;
+let consoleMaximized = false;
+let consoleEventCount = 0;
+
+// ─── Console ────────────────────────────────────
+function toggleConsole() {
+  consoleOpen = !consoleOpen;
+  // Handle both school and RP console panels
+  const panels = document.querySelectorAll('#consolePanel, #rpConsolePanel');
+  const chevrons = document.querySelectorAll('#consoleChevron, #rpConsoleChevron');
+  panels.forEach(p => {
+    if (consoleOpen) { p.classList.add('open'); } else { p.classList.remove('open'); }
+  });
+  chevrons.forEach(c => {
+    if (consoleOpen) { c.classList.add('open'); } else { c.classList.remove('open'); }
+  });
+  if (consoleOpen) {
+    // Scroll whichever inner is visible
+    const inners = document.querySelectorAll('#consoleInner, #rpConsoleInner');
+    inners.forEach(i => { i.scrollTop = i.scrollHeight; });
+  }
+}
+
+function toggleConsoleMax() {
+  const panels = document.querySelectorAll('#consolePanel, #rpConsolePanel');
+  const maxBtns = document.querySelectorAll('#consoleMaxBtn, #rpConsoleMaxBtn');
+  consoleMaximized = !consoleMaximized;
+  panels.forEach(p => {
+    if (consoleMaximized) { p.classList.add('maximized'); } else { p.classList.remove('maximized'); }
+  });
+  maxBtns.forEach(b => {
+    b.textContent = consoleMaximized ? '⤓' : '⤢';
+    b.title = consoleMaximized ? 'Restore' : 'Expand to maximum';
+  });
+  if (consoleMaximized && !consoleOpen) {
+    consoleOpen = true;
+    panels.forEach(p => p.classList.add('open'));
+    document.querySelectorAll('#consoleChevron, #rpConsoleChevron').forEach(c => c.classList.add('open'));
+  }
+  setTimeout(() => {
+    const inners = document.querySelectorAll('#consoleInner, #rpConsoleInner');
+    inners.forEach(i => { i.scrollTop = i.scrollHeight; });
+  }, 250);
+}
+
+// ─── Token estimation (~4 chars/token, +4 overhead per message) ─────────
+function estimateTokens(messages) {
+  if (!messages || !messages.length) return 0;
+  let total = 0;
+  for (const m of messages) {
+    const content = m.content || '';
+    total += Math.ceil(content.length / 4) + 4;
+  }
+  return total;
+}
+
+function addConsoleEntry(data) {
+  const inner = document.getElementById('consoleInner');
+  // Remove empty placeholder
+  const empty = inner.querySelector('.console-empty');
+  if (empty) empty.remove();
+
+  consoleEventCount++;
+  document.getElementById('consoleCount').textContent = consoleEventCount;
+
+  const isReq = data.event === 'request';
+  const isResp = data.event === 'response';
+  const isErr = data.event === 'error';
+  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : 'console-tag-err';
+  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : '✕ ERR';
+  const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';
+  const llmLabel = data.llm === 'character' ? 'CHARACTER' : 'ANALYSIS';
+
+  let html = `<div class="console-entry">`;
+  html += `<span class="ts">${escapeHtml(data.timestamp || '')}</span>`;
+  if (data.label) {
+    html += ` <span style="color:var(--yellow);font-size:11px;font-weight:600">[${escapeHtml(data.label)}]</span>`;
+  }
+  html += ` <span class="tag ${tagClass}">${tagLabel}</span>`;
+  html += ` <span class="${llmClass}">${llmLabel}</span>`;
+  if (data.model) html += ` <span class="model">${escapeHtml(data.model)}</span>`;
+  if (data.temperature !== undefined) html += ` <span class="model">temp=${data.temperature}</span>`;
+  if (data.max_tokens) html += ` <span class="model">max=${data.max_tokens}</span>`;
+  html += `<br>`;
+
+  if (isReq && data.messages) {
+    const estTokens = estimateTokens(data.messages);
+    // Update the live token counter in the header
+    const tc = document.getElementById('tokenCounter');
+    if (tc) tc.textContent = `~${estTokens.toLocaleString()} tok`;
+    html += `<div style="margin:4px 0">`;
+    data.messages.forEach(m => {
+      const role = m.role || '?';
+      let content = m.content || '';
+      html += `<div class="msg-content ${role}"><span class="msg-role">${escapeHtml(role)}</span>: ${escapeHtml(content)}</div>`;
+    });
+    html += `</div>`;
+  } else if (isResp && data.content) {
+    let content = data.content;
+    html += `<div class="msg-content assistant">${escapeHtml(content)}</div>`;
+  } else if (isErr) {
+    html += `<div class="msg-content" style="border-left-color:var(--red);color:var(--red)">${escapeHtml(data.message || data.content || '')}</div>`;
+  }
+
+  if (isResp && data.usage) {
+    const u = data.usage;
+    html += `<span class="usage">📊 tokens: prompt=${u.prompt_tokens || '?'} completion=${u.completion_tokens || '?'} total=${u.total_tokens || '?'}</span>`;
+    if (data.finish_reason) html += ` <span class="usage">finish: ${escapeHtml(data.finish_reason)}</span>`;
+    html += `<br>`;
+  }
+
+  html += `</div>`;
+  inner.insertAdjacentHTML('beforeend', html);
+
+  // Auto-scroll to bottom if console is open
+  if (consoleOpen) {
+    inner.scrollTop = inner.scrollHeight;
+  }
+}
+
+// ─── API ────────────────────────────────────────
+async function uploadCard(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const resp = await fetch('/api/cards/upload', {method: 'POST', body: formData});
+    const result = await resp.json();
+    if (resp.ok) {
+      alert(`Uploaded (${result.format||'json'}): ${result.name} → ${result.filename}`);
+      await loadCardList();
+    } else {
+      alert('Upload failed: ' + (result.error || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Upload failed: ' + e.message);
+  }
+  event.target.value = ''; // reset so same file can be re-uploaded
+}
+
+function downloadCardPNG(filename) {
+  window.open(`/api/cards/${encodeURIComponent(filename)}/png`, '_blank');
+}
+
+function downloadCardJSON(filename) {
+  window.open(`/api/cards/${encodeURIComponent(filename)}/json`, '_blank');
+}
+
+async function deleteCard(filename, name) {
+  if (!confirm(`Delete "${name}"?\n\nThis will permanently remove the character card and its avatar from storage. This cannot be undone.`))
+    return;
+  try {
+    const resp = await fetch('/api/cards/' + encodeURIComponent(filename), {method: 'DELETE'});
+    const result = await resp.json();
+    if (resp.ok) {
+      // Clear current selection if we deleted the active card
+      if (currentFilename === filename) {
+        currentFilename = null;
+        currentCard = null;
+        document.getElementById('charName').textContent = 'No character selected';
+        document.getElementById('personaSelect').disabled = true;
+        document.querySelectorAll('.card-item').forEach(el => el.classList.remove('active'));
+      }
+      await loadCardList();
+    } else {
+      alert('Delete failed: ' + (result.error || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+
+async function uploadPersona(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const resp = await fetch('/api/personas/upload', {method: 'POST', body: formData});
+    const result = await resp.json();
+    if (resp.ok) {
+      alert(`Uploaded: ${result.name} → ${result.filename}`);
+      await loadPersonaList();
+    } else {
+      alert('Upload failed: ' + (result.error || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Upload failed: ' + e.message);
+  }
+  event.target.value = '';
+}
+
+async function loadCardList() {
+  const resp = await fetch('/api/cards');
+  const cards = await resp.json();
+  const list = document.getElementById('cardList');
+  list.innerHTML = '';
+  cards.forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'card-item';
+    div.onclick = () => selectCard(c.filename);
+    const vbadge = c.version ? `<span class="card-version v${c.version}">V${c.version}</span>` : '';
+    div.innerHTML = `<div class="name">${escapeHtml(c.name)} ${vbadge}</div><div class="tags">${(c.tags||[]).slice(0,4).map(t=>'<span>'+escapeHtml(t)+'</span>').join('')}</div><div class="card-dl-btns"><button class="card-dl-btn" onclick="event.stopPropagation();downloadCardPNG('${c.filename}')" title="Download as PNG card">🖼️</button><button class="card-dl-btn" onclick="event.stopPropagation();downloadCardJSON('${c.filename}')" title="Download as JSON">{}</button><button class="card-dl-btn danger" onclick="event.stopPropagation();deleteCard('${c.filename}','${escapeHtml(c.name).replace(/'/g,"\\'")}')" title="Delete character">🗑️</button></div>`;
+    div.dataset.filename = c.filename;
+    list.appendChild(div);
+  });
+  // Also load personas
+  await loadPersonaList();
+}
+
+async function loadPersonaList() {
+  const resp = await fetch('/api/personas');
+  personasList = await resp.json();
+  const select = document.getElementById('personaSelect');
+  select.innerHTML = '<option value="">None (raw you)</option>';
+  personasList.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.filename;
+    opt.textContent = p.name + (p.traits ? ` (${p.traits.build}/${p.traits.face}/${p.traits.confidence})` : '');
+    select.appendChild(opt);
+  });
+  // Also populate persona editor load select
+  const loadSelect = document.getElementById('personaLoadSelect');
+  if (loadSelect) {
+    loadSelect.innerHTML = '<option value="">— Select to edit —</option>';
+    personasList.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.filename;
+      opt.textContent = p.name;
+      loadSelect.appendChild(opt);
+    });
+  }
+}
+
+async function selectCard(filename) {
+  currentFilename = filename;
+  document.querySelectorAll('.card-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.filename === filename);
+  });
+
+  const resp = await fetch('/api/cards/' + filename);
+  currentCard = await resp.json();
+  const d = currentCard.data || currentCard;
+  document.getElementById('charName').textContent = d.name || filename;
+
+  // Enable persona selector
+  document.getElementById('personaSelect').disabled = false;
+  document.getElementById('btnPersonaEditor').disabled = false;
+
+  // Connect WebSocket and start session (with current persona if selected)
+  connectWS(filename, currentPersonaFilename || null);
+}
+
+function connectWS(filename, personaFilename) {
+  if (ws) ws.close();
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(proto + '://' + location.host + '/ws/chat');
+
+  ws.onopen = () => {
+    document.getElementById('status').textContent = 'Connected';
+    document.getElementById('status').classList.add('connected');
+    ws.send(JSON.stringify({type: 'start', card_filename: filename, persona_filename: personaFilename}));
+    // first_mes arrives with no analysis — no loading indicator needed
+    isWaiting = true;  // briefly wait for session_started + first_mes
+    updateInputState();
+  };
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'character_message') {
+      addMessage('character', data.content, data.analysis, data.is_first_mes, data.message_id);
+      isWaiting = false;
+      updateInputState();
+    } else if (data.type === 'user_message_stored') {
+      // Server confirms the user message was stored and gives us the DB row id.
+      // Tag the last user DOM node so its delete link works.
+      if (_lastUserMsgDiv && data.message_id != null) {
+        _lastUserMsgDiv.dataset.messageId = data.message_id;
+      }
+    } else if (data.type === 'session_started') {
+      // Clear console for new session
+      consoleEventCount = 0;
+      document.getElementById('consoleCount').textContent = '0';
+      document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+      document.getElementById('btnReset').disabled = false;
+      document.getElementById('btnReport').disabled = false;
+      document.getElementById('btnEditor').disabled = false;
+      // Enable input — first_mes has no analysis, arrives instantly
+      isWaiting = false;
+      updateInputState();
+      if (data.persona) {
+        // Show persona badge
+        const p = personasList.find(p => p.filename === data.persona);
+        if (p) {
+          document.getElementById('charName').innerHTML = escapeHtml(currentCard?.data?.name || '') + `<span class="persona-badge">vs ${escapeHtml(p.name)}</span>`;
+        }
+      }
+    } else if (data.type === 'persona_changed') {
+      // Persona changed mid-session, chat was reset
+      consoleEventCount = 0;
+      document.getElementById('consoleCount').textContent = '0';
+      document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+      document.getElementById('chatMessages').innerHTML = '';
+      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
+      // No analysis on first_mes — enable input immediately
+      isWaiting = false;
+      updateInputState();
+      if (data.persona) {
+        const p = personasList.find(p => p.filename === data.persona);
+        if (p) {
+          document.getElementById('charName').innerHTML = escapeHtml(currentCard?.data?.name || '') + `<span class="persona-badge">vs ${escapeHtml(p.name)}</span>`;
+        }
+      } else {
+        document.getElementById('charName').textContent = currentCard?.data?.name || currentFilename;
+      }
+    } else if (data.type === 'reset_complete') {
+      consoleEventCount = 0;
+      document.getElementById('consoleCount').textContent = '0';
+      document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+      document.getElementById('chatMessages').innerHTML = '';
+      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
+      // No analysis on first_mes — enable input immediately
+      isWaiting = false;
+      updateInputState();
+    } else if (data.type === 'report') {
+      showReport(data.content);
+    } else if (data.type === 'error') {
+      addMessage('system', 'Error: ' + data.message, null, false);
+      isWaiting = false;
+      hideSchoolTyping();
+      updateInputState();
+    } else if (data.type === 'console_event') {
+      addConsoleEntry(data);
+    } else if (data.type === 'character_typing') {
+      showSchoolTyping('character', data.character_name);
+    } else if (data.type === 'character_typing_stopped') {
+      // Character done — switch to analyzer indicator if analysis is pending
+      if (isWaiting) showSchoolTyping('analyzer');
+      else hideSchoolTyping();
+    } else if (data.type === 'analysis_typing') {
+      showSchoolTyping('analyzer');
+    } else if (data.type === 'analysis_typing_stopped') {
+      hideSchoolTyping();
+    }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('status').textContent = 'Disconnected';
+    document.getElementById('status').classList.remove('connected');
+  };
+
+  ws.onerror = (e) => {
+    addMessage('system', 'Connection error', null, false);
+  };
+}
+
+// ─── Chat ───────────────────────────────────────
+
+function addMessage(role, content, analysis, isFirst, messageId) {
+  // Remove loading indicator if present
+  const loading = document.getElementById('firstMesLoading');
+  if (loading) loading.remove();
+
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'message ' + (role === 'user' ? 'user' : role === 'system' ? 'system' : 'character');
+
+  let badge = '';
+  if (analysis && analysis.overall) {
+    const cls = analysis.overall === 'pass' ? 'badge-pass' : analysis.overall === 'fail' ? 'badge-fail' : 'badge-partial';
+    badge = `<span class="analysis-badge ${cls}">${analysis.overall.toUpperCase()}</span>`;
+  }
+
+  const roleLabel = role === 'character' ? (currentCard?.data?.name || 'Character') + badge : role === 'user' ? 'You' : '';
+  div.innerHTML = (roleLabel ? `<div class="role-label">${roleLabel}</div>` : '') + formatMessage(content);
+
+  // Store the server-provided message ID (SQLite row id) on the DOM node
+  if (messageId != null) {
+    div.dataset.messageId = messageId;
+  }
+
+  // Add delete link for non-system messages
+  if (role !== 'system') {
+    const delLink = document.createElement('a');
+    delLink.className = 'msg-delete-link';
+    delLink.textContent = 'delete';
+    delLink.href = '#';
+    delLink.onclick = (e) => {
+      e.preventDefault();
+      const msgId = parseInt(div.dataset.messageId);
+      if (!msgId || !(ws && ws.readyState === WebSocket.OPEN)) return;
+      ws.send(JSON.stringify({type: 'delete_message', message_id: msgId}));
+      // The server deletes this message and all subsequent ones.
+      // We remove all DOM siblings after (and including) this one.
+      const allMsgs = Array.from(container.querySelectorAll('.message'));
+      const myIdx = allMsgs.indexOf(div);
+      for (let i = allMsgs.length - 1; i >= myIdx; i--) {
+        allMsgs[i].remove();
+      }
+      // Update analysis panel — clear if no character messages remain
+      const remainingChar = document.querySelectorAll('.message.character').length;
+      if (remainingChar === 0) {
+        document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
+      }
+    };
+    div.appendChild(delLink);
+  }
+
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+
+  // Update analysis panel
+  if (analysis) {
+    updateAnalysis(analysis, content);
+  }
+
+  return div;  // return DOM node so callers can tag it later
+}
+
+function updateAnalysis(analysis, content) {
+  const panel = document.getElementById('analysisPanel');
+  if (panel.querySelector('.analysis-empty')) panel.innerHTML = '';
+
+  const card = document.createElement('div');
+  card.className = 'analysis-card';
+
+  let html = '';
+
+  // Overall
+  if (analysis.overall) {
+    const color = analysis.overall === 'pass' ? 'var(--green)' : analysis.overall === 'fail' ? 'var(--red)' : 'var(--yellow)';
+    html += `<div class="label">Overall</div><div class="value" style="color:${color};font-weight:600;text-transform:uppercase">${analysis.overall}</div>`;
+  }
+
+  // Summary
+  if (analysis.summary) {
+    html += `<div class="label" style="margin-top:8px">Summary</div><div class="value">${escapeHtml(analysis.summary)}</div>`;
+  }
+
+  // Banned words
+  if (analysis.banned_words && analysis.banned_words.length > 0) {
+    html += `<div class="label" style="margin-top:8px">⚠️ Banned Words</div><div class="value violations">`;
+    analysis.banned_words.forEach((w, i) => {
+      html += `<span class="banned-word">${escapeHtml(w)}</span> `;
+      if (analysis.banned_word_context && analysis.banned_word_context[i]) {
+        html += `<div style="font-size:12px;color:var(--text-dim);margin-top:2px">${escapeHtml(analysis.banned_word_context[i])}</div>`;
+      }
+    });
+    html += `</div>`;
+  }
+
+  // Required patterns
+  if (analysis.required_patterns_missing && analysis.required_patterns_missing.length > 0) {
+    html += `<div class="label" style="margin-top:8px">Missing Patterns</div><div class="value">`;
+    analysis.required_patterns_missing.forEach(p => html += `• ${escapeHtml(p)}<br>`);
+    html += `</div>`;
+  }
+
+  // Voice consistency
+  if (analysis.voice_consistency) {
+    html += `<div class="label" style="margin-top:8px">Voice</div><div class="value">${escapeHtml(analysis.voice_consistency)}`;
+    if (analysis.voice_notes) html += ` — ${escapeHtml(analysis.voice_notes)}`;
+    html += `</div>`;
+  }
+
+  // Arc status
+  if (analysis.arc_status) {
+    html += `<div class="label" style="margin-top:8px">Arc</div><div class="value">${escapeHtml(analysis.arc_status)}`;
+    if (analysis.arc_notes) html += ` — ${escapeHtml(analysis.arc_notes)}`;
+    html += `</div>`;
+  }
+
+  // Internal state
+  if (analysis.internal_state) {
+    const is = analysis.internal_state;
+    html += `<div class="label" style="margin-top:8px">Internal State</div><div class="value" style="font-size:12px">`;
+    if (is.expressed) html += `<b>Expressed:</b> ${escapeHtml(is.expressed)}<br>`;
+    if (is.implied) html += `<b>Leaking:</b> ${escapeHtml(is.implied)}<br>`;
+    if (is.conflict) html += `<b>Conflict:</b> ${escapeHtml(is.conflict)}`;
+    html += `</div>`;
+  }
+
+  // Leakage
+  if (analysis.leakage && analysis.leakage.detected) {
+    html += `<div class="label" style="margin-top:8px">🔥 Leakage Detected</div><div class="value leakage">${escapeHtml(analysis.leakage.details || '')}</div>`;
+  }
+
+  // Rule violations
+  if (analysis.rule_violations && analysis.rule_violations.length > 0) {
+    html += `<div class="label" style="margin-top:8px">❌ Violations</div><div class="value violations">`;
+    analysis.rule_violations.forEach(v => html += `• ${escapeHtml(v)}<br>`);
+    html += `</div>`;
+  }
+
+  // Fragility
+  if (analysis.fragility) {
+    const cls = 'fragility-' + analysis.fragility;
+    html += `<div class="label" style="margin-top:8px">Fragility</div><div class="value fragility ${cls}">${escapeHtml(analysis.fragility)}</div>`;
+    if (analysis.fragility_notes) html += `<div style="font-size:12px;color:var(--text-dim);margin-top:2px">${escapeHtml(analysis.fragility_notes)}</div>`;
+  }
+
+  // Training data pull
+  if (analysis.training_data_pull) {
+    html += `<div class="label" style="margin-top:8px">Training Data Pull</div><div class="value" style="font-size:12px;color:var(--orange)">${escapeHtml(analysis.training_data_pull)}</div>`;
+  }
+
+  // ── Fixes ──
+  if (analysis.fixes && analysis.fixes.length > 0) {
+    html += `<div class="label" style="margin-top:12px">🔧 Suggested Fixes (${analysis.fixes.length})</div>`;
+    analysis.fixes.forEach(f => {
+      const priCls = f.priority ? 'fix-priority-' + f.priority : 'fix-priority-low';
+      html += `<div class="fix-item">`;
+      html += `<div class="fix-issue">⚠ ${escapeHtml(f.issue || '')}</div>`;
+      html += `<div><span class="fix-location">📍 ${escapeHtml(f.location || 'unknown field')}</span>`;
+      html += ` <span class="fix-action">→ ${escapeHtml(f.action || 'add')}</span>`;
+      if (f.priority) html += `<span class="fix-priority ${priCls}">${escapeHtml(f.priority)}</span>`;
+      html += `</div>`;
+      if (f.placement) {
+        html += `<div style="font-size:11px;color:var(--orange);margin-top:4px">📌 ${escapeHtml(f.placement)}</div>`;
+      }
+      html += `<div class="fix-text">${escapeHtml(f.fix || '')}</div>`;
+      if (f.suggested_text) {
+        html += `<div class="fix-text" style="margin-top:4px;color:var(--text-dim)">${escapeHtml(f.suggested_text)}</div>`;
+      }
+      html += `</div>`;
+    });
+  }
+
+  // ── Enhancements ──
+  if (analysis.enhancements && analysis.enhancements.length > 0) {
+    html += `<div class="label" style="margin-top:12px">💡 Enhancement Suggestions (${analysis.enhancements.length})</div>`;
+    analysis.enhancements.forEach(e => {
+      html += `<div class="enhancement-item">`;
+      html += `<div class="enh-suggestion">${escapeHtml(e.suggestion || '')}</div>`;
+      html += `<div class="enh-location">📍 ${escapeHtml(e.location || 'unknown field')}</div>`;
+      if (e.placement) {
+        html += `<div style="font-size:11px;color:var(--orange);margin-top:2px">📌 ${escapeHtml(e.placement)}</div>`;
+      }
+      if (e.rationale) html += `<div class="enh-rationale">${escapeHtml(e.rationale)}</div>`;
+      html += `</div>`;
+    });
+  }
+
+  card.innerHTML = html;
+  panel.appendChild(card);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+// Track the last user DOM node so we can tag it with the DB message ID
+let _lastUserMsgDiv = null;
+
+function sendMessage() {
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+  _lastUserMsgDiv = addMessage('user', text, null, false);
+  ws.send(JSON.stringify({type: 'user_message', content: text}));
+  input.value = '';
+
+  isWaiting = true;
+  updateInputState();
+}
+
+function resetChat() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({type: 'reset'}));
+}
+
+function getReport() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({type: 'get_report'}));
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function updateInputState() {
+  document.getElementById('btnSend').disabled = isWaiting;
+  document.getElementById('msgInput').disabled = isWaiting;
+  if (!isWaiting) document.getElementById('msgInput').focus();
+}
+
+// ─── Persona Management ──────────────────────────
+function onPersonaChange() {
+  const select = document.getElementById('personaSelect');
+  const filename = select.value;
+  currentPersonaFilename = filename || null;
+
+  if (!filename) {
+    currentPersona = null;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type: 'set_persona', persona_filename: null}));
+    }
+    return;
+  }
+
+  // Fetch persona details
+  fetch('/api/personas/' + filename).then(r => r.json()).then(p => {
+    currentPersona = p;
+    // Send to server — this will reset the chat with the new persona
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type: 'set_persona', persona_filename: filename}));
+    }
+  });
+}
+
+function openPersonaEditor() {
+  document.getElementById('personaOverlay').classList.add('show');
+  // Refresh persona list in the load select
+  loadPersonaList();
+  updatePersonaPreview();
+}
+
+function closePersonaEditor() {
+  document.getElementById('personaOverlay').classList.remove('show');
+}
+
+function newPersona() {
+  personaEditorData = {
+    name: '', tags: [], traits: {build:'medium',face:'average',height:'average',confidence:'medium',energy:'neutral'},
+    physical_description: '', personality: '', behavior_hints: '', what_it_tests: ''
+  };
+  personaEditorFilename = '';
+  document.getElementById('personaLoadSelect').value = '';
+  fillPersonaForm();
+}
+
+function loadPersonaForEdit() {
+  const filename = document.getElementById('personaLoadSelect').value;
+  if (!filename) return;
+  fetch('/api/personas/' + filename).then(r => r.json()).then(p => {
+    personaEditorData = p;
+    personaEditorFilename = filename;
+    fillPersonaForm();
+  });
+}
+
+function fillPersonaForm() {
+  if (!personaEditorData) return;
+  const d = personaEditorData;
+  document.getElementById('persona_name').value = d.name || '';
+  document.getElementById('persona_tags').value = (d.tags || []).join(', ');
+  const t = d.traits || {};
+  document.getElementById('trait_build').value = t.build || 'medium';
+  document.getElementById('trait_face').value = t.face || 'average';
+  document.getElementById('trait_height').value = t.height || 'average';
+  document.getElementById('trait_confidence').value = t.confidence || 'medium';
+  document.getElementById('trait_energy').value = t.energy || 'neutral';
+  document.getElementById('persona_physical').value = d.physical_description || '';
+  document.getElementById('persona_personality').value = d.personality || '';
+  document.getElementById('persona_behavior').value = d.behavior_hints || '';
+  document.getElementById('persona_tests').value = d.what_it_tests || '';
+  document.getElementById('personaEditorFilename').textContent = personaEditorFilename || '(new)';
+  updatePersonaPreview();
+}
+
+function collectPersonaData() {
+  const name = document.getElementById('persona_name').value.trim();
+  const tags = document.getElementById('persona_tags').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const traits = {
+    build: document.getElementById('trait_build').value,
+    face: document.getElementById('trait_face').value,
+    height: document.getElementById('trait_height').value,
+    confidence: document.getElementById('trait_confidence').value,
+    energy: document.getElementById('trait_energy').value,
+  };
+  return {
+    name, tags, traits,
+    physical_description: document.getElementById('persona_physical').value,
+    personality: document.getElementById('persona_personality').value,
+    behavior_hints: document.getElementById('persona_behavior').value,
+    what_it_tests: document.getElementById('persona_tests').value,
+  };
+}
+
+function updatePersonaPreview() {
+  const d = collectPersonaData();
+  const preview = document.getElementById('personaPreview');
+  if (!d.name) { preview.innerHTML = '<i>Enter a name to see preview...</i>'; return; }
+  const t = d.traits;
+  preview.innerHTML = `<b>${escapeHtml(d.name)}</b> — ${t.build}/${t.face}/${t.height}/${t.confidence}/${t.energy}<br>${d.tags.join(', ') || '(no tags)'}<br><br>${d.physical_description ? '<b>Physical:</b> ' + escapeHtml(d.physical_description.substring(0,200)) + '...' : '<i>(no physical description)</i>'}`;
+}
+
+async function savePersona() {
+  const data = collectPersonaData();
+  if (!data.name) { alert('Name is required'); return; }
+  // Generate filename from name if new
+  let filename = personaEditorFilename;
+  if (!filename) {
+    filename = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') + '.json';
+  }
+  try {
+    const resp = await fetch('/api/personas/' + filename, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    const result = await resp.json();
+    if (result.status === 'saved') {
+      personaEditorFilename = filename;
+      document.getElementById('personaEditorFilename').textContent = filename;
+      await loadPersonaList();
+      alert('Persona saved as ' + filename);
+    } else {
+      alert('Error: ' + (result.error || 'Unknown'));
+    }
+  } catch(e) { alert('Save error: ' + e.message); }
+}
+
+// Auto-update preview on input
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id && (e.target.id.startsWith('persona_') || e.target.id.startsWith('trait_'))) {
+    updatePersonaPreview();
+  }
+});
+
+// ─── Editor ─────────────────────────────────────
+async function openEditor() {
+  if (!currentFilename) return;
+  const resp = await fetch('/api/cards/' + currentFilename);
+  const raw = await resp.json();
+  editorOriginal = raw;
+  editorVersion = detectCardVersion(raw);
+  editorNormalized = normalizeForEditing(raw);
+  editorData = raw; // keep for backwards compat
+  const badge = document.getElementById('editorVersionBadge');
+  badge.textContent = 'V' + editorVersion;
+  badge.className = 'version-badge v' + editorVersion;
+  document.getElementById('editorFilename').textContent = currentFilename;
+  document.getElementById('editorOverlay').classList.add('show');
+  renderEditor();
+}
+
+function closeEditor() {
+  document.getElementById('editorOverlay').classList.remove('show');
+}
+
+function switchTab(tab, el) {
+  editorTab = tab;
+  document.querySelectorAll('.editor-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderEditor();
+}
+
+function renderEditor() {
+  const d = editorNormalized;
+  const body = document.getElementById('editorBody');
+  const v3Extra = editorVersion === 3 ? [['nickname','text','Nickname']] : [];
+  const fields = {
+    core: [...v3Extra, ['name','text','Name'],['description','textarea-large','Description'],['personality','textarea','Personality'],['scenario','textarea','Scenario'],['first_mes','textarea-large','First Message']],
+    prompt: [['system_prompt','textarea-large','System Prompt'],['post_history_instructions','textarea-large','Post-History Instructions']],
+    persona: [['creator_notes','textarea-large','Creator Notes'],['mes_example','textarea-large','Example Messages']],
+    meta: [['creator','text','Creator'],['character_version','text','Version'],['tags','text','Tags (comma-separated)']],
+  };
+
+  const currentFields = fields[editorTab] || [];
+  body.innerHTML = currentFields.map(f => {
+    const [key, type, label] = f;
+    const val = d[key] || '';
+    const isLarge = type.includes('large');
+    const isTextarea = type.startsWith('textarea');
+    const isTags = key === 'tags';
+    const displayVal = isTags && Array.isArray(val) ? val.join(', ') : val;
+    if (isTextarea) {
+      return `<div class="editor-field ${isLarge?'large':''}">
+        <label>${label}</label>
+        <textarea id="edit_${key}">${escapeHtml(displayVal)}</textarea>
+        <div class="char-count">${displayVal.length} chars</div>
+      </div>`;
+    } else {
+      return `<div class="editor-field">
+        <label>${label}</label>
+        <input id="edit_${key}" type="text" value="${escapeHtml(displayVal)}" />
+        <div class="char-count">${displayVal.length} chars</div>
+      </div>`;
+    }
+  }).join('');
+
+  // Add change listeners
+  currentFields.forEach(f => {
+    const [key] = f;
+    const el = document.getElementById('edit_'+key);
+    if (el) {
+      el.addEventListener('input', () => {
+        let val = el.value;
+        if (key === 'tags') val = val.split(',').map(s=>s.trim()).filter(Boolean);
+        d[key] = val;
+        const count = el.nextElementSibling;
+        if (count) count.textContent = (typeof val === 'string' ? val.length : JSON.stringify(val).length) + ' chars';
+      });
+    }
+  });
+}
+
+async function saveCard() {
+  if (!editorNormalized || !currentFilename) return;
+  const card = denormalizeForSaving(editorNormalized, editorVersion, editorOriginal);
+  try {
+    const resp = await fetch('/api/cards/' + currentFilename, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(card)
+    });
+    const result = await resp.json();
+    if (result.status === 'saved') {
+      editorOriginal = card;
+      editorData = card;
+      currentCard = card;
+      const d = card.data || card;
+      document.getElementById('charName').textContent = d.name || currentFilename;
+      alert('Card saved!');
+    } else {
+      alert('Error: ' + (result.error || 'Unknown error'));
+    }
+  } catch(e) {
+    alert('Save error: ' + e.message);
+  }
+}
+
+async function validateCard() {
+  if (!editorNormalized) return;
+  const card = denormalizeForSaving(editorNormalized, editorVersion, editorOriginal);
+  try {
+    const resp = await fetch('/api/cards/' + currentFilename + '/validate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(card)
+    });
+    const result = await resp.json();
+    if (result.valid && (!result.issues || result.issues.length === 0)) {
+      alert('✅ Card is valid! No issues found.');
+    } else if (result.issues && result.issues.length > 0) {
+      let msg = result.issues.map(i => `[${i.severity}] ${i.field}: ${i.message}`).join('\n');
+      alert(`Found ${result.issues.length} issue(s):\n\n${msg}`);
+    } else {
+      alert('✅ Card is valid!');
+    }
+  } catch(e) {
+    alert('Validation error: ' + e.message);
+  }
+}
+
+// ─── Report ─────────────────────────────────────
+function showReport(report) {
+  document.getElementById('reportOverlay').classList.add('show');
+  const body = document.getElementById('reportBody');
+  let html = '';
+
+  if (report.overall_verdict) {
+    const cls = report.overall_verdict.includes('pass') ? 'pass' : report.overall_verdict.includes('fail') ? 'fail' : 'partial';
+    html += `<div class="verdict ${cls}">${report.overall_verdict.toUpperCase()}</div>`;
+  }
+
+  if (report.compliance_score) {
+    html += `<div class="report-section"><h3>Compliance</h3><p>${escapeHtml(report.compliance_score)}</p></div>`;
+  }
+
+  if (report.phase_results) {
+    html += `<div class="report-section"><h3>Phase Results</h3>`;
+    for (const [phase, result] of Object.entries(report.phase_results)) {
+      html += `<p>• ${phase}: ${escapeHtml(result)}</p>`;
+    }
+    html += `</div>`;
+  }
+
+  if (report.issues_by_severity) {
+    html += `<div class="report-section"><h3>Issues</h3>`;
+    for (const [sev, issues] of Object.entries(report.issues_by_severity)) {
+      if (issues && issues.length > 0) {
+        issues.forEach(i => html += `<div class="issue ${sev}">${escapeHtml(i)}</div>`);
+      }
+    }
+    html += `</div>`;
+  }
+
+  if (report.recommended_fixes) {
+    html += `<div class="report-section"><h3>🔧 Recommended Fixes</h3>`;
+    report.recommended_fixes.forEach(f => {
+      const pri = f.priority || '·';
+      html += `<div class="fix-item">`;
+      html += `<div class="fix-issue">⚠ ${escapeHtml(f.issue || '')}</div>`;
+      html += `<div><span class="fix-location">📍 ${escapeHtml(f.field||'')} ${escapeHtml(f.location||'')}</span>`;
+      html += ` <span class="fix-action">→ ${escapeHtml(f.action || 'add')}</span>`;
+      html += ` <span class="fix-priority fix-priority-${pri === 1 ? 'critical' : pri === 2 ? 'high' : pri === 3 ? 'medium' : 'low'}">P${pri}</span></div>`;
+      if (f.placement) {
+        html += `<div style="font-size:11px;color:var(--orange);margin-top:4px">📌 ${escapeHtml(f.placement)}</div>`;
+      }
+      html += `<div class="fix-text">${escapeHtml(f.fix || '')}</div>`;
+      if (f.suggested_text) {
+        html += `<div class="fix-text" style="margin-top:4px;color:var(--text-dim)">${escapeHtml(f.suggested_text)}</div>`;
+      }
+      html += `</div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (report.enhancement_suggestions && report.enhancement_suggestions.length > 0) {
+    html += `<div class="report-section"><h3>💡 Enhancement Suggestions</h3>`;
+    report.enhancement_suggestions.forEach(e => {
+      html += `<div class="enhancement-item">`;
+      html += `<div class="enh-suggestion">${escapeHtml(e.suggestion || '')}</div>`;
+      html += `<div class="enh-location">📍 ${escapeHtml(e.field || 'unknown field')}</div>`;
+      if (e.placement) {
+        html += `<div style="font-size:11px;color:var(--orange);margin-top:2px">📌 ${escapeHtml(e.placement)}</div>`;
+      }
+      if (e.rationale) html += `<div class="enh-rationale">${escapeHtml(e.rationale)}</div>`;
+      html += `</div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (report.rule_effectiveness) {
+    html += `<div class="report-section"><h3>Rule Effectiveness</h3>`;
+    report.rule_effectiveness.forEach(r => {
+      const color = r.status === 'strong' ? 'var(--green)' : r.status === 'fragile' ? 'var(--yellow)' : 'var(--red)';
+      html += `<p><span style="color:${color}">●</span> ${escapeHtml(r.rule)} — ${escapeHtml(r.status)}: ${escapeHtml(r.notes||'')}</p>`;
+    });
+    html += `</div>`;
+  }
+
+  if (report.fragility_summary) {
+    html += `<div class="report-section"><h3>Fragility Summary</h3><p>${escapeHtml(report.fragility_summary)}</p></div>`;
+  }
+
+  if (report.leakage_summary) {
+    html += `<div class="report-section"><h3>Leakage Summary</h3><p>${escapeHtml(report.leakage_summary)}</p></div>`;
+  }
+
+  if (report.training_data_conflicts && report.training_data_conflicts.length > 0) {
+    html += `<div class="report-section"><h3>Training Data Conflicts</h3>`;
+    report.training_data_conflicts.forEach(c => html += `<p>• ${escapeHtml(c)}</p>`);
+    html += `</div>`;
+  }
+
+  if (report.retest_recommendation) {
+    html += `<div class="report-section"><h3>Retest</h3><p>${escapeHtml(report.retest_recommendation)}</p></div>`;
+  }
+
+  // Persona used
+  if (report.persona_used) {
+    html += `<div class="report-section"><h3>Persona Used</h3>`;
+    html += `<p><b>${escapeHtml(report.persona_used.name || '')}</b></p>`;
+    if (report.persona_used.traits) {
+      const t = report.persona_used.traits;
+      html += `<p>Traits: ${t.build}/${t.face}/${t.height}/${t.confidence}/${t.energy}</p>`;
+    }
+    if (report.persona_used.what_it_tests) {
+      html += `<p style="font-size:12px;color:var(--text-dim)">${escapeHtml(report.persona_used.what_it_tests)}</p>`;
+    }
+    html += `</div>`;
+  }
+
+  // Raw stats
+  if (report.raw_stats) {
+    html += `<div class="report-section"><h3>Raw Stats</h3>`;
+    const s = report.raw_stats;
+    html += `<p>Messages: ${s.total_messages} | Pass: ${s.passes} | Fail: ${s.fails} | Partial: ${s.partials}</p>`;
+    if (s.fragility_distribution) {
+      html += `<p>Fragility: Strong=${s.fragility_distribution.strong||0} Fragile=${s.fragility_distribution.fragile||0} Broken=${s.fragility_distribution.broken||0}</p>`;
+    }
+    if (s.all_banned_words && s.all_banned_words.length > 0) {
+      html += `<p>Banned words found: ${s.all_banned_words.length} instances</p>`;
+    }
+    html += `</div>`;
+  }
+
+  body.innerHTML = html || '<p>No report data available.</p>';
+}
+
+function closeReport() {
+  document.getElementById('reportOverlay').classList.remove('show');
+}
+
+// ─── Utils ──────────────────────────────────────
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Escape HTML first, then apply lightweight markdown:
+ *   *text*  → italic
+ *   "text"  → bold
+ */
+function formatMessage(text) {
+  if (!text) return '';
+  let safe = escapeHtml(text);
+  // *text* → <em>text</em>  (non-greedy, no nesting across newlines)
+  safe = safe.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  // "text" → <strong>text</strong>
+  safe = safe.replace(/&quot;([^&\n]+?)&quot;/g, '<strong>$1</strong>');
+  return safe;
+}
+
+// ─── Init ───────────────────────────────────────
+loadCardList();
+
+// ─── RP State & Logic ──────────────────────────
+let rpWS = null;
+let rpActiveSessionId = null;
+let rpCharacters = [];      // [{filename, name}]
+let rpPersonaFilename = null;
+let rpTurnRouting = 'auto';
+let rpResponseStyle = 'brief';
+let rpSummaryWindow = 20;
+let rpRawWindow = 10;
+let rpIsWaiting = false;
+let rpCardsList = [];       // cached card list for picker
+let rpSetupChars = [];      // selected filenames in setup
+let rpSetupTurn = 'auto';
+let rpSetupStyle = 'brief';
+let rpConsoleEvents = 0;
+let rpCurrentMode = 'school';
+
+// Character color palette for chat labels
+const RP_CHAR_COLORS = ['#58a6ff', '#3fb950', '#bc8cff', '#db6d28'];
+
+function switchMode(mode) {
+  rpCurrentMode = mode;
+  document.body.classList.toggle('rp-mode', mode === 'rp');
+  document.getElementById('tabSchool').classList.toggle('active', mode === 'school');
+  document.getElementById('tabRP').classList.toggle('active', mode === 'rp');
+  // Reset token counter when switching modes
+  const tc = document.getElementById('tokenCounter');
+  if (tc) tc.textContent = '~0 tok';
+  if (mode === 'rp') {
+    loadRPSessions();
+    // Populate persona select in setup
+    populateRPPersonaSelect();
+  }
+}
+
+// ─── RP Session Setup ───────────────────────────
+async function openRPSetup() {
+  // Load card list if not cached
+  if (rpCardsList.length === 0) {
+    const resp = await fetch('/api/cards');
+    rpCardsList = await resp.json();
+  }
+  // Render character picker
+  const picker = document.getElementById('rpCharPicker');
+  picker.innerHTML = rpCardsList.map(c => {
+    const tags = (c.tags || []).slice(0, 3).map(t => `<span class="tags">${escapeHtml(t)}</span>`).join(' ');
+    return `<div class="rp-char-pick-item" data-filename="${escapeHtml(c.filename)}" onclick="toggleRPCharPick('${escapeHtml(c.filename)}', this)">
+      <div class="checkbox"></div>
+      <div class="name">${escapeHtml(c.name)}</div>
+      <div class="tags">${tags}</div>
+    </div>`;
+  }).join('');
+  rpSetupChars = [];
+  document.getElementById('rpSelectedCount').textContent = '0 selected';
+  document.getElementById('rpStartBtn').disabled = true;
+  // Reset toggles
+  rpToggleSetting('turn', 'auto');
+  rpToggleSetting('style', 'brief');
+  document.getElementById('rpSummaryWindow').value = 20;
+  document.getElementById('rpRawWindow').value = 10;
+  // Populate persona select
+  populateRPPersonaSelect();
+  document.getElementById('rpSetupOverlay').classList.add('show');
+}
+
+function closeRPSetup() {
+  document.getElementById('rpSetupOverlay').classList.remove('show');
+}
+
+function populateRPPersonaSelect() {
+  const sel = document.getElementById('rpPersonaSelect');
+  sel.innerHTML = '<option value="">None (raw you)</option>';
+  personasList.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.filename;
+    opt.textContent = p.name + (p.traits ? ` (${p.traits.build}/${p.traits.confidence})` : '');
+    sel.appendChild(opt);
+  });
+}
+
+function toggleRPCharPick(filename, el) {
+  const idx = rpSetupChars.indexOf(filename);
+  if (idx >= 0) {
+    rpSetupChars.splice(idx, 1);
+    el.classList.remove('selected');
+    el.querySelector('.checkbox').textContent = '';
+  } else {
+    if (rpSetupChars.length >= 4) { alert('Maximum 4 characters'); return; }
+    rpSetupChars.push(filename);
+    el.classList.add('selected');
+    el.querySelector('.checkbox').textContent = '✓';
+  }
+  document.getElementById('rpSelectedCount').textContent = rpSetupChars.length + ' selected';
+  document.getElementById('rpStartBtn').disabled = rpSetupChars.length === 0;
+}
+
+function rpToggleSetting(group, value) {
+  if (group === 'turn') {
+    rpSetupTurn = value;
+    document.getElementById('rpToggleAuto').classList.toggle('active', value === 'auto');
+    document.getElementById('rpToggleDirected').classList.toggle('active', value === 'directed');
+  } else if (group === 'style') {
+    rpSetupStyle = value;
+    document.getElementById('rpToggleBrief').classList.toggle('active', value === 'brief');
+    document.getElementById('rpToggleFull').classList.toggle('active', value === 'full');
+  }
+}
+
+function startRPSession() {
+  const persona = document.getElementById('rpPersonaSelect').value || null;
+  const summaryWindow = parseInt(document.getElementById('rpSummaryWindow').value) || 20;
+  const rawWindow = parseInt(document.getElementById('rpRawWindow').value) || 10;
+
+  closeRPSetup();
+  connectRPWS({
+    characters: rpSetupChars,
+    persona_filename: persona,
+    turn_routing: rpSetupTurn,
+    response_style: rpSetupStyle,
+    summary_window: summaryWindow,
+    raw_window: rawWindow,
+  });
+}
+
+// ─── RP WebSocket ───────────────────────────────
+function connectRPWS(startData, resumeSessionId) {
+  if (rpWS) rpWS.close();
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  rpWS = new WebSocket(proto + '://' + location.host + '/ws/rp');
+
+  rpWS.onopen = () => {
+    document.getElementById('status').textContent = 'Connected';
+    document.getElementById('status').classList.add('connected');
+    if (resumeSessionId) {
+      rpWS.send(JSON.stringify({type: 'resume', session_id: resumeSessionId}));
+    } else {
+      rpWS.send(JSON.stringify({type: 'start', ...startData}));
+    }
+  };
+
+  rpWS.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    handleRPMessage(data);
+  };
+
+  rpWS.onclose = () => {
+    document.getElementById('status').textContent = 'Disconnected';
+    document.getElementById('status').classList.remove('connected');
+  };
+
+  rpWS.onerror = () => {
+    addRPMessage('system', 'Connection error', null);
+  };
+}
+
+function handleRPMessage(data) {
+  if (data.type === 'session_started') {
+    rpActiveSessionId = data.session_id;
+    rpCharacters = data.characters;
+    rpPersonaFilename = data.persona;
+    rpTurnRouting = data.turn_routing;
+    rpResponseStyle = data.response_style;
+    rpConsoleEvents = 0;
+    document.getElementById('rpConsoleCount').textContent = '0';
+    document.getElementById('rpConsoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+    renderRPSceneBar();
+    document.getElementById('rpChatMessages').innerHTML = '';
+    document.getElementById('rpInputArea').style.display = 'flex';
+    rpIsWaiting = false;
+    updateRPInputState();
+    loadRPSessions(); // refresh sidebar
+  } else if (data.type === 'session_resumed') {
+    rpActiveSessionId = data.session_id;
+    rpCharacters = data.characters;
+    rpPersonaFilename = data.persona;
+    rpTurnRouting = data.turn_routing;
+    rpResponseStyle = data.response_style;
+    rpSummaryWindow = data.summary_window;
+    rpRawWindow = data.raw_window;
+    rpConsoleEvents = 0;
+    document.getElementById('rpConsoleCount').textContent = '0';
+    document.getElementById('rpConsoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+    renderRPSceneBar();
+    document.getElementById('rpChatMessages').innerHTML = '';
+    // Re-render messages
+    if (data.messages) {
+      data.messages.forEach(m => {
+        if (m.role === 'user') {
+          addRPMessage('user', m.content, null, m.id);
+        } else if (m.role === 'character') {
+          addRPMessage('character', m.content, m.speaker, m.id);
+        }
+      });
+    }
+    document.getElementById('rpInputArea').style.display = 'flex';
+    rpIsWaiting = false;
+    updateRPInputState();
+    // Highlight active session in sidebar
+    document.querySelectorAll('.rp-session-item').forEach(el => {
+      el.classList.toggle('active', parseInt(el.dataset.sessionId) === rpActiveSessionId);
+    });
+  } else if (data.type === 'character_message') {
+    addRPMessage('character', data.content, data.character_name, data.message_id);
+    rpIsWaiting = false;
+    updateRPInputState();
+  } else if (data.type === 'character_typing') {
+    showRPTyping(data.character_name);
+  } else if (data.type === 'character_typing_stopped') {
+    hideRPTyping();
+  } else if (data.type === 'user_message_stored') {
+    // not needed for RP (we add DOM immediately)
+  } else if (data.type === 'summary_updated') {
+    showRPSummaryBar(data.summary, data.summarized_count);
+  } else if (data.type === 'settings_updated') {
+    rpTurnRouting = data.turn_routing;
+    rpResponseStyle = data.response_style;
+    rpSummaryWindow = data.summary_window;
+    rpRawWindow = data.raw_window;
+    renderRPSceneBar();
+  } else if (data.type === 'persona_changed') {
+    rpPersonaFilename = data.persona;
+    renderRPSceneBar();
+  } else if (data.type === 'message_deleted') {
+    // DOM already removed by caller
+  } else if (data.type === 'error') {
+    addRPMessage('system', 'Error: ' + data.message, null);
+    rpIsWaiting = false;
+    updateRPInputState();
+    hideRPTyping();
+  } else if (data.type === 'console_event') {
+    addRPConsoleEntry(data);
+  }
+}
+
+// ─── RP UI Rendering ────────────────────────────
+function renderRPSceneBar() {
+  const bar = document.getElementById('rpSceneBar');
+  if (!rpCharacters.length) {
+    bar.innerHTML = '<span style="color:var(--text-dim);font-size:13px">No active session.</span>';
+    return;
+  }
+  let html = '<div class="scene-chars">';
+  rpCharacters.forEach((c, i) => {
+    const color = RP_CHAR_COLORS[i % RP_CHAR_COLORS.length];
+    html += `<span class="char-chip"><span class="dot" style="background:${color}"></span>${escapeHtml(c.name)}</span>`;
+  });
+  html += '</div><span class="spacer"></span>';
+
+  // Persona selector
+  html += `<select id="rpPersonaBar" onchange="onRPPersonaChange()" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 10px;font-size:12px;cursor:pointer">`;
+  html += '<option value="">No persona</option>';
+  personasList.forEach(p => {
+    const sel = p.filename === rpPersonaFilename ? ' selected' : '';
+    html += `<option value="${escapeHtml(p.filename)}"${sel}>${escapeHtml(p.name)}</option>`;
+  });
+  html += '</select>';
+
+  // Settings toggles
+  html += `<div class="rp-toggle-btn ${rpTurnRouting==='auto'?'active':''}" onclick="rpUpdateSetting('turn_routing','${rpTurnRouting==='auto'?'directed':'auto'}')">${rpTurnRouting === 'auto' ? 'Auto' : 'Directed'}</div>`;
+  html += `<div class="rp-toggle-btn ${rpResponseStyle==='brief'?'active':''}" onclick="rpUpdateSetting('response_style','${rpResponseStyle==='brief'?'full':'brief'}')">${rpResponseStyle === 'brief' ? 'Brief' : 'Full'}</div>`;
+
+  bar.innerHTML = html;
+
+  // Directed mode: show character selector
+  const directSel = document.getElementById('rpDirectSelect');
+  if (rpTurnRouting === 'directed') {
+    directSel.style.display = 'block';
+    directSel.innerHTML = '<option value="">→ Who?</option>' + rpCharacters.map(c => `<option value="${escapeHtml(c.filename)}">${escapeHtml(c.name)}</option>`).join('');
+  } else {
+    directSel.style.display = 'none';
+  }
+}
+
+function addRPMessage(role, content, speaker, messageId) {
+  // Remove empty placeholder
+  const empty = document.getElementById('rpChatEmpty');
+  if (empty) empty.remove();
+
+  const container = document.getElementById('rpChatMessages');
+  const div = document.createElement('div');
+  div.className = 'rp-msg ' + (role === 'user' ? 'user' : role === 'system' ? 'system' : 'character');
+
+  let speakerHtml = '';
+  if (role === 'character' && speaker) {
+    const idx = rpCharacters.findIndex(c => c.name === speaker);
+    const color = idx >= 0 ? RP_CHAR_COLORS[idx % RP_CHAR_COLORS.length] : 'var(--text-dim)';
+    speakerHtml = `<div class="rp-speaker" style="color:${color}">${escapeHtml(speaker)}</div>`;
+  } else if (role === 'user') {
+    speakerHtml = `<div class="rp-speaker" style="color:#7ec8e3">You</div>`;
+  }
+
+  div.innerHTML = speakerHtml + formatMessage(content);
+
+  if (messageId != null) {
+    div.dataset.messageId = messageId;
+  }
+
+  // Delete link
+  if (role !== 'system') {
+    const delLink = document.createElement('a');
+    delLink.className = 'rp-delete-link';
+    delLink.textContent = 'delete';
+    delLink.href = '#';
+    delLink.onclick = (e) => {
+      e.preventDefault();
+      const msgId = parseInt(div.dataset.messageId);
+      if (!msgId || !(rpWS && rpWS.readyState === WebSocket.OPEN)) return;
+      rpWS.send(JSON.stringify({type: 'delete_message', message_id: msgId}));
+      const allMsgs = Array.from(container.querySelectorAll('.rp-msg'));
+      const myIdx = allMsgs.indexOf(div);
+      for (let i = allMsgs.length - 1; i >= myIdx; i--) {
+        allMsgs[i].remove();
+      }
+    };
+    div.appendChild(delLink);
+  }
+
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function showRPTyping(characterName) {
+  hideRPTyping(); // remove any existing
+  const container = document.getElementById('rpChatMessages');
+  const div = document.createElement('div');
+  div.className = 'rp-typing';
+  div.id = 'rpTypingIndicator';
+  const name = characterName ? escapeHtml(characterName) : 'Someone';
+  div.innerHTML = `${name} is responding <span class="dots"><span>●</span><span>●</span><span>●</span></span>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function hideRPTyping() {
+  const existing = document.getElementById('rpTypingIndicator');
+  if (existing) existing.remove();
+}
+
+// ── School mode typing indicators ──
+function showSchoolTyping(kind, characterName) {
+  hideSchoolTyping();
+  if (kind === 'character') {
+    // Show in chat area
+    const container = document.getElementById('chatMessages');
+    const div = document.createElement('div');
+    div.className = 'rp-typing';
+    div.id = 'schoolCharTyping';
+    const name = characterName ? escapeHtml(characterName) : 'Character';
+    div.innerHTML = `${name} is responding <span class="dots"><span>●</span><span>●</span><span>●</span></span>`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  } else if (kind === 'analyzer') {
+    // Show in analysis panel
+    const container = document.getElementById('analysisPanel');
+    // Keep the empty placeholder text if present, but replace with typing indicator
+    const div = document.createElement('div');
+    div.className = 'rp-typing';
+    div.id = 'schoolAnalyzerTyping';
+    div.style.margin = '10px 14px';
+    div.innerHTML = `Analyzer is thinking <span class="dots"><span>●</span><span>●</span><span>●</span></span>`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function hideSchoolTyping() {
+  const c = document.getElementById('schoolCharTyping');
+  if (c) c.remove();
+  const a = document.getElementById('schoolAnalyzerTyping');
+  if (a) a.remove();
+}
+
+function showRPSummaryBar(summary, count) {
+  let bar = document.getElementById('rpSummaryBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'rp-summary-bar';
+    bar.id = 'rpSummaryBar';
+    const inputArea = document.getElementById('rpInputArea');
+    inputArea.parentNode.insertBefore(bar, inputArea);
+  }
+  bar.innerHTML = `<span class="label">📝 Summary</span> <span>(${count} msgs compressed)</span> <span style="flex:1"></span> <span style="font-size:11px;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(summary.substring(0, 100))}...</span>`;
+  bar.onclick = () => { alert(summary); };
+}
+
+function sendRPMessage() {
+  const input = document.getElementById('rpMsgInput');
+  const text = input.value.trim();
+  if (!text || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
+
+  addRPMessage('user', text, null);
+
+  const directedTo = rpTurnRouting === 'directed' ? document.getElementById('rpDirectSelect').value : null;
+  rpWS.send(JSON.stringify({type: 'user_message', content: text, directed_to: directedTo || null}));
+
+  input.value = '';
+  rpIsWaiting = true;
+  updateRPInputState();
+}
+
+function handleRPKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendRPMessage();
+  }
+}
+
+function updateRPInputState() {
+  document.getElementById('rpBtnSend').disabled = rpIsWaiting;
+  document.getElementById('rpMsgInput').disabled = rpIsWaiting;
+  if (!rpIsWaiting) document.getElementById('rpMsgInput').focus();
+}
+
+function onRPPersonaChange() {
+  const filename = document.getElementById('rpPersonaBar').value || null;
+  rpPersonaFilename = filename;
+  if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+    rpWS.send(JSON.stringify({type: 'set_persona', persona_filename: filename}));
+  }
+}
+
+function onRPDirectChange() {
+  // Just updates the selected target — no server call needed
+}
+
+function rpUpdateSetting(key, value) {
+  if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+    const update = {type: 'update_settings'};
+    update[key] = value;
+    rpWS.send(JSON.stringify(update));
+  }
+}
+
+// ─── RP Console ─────────────────────────────────
+function addRPConsoleEntry(data) {
+  const inner = document.getElementById('rpConsoleInner');
+  const empty = inner.querySelector('.console-empty');
+  if (empty) empty.remove();
+
+  rpConsoleEvents++;
+  document.getElementById('rpConsoleCount').textContent = rpConsoleEvents;
+
+  const isReq = data.event === 'request';
+  const isResp = data.event === 'response';
+  const isErr = data.event === 'error';
+  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : 'console-tag-err';
+  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : '✕ ERR';
+  const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';
+  const llmLabel = data.llm === 'character' ? 'CHARACTER' : 'ANALYSIS';
+
+  let html = `<div class="console-entry">`;
+  html += `<span class="ts">${escapeHtml(data.timestamp || '')}</span>`;
+  if (data.label) {
+    html += ` <span style="color:var(--yellow);font-size:11px;font-weight:600">[${escapeHtml(data.label)}]</span>`;
+  }
+  html += ` <span class="tag ${tagClass}">${tagLabel}</span>`;
+  html += ` <span class="${llmClass}">${llmLabel}</span>`;
+  if (data.model) html += ` <span class="model">${escapeHtml(data.model)}</span>`;
+  if (data.temperature !== undefined) html += ` <span class="model">temp=${data.temperature}</span>`;
+  if (data.max_tokens) html += ` <span class="model">max=${data.max_tokens}</span>`;
+  html += `<br>`;
+
+  if (isReq && data.messages) {
+    const estTokens = estimateTokens(data.messages);
+    // Update the live token counter in the header
+    const tc = document.getElementById('tokenCounter');
+    if (tc) tc.textContent = `~${estTokens.toLocaleString()} tok`;
+    html += `<div style="margin:4px 0">`;
+    data.messages.forEach(m => {
+      const role = m.role || '?';
+      let content = m.content || '';
+      html += `<div class="msg-content ${role}"><span class="msg-role">${escapeHtml(role)}</span>: ${escapeHtml(content)}</div>`;
+    });
+    html += `</div>`;
+  } else if (isResp && data.content) {
+    html += `<div class="msg-content assistant">${escapeHtml(data.content)}</div>`;
+  } else if (isErr) {
+    html += `<div class="msg-content" style="border-left-color:var(--red);color:var(--red)">${escapeHtml(data.message || data.content || '')}</div>`;
+  }
+
+  if (isResp && data.usage) {
+    const u = data.usage;
+    html += `<span class="usage">📊 tokens: prompt=${u.prompt_tokens || '?'} completion=${u.completion_tokens || '?'} total=${u.total_tokens || '?'}</span>`;
+    if (data.finish_reason) html += ` <span class="usage">finish: ${escapeHtml(data.finish_reason)}</span>`;
+    html += `<br>`;
+  }
+
+  html += `</div>`;
+  inner.insertAdjacentHTML('beforeend', html);
+
+  if (consoleOpen) {
+    inner.scrollTop = inner.scrollHeight;
+  }
+}
+
+// ─── RP Sessions List ───────────────────────────
+async function loadRPSessions() {
+  try {
+    const resp = await fetch('/api/rp/sessions');
+    const sessions = await resp.json();
+    const list = document.getElementById('rpSessionsList');
+    if (sessions.length === 0) {
+      list.innerHTML = '<div class="loading" style="padding:20px;text-align:center;color:var(--text-dim)">No sessions yet. Click "+ New" to start.</div>';
+      return;
+    }
+    list.innerHTML = sessions.map(s => {
+      const active = s.id === rpActiveSessionId ? ' active' : '';
+      const date = s.updated_at ? new Date(s.updated_at + 'Z').toLocaleDateString() : '';
+      const routing = s.turn_routing === 'auto' ? 'Auto' : 'Directed';
+      const style = s.response_style === 'brief' ? 'Brief' : 'Full';
+      return `<div class="rp-session-item${active}" data-session-id="${s.id}" onclick="resumeRPSession(${s.id})">
+        <span class="del-btn" onclick="event.stopPropagation(); deleteRPSession(${s.id})">✕</span>
+        <div class="title">${escapeHtml(s.title || 'Untitled')}</div>
+        <div class="meta">${routing} · ${style} · ${date}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    console.error('Failed to load RP sessions:', e);
+  }
+}
+
+function resumeRPSession(sessionId) {
+  if (rpWS) rpWS.close();
+  connectRPWS(null, sessionId);
+}
+
+async function deleteRPSession(sessionId) {
+  if (!confirm('Delete this RP session?')) return;
+  try {
+    await fetch('/api/rp/sessions/' + sessionId, {method: 'DELETE'});
+    if (sessionId === rpActiveSessionId) {
+      // Clear active session
+      rpActiveSessionId = null;
+      rpCharacters = [];
+      document.getElementById('rpChatMessages').innerHTML = '<div class="analysis-empty" id="rpChatEmpty">Start a new RP session to begin.</div>';
+      document.getElementById('rpInputArea').style.display = 'none';
+      document.getElementById('rpSceneBar').innerHTML = '<span style="color:var(--text-dim);font-size:13px">No active session. Click "+ New" to start a roleplay.</span>';
+    }
+    loadRPSessions();
+  } catch (e) {
+    alert('Failed to delete: ' + e.message);
+  }
+}
+// ─── Settings Modal ──────────────────────────────────────────────
+async function openSettings() {
+  try {
+    const res = await fetch('/api/config');
+    const cfg = await res.json();
+    document.getElementById('cfgServerHost').value = cfg.server.host || '0.0.0.0';
+    document.getElementById('cfgServerPort').value = cfg.server.port || 7862;
+    document.getElementById('cfgChatBaseUrl').value = cfg.chat.base_url || '';
+    document.getElementById('cfgChatApiKey').value = cfg.chat.api_key || '';
+    document.getElementById('cfgChatModel').value = cfg.chat.model || '';
+    document.getElementById('cfgChatTemp').value = cfg.chat.temperature ?? 0.8;
+    document.getElementById('cfgChatMaxTok').value = cfg.chat.max_tokens ?? 2000;
+    document.getElementById('cfgAnalysisBaseUrl').value = cfg.analysis.base_url || '';
+    document.getElementById('cfgAnalysisApiKey').value = cfg.analysis.api_key || '';
+    document.getElementById('cfgAnalysisModel').value = cfg.analysis.model || '';
+    document.getElementById('cfgAnalysisTemp').value = cfg.analysis.temperature ?? 0.1;
+    document.getElementById('cfgAnalysisMaxTok').value = cfg.analysis.max_tokens ?? 1500;
+    document.getElementById('cfgCharactersDir').value = cfg.paths.characters_dir || '';
+    document.getElementById('cfgPersonasDir').value = cfg.paths.personas_dir || '';
+    if (cfg.version) {
+      document.getElementById('settingsFooter').textContent = `Character School v${cfg.version} © Krazif & Tunas`;
+    }
+  } catch (e) {
+    console.error('Failed to load config:', e);
+    alert('Failed to load config: ' + e.message);
+  }
+  document.getElementById('settingsOverlay').classList.add('show');
+}
+
+function closeSettings() {
+  document.getElementById('settingsOverlay').classList.remove('show');
+}
+
+async function saveSettings() {
+  const btn = document.getElementById('settingsSaveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const payload = {
+      server: {
+        host: document.getElementById('cfgServerHost').value.trim(),
+        port: parseInt(document.getElementById('cfgServerPort').value) || 7862,
+      },
+      chat: {
+        base_url: document.getElementById('cfgChatBaseUrl').value.trim(),
+        api_key: document.getElementById('cfgChatApiKey').value.trim(),
+        model: document.getElementById('cfgChatModel').value.trim(),
+        temperature: parseFloat(document.getElementById('cfgChatTemp').value) || 0.8,
+        max_tokens: parseInt(document.getElementById('cfgChatMaxTok').value) || 2000,
+      },
+      analysis: {
+        base_url: document.getElementById('cfgAnalysisBaseUrl').value.trim(),
+        api_key: document.getElementById('cfgAnalysisApiKey').value.trim(),
+        model: document.getElementById('cfgAnalysisModel').value.trim(),
+        temperature: parseFloat(document.getElementById('cfgAnalysisTemp').value) || 0.1,
+        max_tokens: parseInt(document.getElementById('cfgAnalysisMaxTok').value) || 1500,
+      },
+      paths: {
+        characters_dir: document.getElementById('cfgCharactersDir').value.trim() || null,
+        personas_dir: document.getElementById('cfgPersonasDir').value.trim() || null,
+      },
+    };
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      closeSettings();
+      // Reload character list if paths changed
+      loadCardList(); // also calls loadPersonaList internally
+    } else {
+      alert('Failed to save: ' + (data.detail || data.message || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Failed to save: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
+}
+
+async function resetDatabase() {
+  if (!confirm('⚠️ This will permanently delete ALL chat sessions and RP sessions.\n\nThis cannot be undone. Are you sure?')) return;
+  if (!confirm('Last chance — really wipe the entire database?')) return;
+  const btn = document.getElementById('dbResetBtn');
+  btn.disabled = true;
+  btn.textContent = 'Wiping…';
+  try {
+    const res = await fetch('/api/database/reset', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      alert('Database cleared successfully.');
+      // Reset UI state
+      const cm = document.getElementById('chatMessages');
+      if (cm) cm.innerHTML = '';
+      const ap = document.getElementById('analysisPanel');
+      if (ap) ap.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:20px;font-size:13px">Select a character and start chatting to see analysis.</div>';
+      const ci = document.getElementById('consoleInner');
+      if (ci) ci.innerHTML = '';
+      const rci = document.getElementById('rpConsoleInner');
+      if (rci) rci.innerHTML = '';
+      // Reload RP session list
+      loadRPSessions();
+      closeSettings();
+    } else {
+      alert('Failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Reset Database';
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "The Silver Tongue",
+  "tags": ["ugly", "weak", "charming", "personality-over-physics"],
+  "traits": {
+    "build": "weak",
+    "face": "ugly",
+    "height": "short",
+    "confidence": "confident",
+    "energy": "warm"
+  },
+  "physical_description": "Short, slight, physically unremarkable — the kind of man you'd walk past without a second glance. Face is plain at best, with features that don't quite work together — a nose too big, eyes too close, skin that's seen better years. He's not ugly in a dramatic way, just in the way that means he's never been noticed for how he looks. His body is soft, unmuscled, the body of someone who works with his mind and not his hands. But there's something about him when he talks — an animation, a warmth, a light in his eyes that transforms his face into something you want to keep looking at.",
+  "personality": "Charming in the real way — not the polished, performative charm of a pickup artist, but the genuine, unforced charm of a man who is interested in people and makes them feel interesting. He's funny — actually funny, not joke-funny, the kind of funny that makes you laugh and then think about what he said later. He listens with attention that feels like a gift. He asks questions that make you feel seen. He's confident in himself without being arrogant — he knows he's not handsome and he's made peace with it, and that peace is itself attractive. There's a warmth to him that has nothing to do with his face and everything to do with how he makes you feel.",
+  "behavior_hints": "Makes easy conversation. Uses humor to build comfort. Asks personal questions but not invasively — gently curious. Doesn't touch — he knows physical contact from him wouldn't be welcome the way it would from a handsome man, so he connects through words instead. Leans in when listening. Remembers small details and references them later. Creates intimacy through understanding, not through proximity. His confidence is social, not physical — he'll say the brave thing but won't make the brave move.",
+  "what_it_tests": "Personality over physics. Does charm alone crack the guard when there's zero physical appeal? If the character's resistance folds for this persona, the guard is based on emotional connection, not physical attraction. If it holds, the guard may be principle-based — or the character may simply not be triggered by charm without physical appeal. The key diagnostic: does she enjoy his company (emotional) without feeling desire (physical)? Is there a gap between liking someone and wanting someone?"
+}

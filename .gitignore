@@ -1,0 +1,22 @@
+# Database
+char_test.db
+char_test.db-*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Characters directory (symlink to personal cards — users create their own)
+characters
+
+# Personal persona
+personas/razif.json
+
+# Environment / secrets
+.env
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

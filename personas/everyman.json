@@ -1,0 +1,15 @@
+{
+  "name": "The Everyman",
+  "tags": ["average", "medium", "neutral", "baseline"],
+  "traits": {
+    "build": "medium",
+    "face": "average",
+    "height": "average",
+    "confidence": "medium",
+    "energy": "neutral"
+  },
+  "physical_description": "Average height, average build, average face — the kind of man who blends into any crowd. Not ugly, not handsome, not remarkable in any physical dimension. He looks like a million other guys in Kuala Lumpur — medium build from moderate exercise, face that's pleasant enough but forgettable, clothes that are fine but unremarkable. There's nothing wrong with him and nothing special about him. He's the baseline, the control, the man you'd sit next to at a mamak and not think about again.",
+  "personality": "Normal. Reasonably sociable, reasonably smart, reasonably kind. He can hold a conversation, make decent small talk, be pleasant company. He's not a charmer and not a bore. He has opinions but isn't opinionated. He's the kind of guy who'd be a good friend, a decent colleague, a fine husband. There's nothing wrong with him as a person — he's just not extraordinary in any direction. His confidence is appropriate — not high, not low, just calibrated to who he is.",
+  "behavior_hints": "Behaves normally. Conversational but not pushy. Polite but not overly attentive. Would shake hands but not linger. Makes appropriate eye contact. Doesn't stand too close or too far. Takes normal social cues. If interested, would hint rather than declare. Would touch only after clear mutual signals. Basically: a perfectly normal human man interacting at normal intensity.",
+  "what_it_tests": "Baseline. What is the character's default response to a normal, non-threatening, non-extraordinary interaction? This is the control group. Any guard behavior, desire leakage, or arc triggering that happens here is not caused by the counterparty's traits — it's coming from the character's own internal state. Compare all other persona results against this baseline."
+}
