@@ -23,7 +23,6 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - Card editing normalizes to V2 in the frontend, denormalizes back to native format on save
 - **PNG card import/export** — SillyTavern-compatible format with base64-encoded JSON in `chara`/`ccv3`/`character_card` tEXt/iTXt chunks
 - Upload character cards via the UI (JSON or PNG)
-- Delete cards with confirmation (also removes associated avatar PNGs)
 - Download cards as PNG or JSON
 
 
@@ -33,7 +32,6 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - Two independent LLM endpoints — one for character responses, one for analysis
 - Analyzer checks rule compliance, character consistency, and tone
 - Fix suggestions per issue: specifies the card field to edit, action (add/replace/append), ready-to-paste fix text, priority, and exact placement location
-- Analysis triggers only on the first real character response to a user message (not on `first_mes` display)
 - Typing indicators for both character responding and analyzer thinking
 
 
@@ -45,8 +43,7 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - **Response style**: brief or detailed
 - **Configurable summarization** — summary window and raw window settings to manage context length
 - RP sessions persist in SQLite; resume any session from the sidebar
-- Delete individual messages with cascade (removes the target message and all subsequent messages)
-- Typing indicators matching School mode style
+
 
 ### Persona System
 
