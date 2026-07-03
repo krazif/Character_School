@@ -309,6 +309,16 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rp_messages_session ON rp_messages(session_id, seq)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rp_characters_session ON rp_characters(session_id, display_order)")
+    # Migration: add stack_config column if not exists
+    try:
+        conn.execute("ALTER TABLE rp_sessions ADD COLUMN stack_config TEXT")
+    except Exception:
+        pass  # Column already exists
+    # Migration: add console_events column if not exists
+    try:
+        conn.execute("ALTER TABLE rp_sessions ADD COLUMN console_events TEXT")
+    except Exception:
+        pass  # Column already exists
     conn.commit()
     conn.close()
 
@@ -422,14 +432,119 @@ def db_get_session(session_id: int) -> Optional[dict]:
             "system_prompt": row[3], "analysis_prompt": row[4]}
 
 
+# ─── RP Stack Config ─────────────────────────────────────────────
+DEFAULT_STACK_CONFIG = {
+    "blocks": [
+        {"type": "system", "enabled": True, "locked": True},
+        {"type": "head", "enabled": True, "n": 2},
+        {"type": "summary", "enabled": True},
+        {"type": "custom", "enabled": False, "text": ""},
+        {"type": "tail", "enabled": True, "n": 3},
+    ]
+}
+
+
+def get_stack_config(sess: dict) -> dict:
+    """Return stack_config from session, or default if not set."""
+    raw = sess.get("stack_config") if sess else None
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+    import copy
+    return copy.deepcopy(DEFAULT_STACK_CONFIG)
+
+
+def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
+                                  all_msgs: list[dict], summary_text: str):
+    """Build LLM messages from stack block configuration.
+    Returns (llm_messages, block_markers) where block_markers is a list of
+    {"block": type, "label": str, "start": int, "count": int}.
+    """
+    blocks = stack_config.get("blocks", [])
+    llm_messages = []
+    block_markers = []
+
+    # Determine head_n and tail_n from enabled blocks
+    head_n = 0
+    tail_n = 0
+    for block in blocks:
+        if block.get("type") == "head" and block.get("enabled", True):
+            head_n = block.get("n", 2)
+        elif block.get("type") == "tail" and block.get("enabled", True):
+            tail_n = block.get("n", 3)
+
+    def _add_raw_msgs(msgs):
+        """Append raw messages, return (start_index, count)."""
+        start = len(llm_messages)
+        for m in msgs:
+            if m["role"] == "user":
+                llm_messages.append({"role": "user", "content": m["content"]})
+            elif m["role"] == "character":
+                llm_messages.append({"role": "assistant", "content": f"[{m['speaker']}]: {m['content']}"})
+            elif m["role"] == "system":
+                llm_messages.append({"role": "system", "content": m["content"]})
+        return start, len(llm_messages) - start
+
+    for block in blocks:
+        if not block.get("enabled", True) and not block.get("locked", False):
+            continue
+
+        btype = block.get("type", "")
+        labels = {
+            "system": "System Prompt",
+            "head": f"Head Messages (first {head_n})",
+            "summary": "Scene Summary",
+            "custom": "Custom Inject",
+            "tail": f"Raw Tail (last {tail_n})",
+        }
+        label = labels.get(btype, btype)
+
+        if btype == "system":
+            start = len(llm_messages)
+            llm_messages.append({"role": "system", "content": system_prompt})
+            block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
+
+        elif btype == "head" and head_n > 0:
+            head_msgs = all_msgs[:head_n]
+            s, c = _add_raw_msgs(head_msgs)
+            if c > 0:
+                block_markers.append({"block": btype, "label": label, "start": s, "count": c})
+
+        elif btype == "summary":
+            if summary_text:
+                start = len(llm_messages)
+                llm_messages.append({"role": "system", "content": f"SCENE SUMMARY SO FAR:\n{summary_text}"})
+                block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
+
+        elif btype == "custom":
+            text = block.get("text", "").strip()
+            if text:
+                start = len(llm_messages)
+                llm_messages.append({"role": "system", "content": text})
+                block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
+
+        elif btype == "tail" and tail_n > 0:
+            # Avoid duplicating head messages
+            start_idx = max(head_n, len(all_msgs) - tail_n) if len(all_msgs) > tail_n else head_n
+            tail_msgs = all_msgs[start_idx:]
+            s, c = _add_raw_msgs(tail_msgs)
+            if c > 0:
+                block_markers.append({"block": btype, "label": label, "start": s, "count": c})
+
+    return llm_messages, block_markers
+
+
 # ─── RP Database Functions ────────────────────────────────────────
 def db_rp_create_session(characters: list[dict], persona_filename: str,
                          turn_routing: str, response_style: str,
-                         summary_window: int, raw_window: int) -> int:
+                         summary_window: int, raw_window: int,
+                         stack_config: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     cur = conn.execute(
-        "INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style, summary_window, raw_window) VALUES (?, ?, ?, ?, ?, ?)",
-        (', '.join(c['name'] for c in characters), persona_filename, turn_routing, response_style, summary_window, raw_window),
+        "INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style, summary_window, raw_window, stack_config) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (', '.join(c['name'] for c in characters), persona_filename, turn_routing, response_style, summary_window, raw_window, stack_config),
     )
     sid = cur.lastrowid
     for i, c in enumerate(characters):
@@ -470,7 +585,7 @@ def db_rp_get_messages(session_id: int) -> list[dict]:
 def db_rp_get_session(session_id: int) -> Optional[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute(
-        "SELECT id, title, persona_filename, turn_routing, response_style, summary_window, raw_window, summary_text FROM rp_sessions WHERE id = ?",
+        "SELECT id, title, persona_filename, turn_routing, response_style, summary_window, raw_window, summary_text, stack_config, console_events FROM rp_sessions WHERE id = ?",
         (session_id,),
     ).fetchone()
     if not row:
@@ -485,8 +600,20 @@ def db_rp_get_session(session_id: int) -> Optional[dict]:
         "id": row[0], "title": row[1], "persona_filename": row[2],
         "turn_routing": row[3], "response_style": row[4],
         "summary_window": row[5], "raw_window": row[6], "summary_text": row[7],
+        "stack_config": row[8] if len(row) > 8 else None,
+        "console_events": row[9] if len(row) > 9 else None,
         "characters": [{"card_filename": c[0], "char_name": c[1], "display_order": c[2]} for c in chars],
     }
+
+
+def db_rp_save_console_events(session_id: int, events_json: str):
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute(
+        "UPDATE rp_sessions SET console_events = ?, updated_at = datetime('now') WHERE id = ?",
+        (events_json, session_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def db_rp_list_sessions() -> list[dict]:
@@ -538,7 +665,8 @@ def db_rp_count_messages(session_id: int) -> int:
 
 
 def db_rp_update_settings(session_id: int, turn_routing: str = None, response_style: str = None,
-                          summary_window: int = None, raw_window: int = None) -> None:
+                          summary_window: int = None, raw_window: int = None,
+                          stack_config: str = None) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     updates = []
     params = []
@@ -554,6 +682,9 @@ def db_rp_update_settings(session_id: int, turn_routing: str = None, response_st
     if raw_window is not None:
         updates.append("raw_window = ?")
         params.append(raw_window)
+    if stack_config is not None:
+        updates.append("stack_config = ?")
+        params.append(stack_config)
     if updates:
         updates.append("updated_at = datetime('now')")
         params.append(session_id)
@@ -1408,12 +1539,28 @@ async def ws_chat(ws: WebSocket):
     system_prompt = ""
     analysis_prompt = ""
     session_id = None  # SQLite session row id
+    current_gen_task = None  # background generation task (for stop support)
 
     try:
         while True:
             data = await ws.receive_json()
 
-            if data["type"] == "start":
+            if data["type"] == "stop":
+                if current_gen_task and not current_gen_task.done():
+                    current_gen_task.cancel()
+                    try:
+                        await current_gen_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    try:
+                        await ws.send_json({"type": "character_typing_stopped"})
+                        await ws.send_json({"type": "analysis_typing_stopped"})
+                        await ws.send_json({"type": "generation_stopped"})
+                    except Exception:
+                        pass
+                continue
+
+            elif data["type"] == "start":
                 card_filename = data["card_filename"]
                 persona_filename = data.get("persona_filename")
                 try:
@@ -1463,77 +1610,83 @@ async def ws_chat(ws: WebSocket):
                 await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id})
 
                 # Get character response
-                try:
-                    # Build LLM context from SQLite
-                    llm_messages = db_get_llm_messages(session_id)
+                async def _school_gen():
+                    try:
+                        # Build LLM context from SQLite
+                        llm_messages = db_get_llm_messages(session_id)
 
-                    # ── Notify frontend: character is responding ──
-                    await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
+                        # ── Notify frontend: character is responding ──
+                        await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
 
-                    # ── Console: log the request ──
-                    await ws.send_json({
-                        "type": "console_event",
-                        "event": "request",
-                        "llm": "character",
-                        "model": CHAT_MODEL,
-                        "temperature": CHAT_TEMPERATURE,
-                        "max_tokens": CHAT_MAX_TOKENS,
-                        "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
-                        "timestamp": _now_iso(),
-                    })
+                        # ── Console: log the request ──
+                        await ws.send_json({
+                            "type": "console_event",
+                            "event": "request",
+                            "llm": "character",
+                            "model": CHAT_MODEL,
+                            "temperature": CHAT_TEMPERATURE,
+                            "max_tokens": CHAT_MAX_TOKENS,
+                            "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
+                            "timestamp": _now_iso(),
+                        })
 
-                    resp = await chat_client.chat.completions.create(
-                        model=CHAT_MODEL,
-                        messages=llm_messages,
-                        temperature=CHAT_TEMPERATURE,
-                        max_tokens=CHAT_MAX_TOKENS,
-                    )
-                    char_content = resp.choices[0].message.content
-                    usage = resp.usage
+                        resp = await chat_client.chat.completions.create(
+                            model=CHAT_MODEL,
+                            messages=llm_messages,
+                            temperature=CHAT_TEMPERATURE,
+                            max_tokens=CHAT_MAX_TOKENS,
+                        )
+                        char_content = resp.choices[0].message.content
+                        usage = resp.usage
 
-                    await ws.send_json({"type": "character_typing_stopped"})
+                        await ws.send_json({"type": "character_typing_stopped"})
 
-                    # ── Console: log the response ──
-                    await ws.send_json({
-                        "type": "console_event",
-                        "event": "response",
-                        "llm": "character",
-                        "model": CHAT_MODEL,
-                        "content": char_content,
-                        "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
-                        "finish_reason": resp.choices[0].finish_reason,
-                        "timestamp": _now_iso(),
-                    })
+                        # ── Console: log the response ──
+                        await ws.send_json({
+                            "type": "console_event",
+                            "event": "response",
+                            "llm": "character",
+                            "model": CHAT_MODEL,
+                            "content": char_content,
+                            "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
+                            "finish_reason": resp.choices[0].finish_reason,
+                            "timestamp": _now_iso(),
+                        })
 
-                    # Get previous assistant responses for drift comparison (before adding the new one)
-                    prev_assistants = db_get_assistant_messages(session_id)
-                    prev_texts = [m["content"] for m in prev_assistants]  # includes first_mes + prior responses
+                        # Get previous assistant responses for drift comparison (before adding the new one)
+                        prev_assistants = db_get_assistant_messages(session_id)
+                        prev_texts = [m["content"] for m in prev_assistants]  # includes first_mes + prior responses
 
-                    # ── Notify frontend: analyzer is running ──
-                    await ws.send_json({"type": "analysis_typing"})
+                        # ── Notify frontend: analyzer is running ──
+                        await ws.send_json({"type": "analysis_typing"})
 
-                    # Run analysis
-                    analysis = await analyze_response(
-                        analysis_prompt, char_content, prev_texts, card, ws=ws
-                    )
+                        # Run analysis
+                        analysis = await analyze_response(
+                            analysis_prompt, char_content, prev_texts, card, ws=ws
+                        )
 
-                    await ws.send_json({"type": "analysis_typing_stopped"})
+                        await ws.send_json({"type": "analysis_typing_stopped"})
 
-                    # Store in SQLite with analysis
-                    analysis_str = json.dumps(analysis) if analysis else None
-                    msg_id = db_add_message(session_id, "assistant", char_content, is_first_mes=False, analysis_json=analysis_str)
+                        # Store in SQLite with analysis
+                        analysis_str = json.dumps(analysis) if analysis else None
+                        msg_id = db_add_message(session_id, "assistant", char_content, is_first_mes=False, analysis_json=analysis_str)
 
-                    await ws.send_json({
-                        "type": "character_message",
-                        "content": char_content,
-                        "analysis": analysis,
-                        "is_first_mes": False,
-                        "message_id": msg_id,
-                    })
-                except Exception as e:
-                    await ws.send_json({"type": "character_typing_stopped"})
-                    await ws.send_json({"type": "analysis_typing_stopped"})
-                    await ws.send_json({"type": "error", "message": f"LLM error: {e}"})
+                        await ws.send_json({
+                            "type": "character_message",
+                            "content": char_content,
+                            "analysis": analysis,
+                            "is_first_mes": False,
+                            "message_id": msg_id,
+                        })
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        await ws.send_json({"type": "character_typing_stopped"})
+                        await ws.send_json({"type": "analysis_typing_stopped"})
+                        await ws.send_json({"type": "error", "message": f"LLM error: {e}"})
+
+                current_gen_task = asyncio.create_task(_school_gen())
+                continue  # back to main receive_json loop (handles stop)
 
             elif data["type"] == "set_persona":
                 # Change persona mid-session (will rebuild system prompt and reset)
@@ -1920,12 +2073,27 @@ async def ws_rp(ws: WebSocket):
     response_style = 'brief'
     summary_window = 20
     raw_window = 10
+    current_gen_task = None  # background generation task (for stop support)
 
     try:
         while True:
             data = await ws.receive_json()
 
-            if data["type"] == "start":
+            if data["type"] == "stop":
+                if current_gen_task and not current_gen_task.done():
+                    current_gen_task.cancel()
+                    try:
+                        await current_gen_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    try:
+                        await ws.send_json({"type": "character_typing_stopped"})
+                        await ws.send_json({"type": "generation_stopped"})
+                    except Exception:
+                        pass
+                continue
+
+            elif data["type"] == "start":
                 char_filenames = data.get("characters", [])
                 persona_filename = data.get("persona_filename")
                 turn_routing = data.get("turn_routing", "auto")
@@ -1962,13 +2130,18 @@ async def ws_rp(ws: WebSocket):
                 else:
                     persona = None
 
-                session_id = db_rp_create_session(char_list, persona_filename, turn_routing, response_style, summary_window, raw_window)
+                stack_config_json = data.get("stack_config")
+                stack_config_str = json.dumps(stack_config_json) if stack_config_json else None
+
+                session_id = db_rp_create_session(char_list, persona_filename, turn_routing, response_style, summary_window, raw_window, stack_config_str)
 
                 await ws.send_json({
                     "type": "session_started", "session_id": session_id,
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
                     "turn_routing": turn_routing, "response_style": response_style,
+                    "stack_config": stack_config_json or DEFAULT_STACK_CONFIG,
+                    "console_events": [],
                 })
 
                 # Send first_mes from all characters
@@ -2018,6 +2191,7 @@ async def ws_rp(ws: WebSocket):
                     persona = None
 
                 messages = db_rp_get_messages(session_id)
+                stack_cfg = get_stack_config(sess)
 
                 await ws.send_json({
                     "type": "session_resumed", "session_id": session_id,
@@ -2026,7 +2200,9 @@ async def ws_rp(ws: WebSocket):
                     "turn_routing": turn_routing, "response_style": response_style,
                     "summary_window": summary_window, "raw_window": raw_window,
                     "summary_text": sess.get("summary_text", ""),
+                    "stack_config": stack_cfg,
                     "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"]} for m in messages],
+                    "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
                 })
 
             elif data["type"] == "user_message":
@@ -2035,109 +2211,121 @@ async def ws_rp(ws: WebSocket):
 
                 db_rp_add_message(session_id, "user", user_content)
 
-                # Check if summarization needed
-                msg_count = db_rp_count_messages(session_id)
-                if msg_count > summary_window + raw_window:
-                    all_msgs = db_rp_get_messages(session_id)
-                    to_summarize = all_msgs[:-raw_window] if raw_window < len(all_msgs) else []
-                    if to_summarize:
+                async def _rp_gen():
+                    try:
+                        # Get stack config
                         sess = db_rp_get_session(session_id)
-                        existing_summary = sess.get("summary_text", "") if sess else ""
-                        new_summary = await rp_summarize(session_id, to_summarize, existing_summary, ws=ws)
-                        db_rp_update_summary(session_id, new_summary)
-                        await ws.send_json({"type": "summary_updated", "summary": new_summary, "summarized_count": len(to_summarize)})
+                        stack_cfg = get_stack_config(sess)
 
-                # Build LLM context
-                sess = db_rp_get_session(session_id)
-                system_prompt = build_rp_system_prompt(
-                    [cards[fn] for fn in character_order],
-                    persona, turn_routing, response_style,
-                    directed_character=character_names.get(directed_to) if directed_to else None,
-                )
+                        # Determine head_n and tail_n from stack
+                        head_n = 0
+                        tail_n = 0
+                        for blk in stack_cfg.get("blocks", []):
+                            if blk.get("type") == "head" and blk.get("enabled", True):
+                                head_n = blk.get("n", 2)
+                            elif blk.get("type") == "tail" and blk.get("enabled", True):
+                                tail_n = blk.get("n", 3)
 
-                llm_messages = [{"role": "system", "content": system_prompt}]
+                        # Check if summarization needed (middle section between head and tail)
+                        msg_count = db_rp_count_messages(session_id)
+                        all_msgs = db_rp_get_messages(session_id)
+                        if msg_count > head_n + summary_window + tail_n:
+                            end_idx = len(all_msgs) - tail_n if tail_n > 0 else len(all_msgs)
+                            to_summarize = all_msgs[head_n:end_idx] if head_n < end_idx else []
+                            if to_summarize:
+                                existing_summary = sess.get("summary_text", "") if sess else ""
+                                new_summary = await rp_summarize(session_id, to_summarize, existing_summary, ws=ws)
+                                db_rp_update_summary(session_id, new_summary)
+                                await ws.send_json({"type": "summary_updated", "summary": new_summary, "summarized_count": len(to_summarize)})
+                                # Refresh session to get updated summary
+                                sess = db_rp_get_session(session_id)
 
-                if sess and sess.get("summary_text"):
-                    llm_messages.append({"role": "system", "content": f"SCENE SUMMARY SO FAR:\n{sess['summary_text']}"})
+                        # Build system prompt
+                        system_prompt = build_rp_system_prompt(
+                            [cards[fn] for fn in character_order],
+                            persona, turn_routing, response_style,
+                            directed_character=character_names.get(directed_to) if directed_to else None,
+                        )
 
-                all_msgs = db_rp_get_messages(session_id)
-                recent = all_msgs[-raw_window:] if raw_window < len(all_msgs) else all_msgs
-                for m in recent:
-                    if m["role"] == "user":
-                        llm_messages.append({"role": "user", "content": m["content"]})
-                    elif m["role"] == "character":
-                        llm_messages.append({"role": "assistant", "content": f"[{m['speaker']}]: {m['content']}"})
-                    elif m["role"] == "system":
-                        llm_messages.append({"role": "system", "content": m["content"]})
+                        # Build LLM messages from stack config
+                        summary_text = sess.get("summary_text", "") if sess else ""
+                        all_msgs = db_rp_get_messages(session_id)
+                        llm_messages, block_markers = build_llm_messages_from_stack(
+                            stack_cfg, system_prompt, all_msgs, summary_text,
+                        )
 
-                # Typing indicator
-                if directed_to and directed_to in character_names:
-                    await ws.send_json({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})
-                else:
-                    await ws.send_json({"type": "character_typing", "character_filename": None, "character_name": None})
-
-                # Console: log request
-                await ws.send_json({
-                    "type": "console_event", "event": "request", "llm": "character",
-                    "model": CHAT_MODEL, "temperature": CHAT_TEMPERATURE, "max_tokens": CHAT_MAX_TOKENS,
-                    "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
-                    "timestamp": _now_iso(),
-                })
-
-                try:
-                    resp = await chat_client.chat.completions.create(
-                        model=CHAT_MODEL, messages=llm_messages,
-                        temperature=CHAT_TEMPERATURE, max_tokens=CHAT_MAX_TOKENS,
-                    )
-                    raw_content = resp.choices[0].message.content
-                    usage = resp.usage
-
-                    await ws.send_json({
-                        "type": "console_event", "event": "response", "llm": "character",
-                        "model": CHAT_MODEL, "content": raw_content,
-                        "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
-                        "finish_reason": resp.choices[0].finish_reason, "timestamp": _now_iso(),
-                    })
-
-                    parsed = parse_rp_response(raw_content, character_names, character_order)
-
-                    # In directed mode, filter to only the directed character's response
-                    if directed_to and directed_to in character_names:
-                        directed_name = character_names[directed_to]
-                        if parsed:
-                            # Keep only the directed character's responses
-                            filtered = [p for p in parsed if p["filename"] == directed_to]
-                            if filtered:
-                                parsed = filtered
-                            else:
-                                # LLM responded as someone else despite instruction;
-                                # strip any [Name]: prefix and attribute to the directed character
-                                import re as _re
-                                stripped = _re.sub(r'^\[[^\]]+\]:\s*', '', raw_content).strip()
-                                parsed = [{"filename": directed_to, "name": directed_name, "content": stripped}]
+                        # Typing indicator
+                        if directed_to and directed_to in character_names:
+                            await ws.send_json({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})
                         else:
-                            # No [Name]: prefix found — attribute to directed character
-                            parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
-                    elif not parsed:
-                        # Non-directed mode, no [Name]: prefix — send raw as first character
-                        fn = character_order[0] if character_order else None
-                        name = character_names.get(fn, "Unknown")
-                        parsed = [{"filename": fn, "name": name, "content": raw_content.strip()}]
+                            await ws.send_json({"type": "character_typing", "character_filename": None, "character_name": None})
 
-                    await ws.send_json({"type": "character_typing_stopped"})
+                        # Console: log request
+                        await ws.send_json({
+                            "type": "console_event", "event": "request", "llm": "character",
+                            "model": CHAT_MODEL, "temperature": CHAT_TEMPERATURE, "max_tokens": CHAT_MAX_TOKENS,
+                            "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
+                            "block_markers": block_markers,
+                            "timestamp": _now_iso(),
+                        })
 
-                    if parsed:
-                        for pr in parsed:
-                            msg_id = db_rp_add_message(session_id, "character", pr["content"], pr["name"])
-                            await ws.send_json({
-                                "type": "character_message", "content": pr["content"],
-                                "character_filename": pr["filename"], "character_name": pr["name"],
-                                "is_first_mes": False, "message_id": msg_id,
-                            })
+                        resp = await chat_client.chat.completions.create(
+                            model=CHAT_MODEL, messages=llm_messages,
+                            temperature=CHAT_TEMPERATURE, max_tokens=CHAT_MAX_TOKENS,
+                        )
+                        raw_content = resp.choices[0].message.content
+                        usage = resp.usage
 
-                except Exception as e:
-                    await ws.send_json({"type": "character_typing_stopped"})
-                    await ws.send_json({"type": "error", "message": f"LLM error: {e}"})
+                        await ws.send_json({
+                            "type": "console_event", "event": "response", "llm": "character",
+                            "model": CHAT_MODEL, "content": raw_content,
+                            "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
+                            "finish_reason": resp.choices[0].finish_reason, "timestamp": _now_iso(),
+                        })
+
+                        parsed = parse_rp_response(raw_content, character_names, character_order)
+
+                        # In directed mode, filter to only the directed character's response
+                        if directed_to and directed_to in character_names:
+                            directed_name = character_names[directed_to]
+                            if parsed:
+                                # Keep only the directed character's responses
+                                filtered = [p for p in parsed if p["filename"] == directed_to]
+                                if filtered:
+                                    parsed = filtered
+                                else:
+                                    # LLM responded as someone else despite instruction;
+                                    # strip any [Name]: prefix and attribute to the directed character
+                                    import re as _re
+                                    stripped = _re.sub(r'^\[[^\]]+\]:\s*', '', raw_content).strip()
+                                    parsed = [{"filename": directed_to, "name": directed_name, "content": stripped}]
+                            else:
+                                # No [Name]: prefix found — attribute to directed character
+                                parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
+                        elif not parsed:
+                            # Non-directed mode, no [Name]: prefix — send raw as first character
+                            fn = character_order[0] if character_order else None
+                            name = character_names.get(fn, "Unknown")
+                            parsed = [{"filename": fn, "name": name, "content": raw_content.strip()}]
+
+                        await ws.send_json({"type": "character_typing_stopped"})
+
+                        if parsed:
+                            for pr in parsed:
+                                msg_id = db_rp_add_message(session_id, "character", pr["content"], pr["name"])
+                                await ws.send_json({
+                                    "type": "character_message", "content": pr["content"],
+                                    "character_filename": pr["filename"], "character_name": pr["name"],
+                                    "is_first_mes": False, "message_id": msg_id,
+                                })
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        await ws.send_json({"type": "character_typing_stopped"})
+                        await ws.send_json({"type": "error", "message": f"LLM error: {e}"})
+
+                current_gen_task = asyncio.create_task(_rp_gen())
+                continue  # back to main receive_json loop (handles stop)
 
             elif data["type"] == "delete_message":
                 target_id = data.get("message_id")
@@ -2153,6 +2341,20 @@ async def ws_rp(ws: WebSocket):
                     raw_window = data.get("raw_window", raw_window)
                     db_rp_update_settings(session_id, turn_routing, response_style, summary_window, raw_window)
                     await ws.send_json({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "summary_window": summary_window, "raw_window": raw_window})
+
+            elif data["type"] == "update_stack":
+                if session_id:
+                    stack_cfg_data = data.get("stack_config")
+                    if stack_cfg_data:
+                        stack_cfg_str = json.dumps(stack_cfg_data)
+                        db_rp_update_settings(session_id, stack_config=stack_cfg_str)
+                        await ws.send_json({"type": "stack_updated", "stack_config": stack_cfg_data})
+
+            elif data["type"] == "save_console_events":
+                if session_id:
+                    events = data.get("events", [])
+                    db_rp_save_console_events(session_id, json.dumps(events))
+                    await ws.send_json({"type": "console_events_saved"})
 
             elif data["type"] == "set_persona":
                 persona_filename = data.get("persona_filename")

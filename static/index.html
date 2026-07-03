@@ -67,8 +67,10 @@ header .status.connected { color:var(--green); }
 .chat-input textarea { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px 12px; font-size:14px; resize:none; height:44px; font-family:inherit; }
 .chat-input textarea:focus { outline:none; border-color:var(--accent); }
 .chat-input button { padding:10px 20px; border:none; border-radius:8px; font-size:14px; cursor:pointer; font-weight:500; }
-.btn-send { background:var(--accent); color:#fff; }
-.btn-send:disabled { opacity:0.5; cursor:not-allowed; }
+ .btn-send { background:var(--accent); color:#fff; }
+ .btn-send:disabled { opacity:0.5; cursor:not-allowed; }
+ .btn-stop { background:#e74c3c; color:#fff; border:none; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:14px; white-space:nowrap; }
+ .btn-stop:hover { background:#c0392b; }
 .btn-reset { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
 .btn-report { background:var(--purple); color:#fff; }
 
@@ -315,7 +317,43 @@ body.rp-mode .school-only { display:none; }
 .rp-summary-bar:hover { background:rgba(188,140,255,0.12); }
 .rp-summary-bar .label { color:var(--purple); font-weight:600; }
 
+/* Stack Builder Dialog */
+.stack-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
+.stack-overlay.show { display:flex; }
+.stack-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:560px; max-height:85vh; display:flex; flex-direction:column; margin:auto; }
+.stack-header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+.stack-header h2 { font-size:16px; font-weight:600; }
+.stack-header .sub { font-size:11px; color:var(--text-dim); }
+.stack-body { flex:1; overflow-y:auto; padding:16px 20px; }
+.stack-footer { padding:10px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+.stack-list { display:flex; flex-direction:column; gap:8px; }
+.stack-block { display:flex; align-items:center; gap:10px; padding:10px 14px; border:1px solid var(--border); border-radius:8px; background:var(--surface2); cursor:grab; transition:border-color 0.15s, opacity 0.15s; user-select:none; }
+.stack-block.dragging { opacity:0.5; border-color:var(--accent); }
+.stack-block.drag-over { border-color:var(--accent); border-style:dashed; }
+.stack-block.disabled { opacity:0.45; }
+.stack-block .drag-handle { color:var(--text-dim); font-size:16px; cursor:grab; line-height:1; }
+.stack-block .block-icon { font-size:18px; width:24px; text-align:center; }
+.stack-block .block-label { font-size:13px; font-weight:500; flex:1; }
+.stack-block .block-desc { font-size:11px; color:var(--text-dim); }
+.stack-block .block-toggle { width:36px; height:20px; border-radius:10px; background:var(--bg); border:1px solid var(--border); position:relative; cursor:pointer; transition:background 0.2s; flex-shrink:0; }
+.stack-block .block-toggle::after { content:''; position:absolute; top:1px; left:1px; width:16px; height:16px; border-radius:50%; background:var(--text-dim); transition:transform 0.2s, background 0.2s; }
+.stack-block.enabled .block-toggle { background:rgba(88,166,255,0.2); border-color:var(--accent); }
+.stack-block.enabled .block-toggle::after { transform:translateX(16px); background:var(--accent); }
+.stack-block .block-n-input { width:48px; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text); padding:4px 6px; font-size:12px; text-align:center; }
+.stack-block .block-n-input:focus { outline:none; border-color:var(--accent); }
+.stack-block .block-custom-btn { font-size:11px; color:var(--accent); cursor:pointer; padding:2px 8px; border:1px solid var(--border); border-radius:4px; }
+.stack-block .block-custom-btn:hover { border-color:var(--accent); }
+.stack-block.locked { cursor:default; }
+.stack-block.locked .drag-handle { visibility:hidden; }
+.stack-block.locked .block-toggle { pointer-events:none; opacity:0.3; }
+.stack-custom-textarea { width:100%; min-height:80px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:10px; font-size:12px; font-family:inherit; resize:vertical; margin-top:8px; display:none; }
+.stack-custom-textarea.show { display:block; }
+.stack-custom-textarea:focus { outline:none; border-color:var(--accent); }
+.stack-info { font-size:11px; color:var(--text-dim); padding:8px 12px; background:rgba(88,166,255,0.05); border-radius:6px; margin-bottom:12px; }
+/* Console block separators */
+.console-block-sep { margin:6px 0 2px; padding:3px 8px; font-size:10px; font-weight:600; border-radius:4px; display:inline-block; }
 </style>
+
 </head>
 <body>
 
@@ -380,6 +418,7 @@ body.rp-mode .school-only { display:none; }
     <div class="chat-input">
       <textarea id="msgInput" placeholder="Type your message... (Enter to send, Shift+Enter for newline)" disabled onkeydown="handleKey(event)"></textarea>
       <button class="btn-send" id="btnSend" onclick="sendMessage()" disabled>Send</button>
+      <button class="btn-stop" id="btnStop" onclick="stopGeneration()" style="display:none">⏹ Stop</button>
     </div>
     <!-- Console -->
     <div class="console-bar" id="consoleBar" onclick="toggleConsole()">
@@ -398,6 +437,7 @@ body.rp-mode .school-only { display:none; }
 
   <!-- RP Mode: Center Panel -->
   <div class="rp-center-panel rp-only">
+    <!-- RP Scene Bar -->
     <div class="rp-scene-bar" id="rpSceneBar">
       <span style="color:var(--text-dim);font-size:13px" id="rpScenePlaceholder">No active session. Click "+ New" to start a roleplay.</span>
     </div>
@@ -405,9 +445,11 @@ body.rp-mode .school-only { display:none; }
       <div class="analysis-empty" id="rpChatEmpty">Start a new RP session to begin.</div>
     </div>
     <div class="chat-input" id="rpInputArea" style="display:none">
-      <select id="rpDirectSelect" onchange="onRPDirectChange()" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:12px;cursor:pointer"></select>
+      <select id="rpPersonaBar" onchange="onRPPersonaChange()" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:12px;cursor:pointer;flex-shrink:0"></select>
       <textarea id="rpMsgInput" placeholder="Type your message... (Enter to send, Shift+Enter for newline)" disabled onkeydown="handleRPKey(event)"></textarea>
+      <select id="rpDirectSelect" onchange="onRPDirectChange()" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:12px;cursor:pointer;flex-shrink:0"></select>
       <button class="btn-send" id="rpBtnSend" onclick="sendRPMessage()" disabled>Send</button>
+      <button class="btn-stop" id="rpBtnStop" onclick="stopRPGeneration()" style="display:none">⏹ Stop</button>
     </div>
     <!-- RP Console (shared with school console) -->
     <div class="console-bar" id="rpConsoleBar" onclick="toggleConsole()">
@@ -643,6 +685,27 @@ body.rp-mode .school-only { display:none; }
         <textarea id="persona_tests" style="width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
       </div>
       <div class="persona-preview" id="personaPreview"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Stack Builder Dialog (RP only) -->
+<div class="stack-overlay" id="stackOverlay">
+  <div class="stack-modal">
+    <div class="stack-header">
+      <h2>🔗 Prompt Stack Builder</h2>
+      <span class="sub">Drag to reorder · toggle on/off · customize per block</span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn-send" onclick="saveStackConfig()">Apply</button>
+      <button class="btn-reset" onclick="closeStackBuilder()">Close</button>
+    </div>
+    <div class="stack-body">
+      <div class="stack-info">The order below is the order the LLM receives. Drag blocks to reorder. Toggle off to skip a block.</div>
+      <div class="stack-list" id="stackBlockList"></div>
+      <textarea class="stack-custom-textarea" id="stackCustomText" placeholder="Custom system message — injected into the prompt at the Custom block position..."></textarea>
+    </div>
+    <div class="stack-footer">
+      <button class="btn-reset" onclick="resetStackConfig()">Reset to Default</button>
     </div>
   </div>
 </div>
@@ -1094,6 +1157,11 @@ function connectWS(filename, personaFilename) {
       showSchoolTyping('analyzer');
     } else if (data.type === 'analysis_typing_stopped') {
       hideSchoolTyping();
+    } else if (data.type === 'generation_stopped') {
+      isWaiting = false;
+      hideSchoolTyping();
+      updateInputState();
+      addMessage('system', '⏹ Generation stopped', null, false);
     }
   };
 
@@ -1335,7 +1403,14 @@ function handleKey(e) {
 function updateInputState() {
   document.getElementById('btnSend').disabled = isWaiting;
   document.getElementById('msgInput').disabled = isWaiting;
+  document.getElementById('btnStop').style.display = isWaiting ? '' : 'none';
   if (!isWaiting) document.getElementById('msgInput').focus();
+}
+
+function stopGeneration() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'stop' }));
+  }
 }
 
 // ─── Persona Management ──────────────────────────
@@ -1763,6 +1838,8 @@ let rpTurnRouting = 'auto';
 let rpResponseStyle = 'brief';
 let rpSummaryWindow = 20;
 let rpRawWindow = 10;
+let rpStackConfig = null;
+let stackDragSrc = null;
 let rpIsWaiting = false;
 let rpCardsList = [];       // cached card list for picker
 let rpSetupChars = [];      // selected filenames in setup
@@ -1916,15 +1993,19 @@ function handleRPMessage(data) {
     rpPersonaFilename = data.persona;
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
+    rpStackConfig = data.stack_config || null;
     rpConsoleEvents = 0;
     document.getElementById('rpConsoleCount').textContent = '0';
     document.getElementById('rpConsoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+    // Clear summary bar from any previous session
+    const oldSummaryBar = document.getElementById('rpSummaryBar');
+    if (oldSummaryBar) oldSummaryBar.remove();
     renderRPSceneBar();
     document.getElementById('rpChatMessages').innerHTML = '';
     document.getElementById('rpInputArea').style.display = 'flex';
     rpIsWaiting = false;
     updateRPInputState();
-    loadRPSessions(); // refresh sidebar
+    loadRPSessions();
   } else if (data.type === 'session_resumed') {
     rpActiveSessionId = data.session_id;
     rpCharacters = data.characters;
@@ -1933,9 +2014,23 @@ function handleRPMessage(data) {
     rpResponseStyle = data.response_style;
     rpSummaryWindow = data.summary_window;
     rpRawWindow = data.raw_window;
+    rpStackConfig = data.stack_config || null;
+    // Clear summary bar from any previous session
+    const oldSummaryBar = document.getElementById('rpSummaryBar');
+    if (oldSummaryBar) oldSummaryBar.remove();
+    // Restore saved console events for this session
+    const rpConsoleInner = document.getElementById('rpConsoleInner');
+    rpConsoleInner.innerHTML = '';
     rpConsoleEvents = 0;
-    document.getElementById('rpConsoleCount').textContent = '0';
-    document.getElementById('rpConsoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+    const savedEvents = data.console_events || [];
+    if (savedEvents.length) {
+      savedEvents.forEach(evt => {
+        addRPConsoleEntry(evt);
+      });
+    } else {
+      rpConsoleInner.innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+      document.getElementById('rpConsoleCount').textContent = '0';
+    }
     renderRPSceneBar();
     document.getElementById('rpChatMessages').innerHTML = '';
     // Re-render messages
@@ -1947,6 +2042,10 @@ function handleRPMessage(data) {
           addRPMessage('character', m.content, m.speaker, m.id);
         }
       });
+    }
+    // Restore summary bar if this session has a summary
+    if (data.summary_text) {
+      showRPSummaryBar(data.summary_text, data.messages ? data.messages.length : 0);
     }
     document.getElementById('rpInputArea').style.display = 'flex';
     rpIsWaiting = false;
@@ -1963,6 +2062,10 @@ function handleRPMessage(data) {
     showRPTyping(data.character_name);
   } else if (data.type === 'character_typing_stopped') {
     hideRPTyping();
+  } else if (data.type === 'generation_stopped') {
+    rpIsWaiting = false;
+    hideRPTyping();
+    updateRPInputState();
   } else if (data.type === 'user_message_stored') {
     // not needed for RP (we add DOM immediately)
   } else if (data.type === 'summary_updated') {
@@ -1973,6 +2076,8 @@ function handleRPMessage(data) {
     rpSummaryWindow = data.summary_window;
     rpRawWindow = data.raw_window;
     renderRPSceneBar();
+  } else if (data.type === 'stack_updated') {
+    rpStackConfig = data.stack_config;
   } else if (data.type === 'persona_changed') {
     rpPersonaFilename = data.persona;
     renderRPSceneBar();
@@ -1985,6 +2090,7 @@ function handleRPMessage(data) {
     hideRPTyping();
   } else if (data.type === 'console_event') {
     addRPConsoleEntry(data);
+    queueSaveRPConsoleEvents();
   }
 }
 
@@ -2002,20 +2108,26 @@ function renderRPSceneBar() {
   });
   html += '</div><span class="spacer"></span>';
 
-  // Persona selector
-  html += `<select id="rpPersonaBar" onchange="onRPPersonaChange()" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 10px;font-size:12px;cursor:pointer">`;
-  html += '<option value="">No persona</option>';
-  personasList.forEach(p => {
-    const sel = p.filename === rpPersonaFilename ? ' selected' : '';
-    html += `<option value="${escapeHtml(p.filename)}"${sel}>${escapeHtml(p.name)}</option>`;
-  });
-  html += '</select>';
-
   // Settings toggles
   html += `<div class="rp-toggle-btn ${rpTurnRouting==='auto'?'active':''}" onclick="rpUpdateSetting('turn_routing','${rpTurnRouting==='auto'?'directed':'auto'}')">${rpTurnRouting === 'auto' ? 'Auto' : 'Directed'}</div>`;
   html += `<div class="rp-toggle-btn ${rpResponseStyle==='brief'?'active':''}" onclick="rpUpdateSetting('response_style','${rpResponseStyle==='brief'?'full':'brief'}')">${rpResponseStyle === 'brief' ? 'Brief' : 'Full'}</div>`;
 
+  // Stack Builder button
+  html += `<div class="rp-toggle-btn" onclick="openStackBuilder()" title="Customize prompt stack">🔗 Prompts Stack</div>`;
+
   bar.innerHTML = html;
+
+  // Persona selector — now lives in the input area
+  const personaSel = document.getElementById('rpPersonaBar');
+  if (personaSel) {
+    let phtml = '<option value="">No persona</option>';
+    personasList.forEach(p => {
+      const sel = p.filename === rpPersonaFilename ? ' selected' : '';
+      phtml += `<option value="${escapeHtml(p.filename)}"${sel}>${escapeHtml(p.name)}</option>`;
+    });
+    personaSel.innerHTML = phtml;
+    personaSel.style.display = personasList.length > 0 ? 'block' : 'none';
+  }
 
   // Directed mode: show character selector
   const directSel = document.getElementById('rpDirectSelect');
@@ -2164,7 +2276,14 @@ function handleRPKey(e) {
 function updateRPInputState() {
   document.getElementById('rpBtnSend').disabled = rpIsWaiting;
   document.getElementById('rpMsgInput').disabled = rpIsWaiting;
+  document.getElementById('rpBtnStop').style.display = rpIsWaiting ? '' : 'none';
   if (!rpIsWaiting) document.getElementById('rpMsgInput').focus();
+}
+
+function stopRPGeneration() {
+  if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+    rpWS.send(JSON.stringify({ type: 'stop' }));
+  }
 }
 
 function onRPPersonaChange() {
@@ -2173,6 +2292,30 @@ function onRPPersonaChange() {
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {
     rpWS.send(JSON.stringify({type: 'set_persona', persona_filename: filename}));
   }
+}
+
+let rpConsoleSaveTimer = null;
+
+function collectRPConsoleEvents() {
+  const entries = document.querySelectorAll('#rpConsoleInner > .console-entry');
+  const events = [];
+  entries.forEach(entry => {
+    try {
+      const raw = entry.getAttribute('data-raw') || '';
+      const data = JSON.parse(raw);
+      if (data && data.event) events.push(data);
+    } catch (e) {}
+  });
+  return events;
+}
+
+function queueSaveRPConsoleEvents() {
+  if (!rpActiveSessionId || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
+  if (rpConsoleSaveTimer) clearTimeout(rpConsoleSaveTimer);
+  rpConsoleSaveTimer = setTimeout(() => {
+    const events = collectRPConsoleEvents();
+    rpWS.send(JSON.stringify({ type: 'save_console_events', events: events }));
+  }, 500);
 }
 
 function onRPDirectChange() {
@@ -2204,7 +2347,7 @@ function addRPConsoleEntry(data) {
   const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';
   const llmLabel = data.llm === 'character' ? 'CHARACTER' : 'ANALYSIS';
 
-  let html = `<div class="console-entry">`;
+  let html = '';
   html += `<span class="ts">${escapeHtml(data.timestamp || '')}</span>`;
   if (data.label) {
     html += ` <span style="color:var(--yellow);font-size:11px;font-weight:600">[${escapeHtml(data.label)}]</span>`;
@@ -2222,7 +2365,18 @@ function addRPConsoleEntry(data) {
     const tc = document.getElementById('tokenCounter');
     if (tc) tc.textContent = `~${estTokens.toLocaleString()} tok`;
     html += `<div style="margin:4px 0">`;
-    data.messages.forEach(m => {
+    // Block markers for RP stack visualization
+    const blockMarkers = data.block_markers || [];
+    const blockColors = { system: '#58a6ff', head: '#f0883e', summary: '#bc8cff', custom: '#3fb950', tail: '#f85149' };
+    data.messages.forEach((m, i) => {
+      // Insert block separator if this message starts a new block
+      if (blockMarkers.length > 0) {
+        const bm = blockMarkers.find(b => b.start === i);
+        if (bm) {
+          const color = blockColors[bm.block] || 'var(--text-dim)';
+          html += `<div class="console-block-sep" style="color:${color};border:1px solid ${color};margin-top:8px">▼ ${escapeHtml(bm.label)}</div>`;
+        }
+      }
       const role = m.role || '?';
       let content = m.content || '';
       html += `<div class="msg-content ${role}"><span class="msg-role">${escapeHtml(role)}</span>: ${escapeHtml(content)}</div>`;
@@ -2241,8 +2395,11 @@ function addRPConsoleEntry(data) {
     html += `<br>`;
   }
 
-  html += `</div>`;
-  inner.insertAdjacentHTML('beforeend', html);
+  const entryDiv = document.createElement('div');
+  entryDiv.className = 'console-entry';
+  entryDiv.dataset.raw = JSON.stringify(data);
+  entryDiv.innerHTML = html;
+  inner.appendChild(entryDiv);
 
   if (consoleOpen) {
     inner.scrollTop = inner.scrollHeight;
@@ -2297,6 +2454,162 @@ async function deleteRPSession(sessionId) {
     alert('Failed to delete: ' + e.message);
   }
 }
+// ─── Stack Builder ──────────────────────────────────────────────
+const STACK_BLOCK_DEFS = {
+  system:  { icon: '⚙️', label: 'System Prompt',    desc: 'Character cards + persona + routing', locked: true },
+  head:    { icon: '📌', label: 'Head Messages',     desc: 'First N messages kept raw (sets the scene)', hasN: true },
+  summary: { icon: '📝', label: 'Scene Summary',     desc: 'Compressed middle section (auto-generated)' },
+  custom:  { icon: '✏️', label: 'Custom Inject',     desc: 'Your own system message — free text', hasText: true },
+  tail:    { icon: '⏩', label: 'Raw Tail',          desc: 'Last N messages kept raw (recent context)', hasN: true },
+};
+
+function getDefaultStackConfig() {
+  return { blocks: [
+    { type: 'system',  enabled: true, locked: true },
+    { type: 'head',    enabled: true, n: 2 },
+    { type: 'summary', enabled: true },
+    { type: 'custom',  enabled: false, text: '' },
+    { type: 'tail',    enabled: true, n: 3 },
+  ]};
+}
+
+function openStackBuilder() {
+  if (!rpActiveSessionId) { alert('Start or resume an RP session first.'); return; }
+  if (!rpStackConfig) rpStackConfig = getDefaultStackConfig();
+  renderStackBlocks();
+  document.getElementById('stackOverlay').classList.add('show');
+}
+
+function closeStackBuilder() {
+  document.getElementById('stackOverlay').classList.remove('show');
+}
+
+function renderStackBlocks() {
+  const list = document.getElementById('stackBlockList');
+  list.innerHTML = '';
+  const blocks = rpStackConfig.blocks || [];
+
+  // Sync custom textarea
+  const customBlock = blocks.find(b => b.type === 'custom');
+  const ta = document.getElementById('stackCustomText');
+  if (customBlock) {
+    ta.value = customBlock.text || '';
+    ta.classList.toggle('show', !!customBlock.enabled);
+  }
+
+  blocks.forEach((block, idx) => {
+    const def = STACK_BLOCK_DEFS[block.type] || {};
+    const enabled = block.enabled !== false;
+    const locked = !!def.locked || !!block.locked;
+
+    const div = document.createElement('div');
+    div.className = 'stack-block ' + (enabled ? 'enabled' : 'disabled') + (locked ? ' locked' : '');
+    div.draggable = !locked;
+    div.dataset.idx = idx;
+
+    let inner = '';
+    inner += `<span class="drag-handle">⋮⋮</span>`;
+    inner += `<span class="block-icon">${def.icon || '❓'}</span>`;
+    inner += `<div style="flex:1"><div class="block-label">${def.label || block.type}</div><div class="block-desc">${def.desc || ''}</div></div>`;
+
+    if (def.hasN) {
+      inner += `<input class="block-n-input" type="number" min="0" max="50" value="${block.n ?? 2}" onchange="updateBlockN(${idx}, this.value)" onclick="event.stopPropagation()" />`;
+    }
+
+    if (def.hasText) {
+      inner += `<span class="block-custom-btn" onclick="toggleCustomText(${idx})">${enabled ? 'Edit' : 'Enable & Edit'}</span>`;
+    }
+
+    if (!locked) {
+      inner += `<div class="block-toggle" onclick="toggleBlock(${idx})"></div>`;
+    } else {
+      inner += `<div class="block-toggle"></div>`;
+    }
+
+    div.innerHTML = inner;
+
+    // Drag events
+    if (!locked) {
+      div.addEventListener('dragstart', (e) => {
+        stackDragSrc = idx;
+        div.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      div.addEventListener('dragend', () => {
+        div.classList.remove('dragging');
+        document.querySelectorAll('.stack-block').forEach(el => el.classList.remove('drag-over'));
+      });
+      div.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        div.classList.add('drag-over');
+      });
+      div.addEventListener('dragleave', () => {
+        div.classList.remove('drag-over');
+      });
+      div.addEventListener('drop', (e) => {
+        e.preventDefault();
+        div.classList.remove('drag-over');
+        if (stackDragSrc === null || stackDragSrc === idx) return;
+        // Don't allow dropping before the locked system block (idx 0)
+        const targetIdx = idx === 0 ? 1 : idx;
+        if (stackDragSrc === 0) return; // can't move system block
+        const blocks = rpStackConfig.blocks;
+        const moved = blocks.splice(stackDragSrc, 1)[0];
+        const insertAt = targetIdx > stackDragSrc ? targetIdx - 1 : targetIdx;
+        blocks.splice(insertAt, 0, moved);
+        stackDragSrc = null;
+        renderStackBlocks();
+      });
+    }
+
+    list.appendChild(div);
+  });
+}
+
+function toggleBlock(idx) {
+  const block = rpStackConfig.blocks[idx];
+  if (!block || block.locked) return;
+  block.enabled = !block.enabled;
+  if (block.type === 'custom') {
+    document.getElementById('stackCustomText').classList.toggle('show', block.enabled);
+  }
+  renderStackBlocks();
+}
+
+function updateBlockN(idx, val) {
+  const block = rpStackConfig.blocks[idx];
+  if (!block) return;
+  block.n = Math.max(0, Math.min(50, parseInt(val) || 0));
+}
+
+function toggleCustomText(idx) {
+  const block = rpStackConfig.blocks[idx];
+  if (!block) return;
+  if (!block.enabled) {
+    block.enabled = true;
+  }
+  document.getElementById('stackCustomText').classList.toggle('show');
+  renderStackBlocks();
+}
+
+function saveStackConfig() {
+  // Sync custom text
+  const customBlock = rpStackConfig.blocks.find(b => b.type === 'custom');
+  if (customBlock) {
+    customBlock.text = document.getElementById('stackCustomText').value;
+  }
+  if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+    rpWS.send(JSON.stringify({ type: 'update_stack', stack_config: rpStackConfig }));
+  }
+  closeStackBuilder();
+}
+
+function resetStackConfig() {
+  rpStackConfig = getDefaultStackConfig();
+  renderStackBlocks();
+}
+
 // ─── Settings Modal ──────────────────────────────────────────────
 async function openSettings() {
   try {
