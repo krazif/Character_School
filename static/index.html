@@ -821,6 +821,10 @@ body.rp-mode .school-only { display:none; }
               <span id="genNsfwLabel" style="font-size:13px;color:var(--text-dim)">SFW</span>
             </div>
           </div>
+          <div class="gen-field" style="max-width:180px">
+            <label>Creator name</label>
+            <input type="text" id="genCreator" placeholder="Richard" value="Richard" />
+          </div>
         </div>
       </div>
 
@@ -1100,6 +1104,7 @@ function resetGenerateForm() {
   document.getElementById('genScenario').value = '';
   document.getElementById('genAppearance').value = '';
   document.getElementById('genVersion').value = '2';
+  document.getElementById('genCreator').value = 'Richard';
   genNsfwOn = false;
   document.getElementById('genNsfwToggle').classList.remove('on');
   document.getElementById('genNsfwLabel').textContent = 'SFW';
@@ -1125,6 +1130,7 @@ async function generateCharacter() {
     scenario: document.getElementById('genScenario').value.trim(),
     appearance: document.getElementById('genAppearance').value.trim(),
     version: parseInt(document.getElementById('genVersion').value),
+    creator: document.getElementById('genCreator').value.trim(),
     nsfw: genNsfwOn,
   };
   genLastVersion = payload.version;

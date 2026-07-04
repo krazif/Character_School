@@ -2402,7 +2402,7 @@ Generate a chara_card_v2 character card with this exact structure:
     "system_prompt": "",
     "post_history_instructions": "",
     "tags": [],
-    "creator": "Richard",
+    "creator": "{creator}",
     "character_version": "",
     "alternate_greetings": [],
     "extensions": {}
@@ -2436,7 +2436,7 @@ Generate a V1 character card with this exact flat structure:
   "scenario": "",
   "first_mes": "",
   "mes_example": "",
-  "creator": "Richard",
+  "creator": "{creator}",
   "character_version": "",
   "tags": []
 }
@@ -2468,6 +2468,7 @@ async def generate_character(req: Request):
     scenario_hint = (body.get("scenario") or "").strip()
     appearance_hint = (body.get("appearance") or "").strip()
     nsfw = body.get("nsfw", False)
+    creator_name = (body.get("creator") or "").strip() or "Richard"
 
     # Build user prompt from hints
     parts = [f"Concept: {concept}"]
@@ -2487,7 +2488,7 @@ async def generate_character(req: Request):
         parts.append("Content rating: SFW (keep all content safe for work)")
 
     user_prompt = "\n".join(parts)
-    system_prompt = GEN_V2_SYSTEM if version == 2 else GEN_V1_SYSTEM
+    system_prompt = (GEN_V2_SYSTEM if version == 2 else GEN_V1_SYSTEM).replace("{creator}", creator_name)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -2528,14 +2529,14 @@ async def generate_character(req: Request):
                 card = {"spec": "chara_card_v2", "spec_version": "2.0", "data": card}
             card["spec"] = "chara_card_v2"
             card["spec_version"] = "2.0"
-            card.setdefault("data", {}).setdefault("creator", "Richard")
+            card.setdefault("data", {}).setdefault("creator", creator_name)
         else:
             # V1: flatten if accidentally nested
             if "data" in card:
                 card = card["data"]
             card.pop("spec", None)
             card.pop("spec_version", None)
-            card.setdefault("creator", "Richard")
+            card.setdefault("creator", creator_name)
 
         return {"card": card, "version": version, "console_events": console_events, "usage": getattr(completion, "usage", None) and completion.usage.model_dump()}
 
