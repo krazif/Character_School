@@ -1273,7 +1273,7 @@ async function saveGeneratedCard() {
     closeGenerateModal();
     // Select the new card
     if (data.filename) {
-      selectCard(data.filename.replace('.json', ''));
+      selectCard(data.filename);
     }
   } catch (e) {
     const err = document.getElementById('genError');
