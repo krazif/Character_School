@@ -2235,8 +2235,8 @@ function formatMessage(text) {
   let safe = escapeHtml(text);
   // *text* → <em>text</em>  (non-greedy, no nesting across newlines)
   safe = safe.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-  // Restore dialog placeholders as <strong class="dialog">
-  safe = safe.replace(/\x00D(\d+)\x00/g, (m, i) => `<strong class="dialog">${escapeHtml(dialogs[parseInt(i)])}</strong>`);
+  // Restore dialog placeholders as <strong class="dialog"> (with quotes preserved)
+  safe = safe.replace(/\x00D(\d+)\x00/g, (m, i) => `<strong class="dialog">&ldquo;${escapeHtml(dialogs[parseInt(i)])}&rdquo;</strong>`);
   return safe;
 }
 
