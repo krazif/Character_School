@@ -459,6 +459,10 @@ body.rp-mode .school-only { display:none; }
     <div class="console-bar" id="consoleBar" onclick="toggleConsole()">
       <span class="label">🖥 LLM Console</span>
       <span class="count" id="consoleCount">0</span>
+      <span class="console-limit-wrap" onclick="event.stopPropagation()">
+        <span style="font-size:11px;color:var(--text-dim)">keep</span>
+        <input type="number" id="consoleLimitInput" min="0" step="5" value="0" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" onchange="onConsoleLimitChange(this.value)">
+      </span>
       <span class="spacer"></span>
       <span class="max-btn" id="consoleMaxBtn" onclick="event.stopPropagation(); toggleConsoleMax()" title="Expand to maximum">⤢</span>
       <span class="chevron" id="consoleChevron">▲</span>
@@ -490,6 +494,10 @@ body.rp-mode .school-only { display:none; }
     <div class="console-bar" id="rpConsoleBar" onclick="toggleConsole()">
       <span class="label">🖥 LLM Console</span>
       <span class="count" id="rpConsoleCount">0</span>
+      <span class="console-limit-wrap" onclick="event.stopPropagation()">
+        <span style="font-size:11px;color:var(--text-dim)">keep</span>
+        <input type="number" id="rpConsoleLimitInput" min="0" step="5" value="0" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" onchange="onConsoleLimitChange(this.value)">
+      </span>
       <span class="spacer"></span>
       <span class="max-btn" id="rpConsoleMaxBtn" onclick="event.stopPropagation(); toggleConsoleMax()" title="Expand to maximum">⤢</span>
       <span class="chevron" id="rpConsoleChevron">▲</span>
@@ -943,6 +951,28 @@ let personaEditorFilename = null;
 let consoleOpen = false;
 let consoleMaximized = false;
 let consoleEventCount = 0;
+let consoleLimit = 0; // 0 = unlimited; shared across School + RP consoles
+
+function onConsoleLimitChange(val) {
+  consoleLimit = Math.max(0, parseInt(val) || 0);
+  // Sync both inputs
+  const si = document.getElementById('consoleLimitInput');
+  const ri = document.getElementById('rpConsoleLimitInput');
+  if (si) si.value = consoleLimit;
+  if (ri) ri.value = consoleLimit;
+  // Immediately trim existing entries
+  trimConsoleEntries(document.getElementById('consoleInner'));
+  trimConsoleEntries(document.getElementById('rpConsoleInner'));
+}
+
+function trimConsoleEntries(inner) {
+  if (!inner || consoleLimit <= 0) return;
+  const entries = inner.querySelectorAll('.console-entry');
+  const excess = entries.length - consoleLimit;
+  if (excess > 0) {
+    for (let i = 0; i < excess; i++) entries[i].remove();
+  }
+}
 
 // ─── Console ────────────────────────────────────
 function toggleConsole() {
@@ -1053,6 +1083,7 @@ function addConsoleEntry(data) {
 
   html += `</div>`;
   inner.insertAdjacentHTML('beforeend', html);
+  trimConsoleEntries(inner);
 
   // Auto-scroll to bottom if console is open
   if (consoleOpen) {
@@ -2776,6 +2807,7 @@ function addRPConsoleEntry(data) {
   entryDiv.dataset.raw = JSON.stringify(data);
   entryDiv.innerHTML = html;
   inner.appendChild(entryDiv);
+  trimConsoleEntries(inner);
 
   if (consoleOpen) {
     inner.scrollTop = inner.scrollHeight;
