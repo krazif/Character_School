@@ -235,8 +235,10 @@ ANALYSIS_TEMPERATURE = _analysis_cfg.get("temperature", 0.1)
 ANALYSIS_MAX_TOKENS  = _analysis_cfg.get("max_tokens", 1500)
 
 # ─── LLM Clients ──────────────────────────────────────────────────
-chat_client     = AsyncOpenAI(base_url=CHAT_BASE_URL,     api_key=CHAT_API_KEY)
-analysis_client = AsyncOpenAI(base_url=ANALYSIS_BASE_URL, api_key=ANALYSIS_API_KEY)
+# Use a placeholder when no key is configured so the server still starts;
+# the user can set real keys via the Settings page or config.jsonc.
+chat_client     = AsyncOpenAI(base_url=CHAT_BASE_URL,     api_key=CHAT_API_KEY or "not-configured")
+analysis_client = AsyncOpenAI(base_url=ANALYSIS_BASE_URL, api_key=ANALYSIS_API_KEY or "not-configured")
 
 # ─── SQLite Database ─────────────────────────────────────────────
 DB_PATH = APP_DIR / "char_test.db"
