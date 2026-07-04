@@ -2226,13 +2226,17 @@ function escapeHtml(text) {
  */
 function formatMessage(text) {
   if (!text) return '';
+  // Extract quoted dialog BEFORE escaping, replace with placeholders
+  const dialogs = [];
+  // Straight quotes: "text"
+  text = text.replace(/"([^"\n]+?)"/g, (m, p1) => { dialogs.push(p1); return `\x00D${dialogs.length - 1}\x00`; });
+  // Smart/curly quotes: "text" "text" «text»
+  text = text.replace(/[\u201C\u201D\u201E\u201F\u00AB\u00BB]([^\u201C\u201D\u201E\u201F\u00AB\u00BB\n]+?)[\u201C\u201D\u201E\u201F\u00AB\u00BB]/g, (m, p1) => { dialogs.push(p1); return `\x00D${dialogs.length - 1}\x00`; });
   let safe = escapeHtml(text);
   // *text* → <em>text</em>  (non-greedy, no nesting across newlines)
   safe = safe.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-  // "text" → <strong class="dialog">text</strong>
-  safe = safe.replace(/"([^"\n]+?)"/g, '<strong class="dialog">$1</strong>');
-  // "text" (curly/smart quotes) → <strong class="dialog">text</strong>
-  safe = safe.replace(/[\u201C\u201D\u201E\u201F\u00AB\u00BB]([^\u201C\u201D\u201E\u201F\u00AB\u00BB\n]+?)[\u201C\u201D\u201E\u201F\u00AB\u00BB]/g, '<strong class="dialog">$1</strong>');
+  // Restore dialog placeholders as <strong class="dialog">
+  safe = safe.replace(/\x00D(\d+)\x00/g, (m, i) => `<strong class="dialog">${escapeHtml(dialogs[parseInt(i)])}</strong>`);
   return safe;
 }
 
