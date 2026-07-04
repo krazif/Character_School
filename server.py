@@ -144,7 +144,8 @@ def save_config(cfg: dict):
     lines.append('    "api_key": ' + (json.dumps(chat_key) if chat_key else 'null') + ',')
     lines.append('    "model": ' + json.dumps(str(chat.get("model", "deepseek/deepseek-v4-flash"))) + ',')
     lines.append(f'    "temperature": {float(chat.get("temperature", 0.8))},')
-    lines.append(f'    "max_tokens": {int(chat.get("max_tokens", 2000))}')
+    lines.append(f'    "max_tokens": {int(chat.get("max_tokens", 2000))},')
+    lines.append(f'    "enable_thinking": {"true" if chat.get("enable_thinking", False) else "false"}')
     lines.append('  },')
     ana = cfg.get("analysis", {})
     lines.append('')
@@ -172,7 +173,7 @@ def save_config(cfg: dict):
 
 def reload_config():
     """Reload config from disk and update all globals + LLM clients."""
-    global _cfg, CHAT_BASE_URL, CHAT_API_KEY, CHAT_MODEL, CHAT_TEMPERATURE, CHAT_MAX_TOKENS
+    global _cfg, CHAT_BASE_URL, CHAT_API_KEY, CHAT_MODEL, CHAT_TEMPERATURE, CHAT_MAX_TOKENS, CHAT_ENABLE_THINKING
     global ANALYSIS_BASE_URL, ANALYSIS_API_KEY, ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS
     global chat_client, analysis_client, CHARACTERS_DIR, PERSONAS_DIR
     _cfg = load_config()
@@ -185,6 +186,7 @@ def reload_config():
     CHAT_MODEL       = os.environ.get("CHARACTERSCHOOL_CHAT_MODEL",       _chat_cfg.get("model", "deepseek/deepseek-v4-flash"))
     CHAT_TEMPERATURE = _chat_cfg.get("temperature", 0.8)
     CHAT_MAX_TOKENS  = _chat_cfg.get("max_tokens", 2000)
+    CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
     ANALYSIS_BASE_URL    = os.environ.get("CHARACTERSCHOOL_ANALYSIS_BASE_URL",    _analysis_cfg.get("base_url", "https://openrouter.ai/api/v1"))
     ANALYSIS_API_KEY     = os.environ.get("CHARACTERSCHOOL_ANALYSIS_API_KEY",     _analysis_key or os.environ.get("OPENROUTER_API_KEY", ""))
     ANALYSIS_MODEL       = os.environ.get("CHARACTERSCHOOL_ANALYSIS_MODEL",       _analysis_cfg.get("model", "deepseek/deepseek-v4-flash"))
@@ -227,6 +229,7 @@ CHAT_API_KEY     = os.environ.get("CHARACTERSCHOOL_CHAT_API_KEY",     _chat_key 
 CHAT_MODEL       = os.environ.get("CHARACTERSCHOOL_CHAT_MODEL",       _chat_cfg.get("model", "deepseek/deepseek-v4-flash"))
 CHAT_TEMPERATURE = _chat_cfg.get("temperature", 0.8)
 CHAT_MAX_TOKENS  = _chat_cfg.get("max_tokens", 2000)
+CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
 
 ANALYSIS_BASE_URL    = os.environ.get("CHARACTERSCHOOL_ANALYSIS_BASE_URL",    _analysis_cfg.get("base_url", "https://openrouter.ai/api/v1"))
 ANALYSIS_API_KEY     = os.environ.get("CHARACTERSCHOOL_ANALYSIS_API_KEY",     _analysis_key or os.environ.get("OPENROUTER_API_KEY", ""))
@@ -1678,6 +1681,7 @@ async def ws_chat(ws: WebSocket):
                             messages=llm_messages,
                             temperature=CHAT_TEMPERATURE,
                             max_tokens=CHAT_MAX_TOKENS,
+                            extra_body={"enable_thinking": CHAT_ENABLE_THINKING},
                         )
                         char_content = resp.choices[0].message.content
                         usage = resp.usage
@@ -2322,6 +2326,7 @@ async def ws_rp(ws: WebSocket):
                         resp = await chat_client.chat.completions.create(
                             model=CHAT_MODEL, messages=llm_messages,
                             temperature=CHAT_TEMPERATURE, max_tokens=CHAT_MAX_TOKENS,
+                            extra_body={"enable_thinking": CHAT_ENABLE_THINKING},
                         )
                         raw_content = resp.choices[0].message.content
                         usage = resp.usage
@@ -2556,6 +2561,7 @@ async def generate_character(req: Request):
             messages=messages,
             temperature=0.9,
             max_tokens=4000,
+            extra_body={"enable_thinking": CHAT_ENABLE_THINKING},
         )
         raw = completion.choices[0].message.content or ""
 
@@ -2645,6 +2651,7 @@ async def get_config():
             "model": _c.get("chat", {}).get("model", ""),
             "temperature": _c.get("chat", {}).get("temperature", 0.8),
             "max_tokens": _c.get("chat", {}).get("max_tokens", 2000),
+            "enable_thinking": _c.get("chat", {}).get("enable_thinking", False),
         },
         "analysis": {
             "base_url": _c.get("analysis", {}).get("base_url", ""),

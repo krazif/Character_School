@@ -558,6 +558,11 @@ body.rp-mode .school-only { display:none; }
             <input type="number" id="cfgChatMaxTok" value="2000" />
           </div>
         </div>
+        <div class="settings-field" style="flex-direction:row;align-items:center;gap:8px;">
+          <label style="margin:0;white-space:nowrap;">Enable Thinking</label>
+          <input type="checkbox" id="cfgChatEnableThinking" />
+          <span style="font-size:11px;color:#777;">Sends enable_thinking to the API (for models that support extended thinking / reasoning)</span>
+        </div>
       </div>
 
       <div class="settings-section">
@@ -2993,6 +2998,7 @@ async function openSettings() {
     document.getElementById('cfgChatModel').value = cfg.chat.model || '';
     document.getElementById('cfgChatTemp').value = cfg.chat.temperature ?? 0.8;
     document.getElementById('cfgChatMaxTok').value = cfg.chat.max_tokens ?? 2000;
+    document.getElementById('cfgChatEnableThinking').checked = cfg.chat.enable_thinking ?? false;
     document.getElementById('cfgAnalysisBaseUrl').value = cfg.analysis.base_url || '';
     document.getElementById('cfgAnalysisApiKey').value = cfg.analysis.api_key || '';
     document.getElementById('cfgAnalysisModel').value = cfg.analysis.model || '';
@@ -3030,6 +3036,7 @@ async function saveSettings() {
         model: document.getElementById('cfgChatModel').value.trim(),
         temperature: parseFloat(document.getElementById('cfgChatTemp').value) || 0.8,
         max_tokens: parseInt(document.getElementById('cfgChatMaxTok').value) || 2000,
+        enable_thinking: document.getElementById('cfgChatEnableThinking').checked,
       },
       analysis: {
         base_url: document.getElementById('cfgAnalysisBaseUrl').value.trim(),
