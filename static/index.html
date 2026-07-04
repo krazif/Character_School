@@ -354,6 +354,9 @@ body.rp-mode .school-only { display:none; }
 .stack-block .block-summarize-btn.summarizing { opacity:0.5; pointer-events:none; }
 .stack-block .block-custom-btn { font-size:11px; color:var(--accent); cursor:pointer; padding:2px 8px; border:1px solid var(--border); border-radius:4px; }
 .stack-block .block-custom-btn:hover { border-color:var(--accent); }
+.stack-block .block-auto-wrap { display:flex; align-items:center; gap:3px; font-size:10px; color:var(--text-dim); cursor:pointer; padding:2px 6px; border:1px solid var(--border); border-radius:4px; margin-left:4px; white-space:nowrap; user-select:none; }
+.stack-block .block-auto-wrap input { margin:0; cursor:pointer; }
+.stack-block .block-auto-wrap.auto-on { color:#4caf50; border-color:rgba(76,175,80,0.3); }
 .stack-block.locked { cursor:default; }
 .stack-block.locked .drag-handle { visibility:hidden; }
 .stack-block.locked .block-toggle { pointer-events:none; opacity:0.3; }
@@ -2534,7 +2537,7 @@ function handleRPMessage(data) {
   } else if (data.type === 'stack_updated') {
     rpStackConfig = data.stack_config;
   } else if (data.type === 'block_summarizing') {
-    // Button already shows "Summarizing…" from JS
+    // Button already shows "Summarizing…" from JS; auto triggers also send this
   } else if (data.type === 'block_summary_updated') {
     if (data.stack_config) rpStackConfig = data.stack_config;
     summarizingBlockIdx = null;
@@ -2935,7 +2938,7 @@ const STACK_BLOCK_DEFS = {
   head:           { icon: '📌', label: 'Head Messages',   desc: 'First N messages kept raw (sets the scene)', hasN: true },
   early_summary:  { icon: '📝', label: 'Early Summary',   desc: 'Summarized range — click button to generate', hasRange: true, hasSummarize: true },
   raw_mid:        { icon: '📄', label: 'Raw Mid',         desc: 'Raw messages in a range — kept verbatim', hasRange: true },
-  late_summary:   { icon: '📋', label: 'Late Summary',    desc: 'Summarized range — click button to generate', hasRange: true, hasSummarize: true },
+  late_summary:   { icon: '📋', label: 'Late Summary',    desc: 'Summarized range — click button to generate', hasRange: true, hasSummarize: true, hasAuto: true },
   custom:         { icon: '✏️', label: 'Custom Inject',   desc: 'Your own system message — free text', hasText: true },
   tail:           { icon: '⏩', label: 'Raw Tail',        desc: 'Last N messages kept raw (recent context)', hasN: true },
   // backward compat
@@ -3008,6 +3011,10 @@ function renderStackBlocks() {
       if (def.hasSummarize) {
         const btnLabel = hasText ? 'Re-summarize' : 'Summarize';
         inner += `<span class="block-summarize-btn ${hasText ? 'has-text' : ''}" onclick="summarizeBlock(${idx})">${btnLabel}</span>`;
+      }
+      if (def.hasAuto) {
+        const autoOn = !!block.auto;
+        inner += `<label class="block-auto-wrap${autoOn ? ' auto-on' : ''}" onclick="event.stopPropagation()"><input type="checkbox" ${autoOn ? 'checked' : ''} onchange="toggleBlockAuto(${idx})" /> Auto</label>`;
       }
       inner += `</div>`;
     }
@@ -3086,6 +3093,13 @@ function updateBlockRange(idx, field, val) {
 }
 
 let summarizingBlockIdx = null;
+function toggleBlockAuto(idx) {
+  const block = rpStackConfig.blocks[idx];
+  if (!block) return;
+  block.auto = !block.auto;
+  renderStackBlocks();
+}
+
 function summarizeBlock(idx) {
   if (!rpWS || rpWS.readyState !== WebSocket.OPEN) { alert('Not connected.'); return; }
   summarizingBlockIdx = idx;

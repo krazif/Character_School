@@ -473,7 +473,7 @@ DEFAULT_STACK_CONFIG = {
         {"type": "head", "enabled": True, "n": 2},
         {"type": "early_summary", "enabled": True, "start": 2, "end": 5, "text": ""},
         {"type": "raw_mid", "enabled": True, "start": 2, "end": 5},
-        {"type": "late_summary", "enabled": True, "start": 5, "end": 8, "text": ""},
+        {"type": "late_summary", "enabled": True, "start": 5, "end": 8, "text": "", "auto": False},
         {"type": "custom", "enabled": False, "text": ""},
         {"type": "tail", "enabled": True, "n": 3},
     ]
@@ -2328,6 +2328,9 @@ async def ws_rp(ws: WebSocket):
 
                 async def _rp_gen():
                     try:
+                        # ── Auto-summary check (after user message, before LLM) ──
+                        await check_auto_summary(session_id, ws)
+
                         # Get stack config
                         sess = db_rp_get_session(session_id)
                         stack_cfg = get_stack_config(sess)
@@ -2434,6 +2437,10 @@ async def ws_rp(ws: WebSocket):
                                     "character_filename": pr["filename"], "character_name": pr["name"],
                                     "is_first_mes": False, "message_id": msg_id,
                                 })
+
+                        # ── Auto-summary check (after character messages added) ──
+                        await check_auto_summary(session_id, ws)
+
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
@@ -2824,3 +2831,61 @@ if __name__ == "__main__":
     _host = os.environ.get("CHARACTERSCHOOL_HOST", _srv.get("host", "0.0.0.0"))
     _port = int(os.environ.get("CHARACTERSCHOOL_PORT", _srv.get("port", 7862)))
     uvicorn.run(app, host=_host, port=_port)
+async def check_auto_summary(session_id, ws):
+    """Check if late_summary block has auto enabled and tail has grown enough to trigger.
+    Returns updated stack_cfg if summarization happened, else None."""
+    sess = db_rp_get_session(session_id)
+    stack_cfg = get_stack_config(sess)
+    blocks = stack_cfg.get("blocks", [])
+
+    # Find late_summary block with auto enabled
+    late_block = None
+    late_idx = None
+    tail_n = 0
+    for i, blk in enumerate(blocks):
+        if blk.get("type") == "late_summary" and blk.get("enabled", True) and blk.get("auto"):
+            late_block = blk
+            late_idx = i
+        elif blk.get("type") == "tail" and blk.get("enabled", True):
+            tail_n = blk.get("n", 3)
+
+    if late_block is None or tail_n <= 0:
+        return None
+
+    all_msgs = db_rp_get_messages(session_id)
+    total_msgs = len(all_msgs)
+    end_idx = late_block.get("end", 0)
+
+    # Count messages from end_idx to latest
+    tail_count = total_msgs - end_idx
+    if tail_count < tail_n:
+        return None
+
+    # Advance end by tail_n and summarize [start, new_end]
+    start_idx = max(0, late_block.get("start", 0))
+    new_end = end_idx + tail_n
+    new_end = min(new_end, total_msgs)
+
+    to_summarize = all_msgs[start_idx:new_end]
+    if not to_summarize:
+        return None
+
+    existing = late_block.get("text", "")
+    await ws.send_json({"type": "block_summarizing", "block_index": late_idx, "auto": True})
+    new_summary = await rp_summarize(session_id, to_summarize, existing, ws=ws)
+
+    late_block["text"] = new_summary
+    late_block["end"] = new_end
+    stack_cfg["blocks"] = blocks
+    db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
+
+    await ws.send_json({
+        "type": "block_summary_updated",
+        "block_index": late_idx,
+        "summary": new_summary,
+        "stack_config": stack_cfg,
+        "auto": True,
+    })
+
+    return stack_cfg
+
