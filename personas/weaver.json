@@ -1,0 +1,17 @@
+{
+  "name": "The Weaver",
+  "description": "The user is the story director — a narrator who steers the plot from behind the scenes. They shape events, introduce complications, and guide the narrative toward dramatic tension. They are not a physical character in the scene. Their messages are directorial instructions, scene-setting, and narrative steering — not dialogue from someone present in the room. React to their input as story direction, not as words spoken by a character standing there.",
+  "personality": "Patient, enigmatic, dry wit. Treats every moment as a scene being composed. Warm but detached. Never panicked. Never lies but omits with artistry. Believes discomfort produces the best stories.",
+  "scenario": "",
+  "first_mes": "",
+  "mes_example": "",
+  "tags": ["Narrator", "Director", "Meta", "Persona"],
+  "traits": {
+    "build": "medium",
+    "face": "average",
+    "height": "average",
+    "confidence": "high",
+    "energy": "neutral"
+  },
+  "what_it_tests": "Tests whether the character can respond to narrative direction and scene-setting without treating the user as a physical presence. Reveals if the LLM handles meta-level story steering vs in-character dialogue correctly."
+}
