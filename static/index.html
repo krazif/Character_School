@@ -343,6 +343,14 @@ body.rp-mode .school-only { display:none; }
 .stack-block.enabled .block-toggle::after { transform:translateX(16px); background:var(--accent); }
 .stack-block .block-n-input { width:48px; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text); padding:4px 6px; font-size:12px; text-align:center; }
 .stack-block .block-n-input:focus { outline:none; border-color:var(--accent); }
+.stack-block .block-range-wrap { display:flex; align-items:center; gap:4px; flex-shrink:0; }
+.stack-block .block-range-input { width:42px; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text); padding:4px 4px; font-size:12px; text-align:center; }
+.stack-block .block-range-input:focus { outline:none; border-color:var(--accent); }
+.stack-block .block-range-arrow { color:var(--text-dim); font-size:12px; }
+.stack-block .block-summarize-btn { font-size:11px; color:var(--accent); cursor:pointer; padding:2px 8px; border:1px solid var(--border); border-radius:4px; margin-left:4px; white-space:nowrap; }
+.stack-block .block-summarize-btn:hover { border-color:var(--accent); }
+.stack-block .block-summarize-btn.has-text { color:#4caf50; border-color:rgba(76,175,80,0.3); }
+.stack-block .block-summarize-btn.summarizing { opacity:0.5; pointer-events:none; }
 .stack-block .block-custom-btn { font-size:11px; color:var(--accent); cursor:pointer; padding:2px 8px; border:1px solid var(--border); border-radius:4px; }
 .stack-block .block-custom-btn:hover { border-color:var(--accent); }
 .stack-block.locked { cursor:default; }
@@ -2492,6 +2500,17 @@ function handleRPMessage(data) {
     renderRPSceneBar();
   } else if (data.type === 'stack_updated') {
     rpStackConfig = data.stack_config;
+  } else if (data.type === 'block_summarizing') {
+    // Button already shows "Summarizing…" from JS
+  } else if (data.type === 'block_summary_updated') {
+    if (data.stack_config) rpStackConfig = data.stack_config;
+    summarizingBlockIdx = null;
+    renderStackBlocks();
+    // Show brief toast
+    if (data.summary) {
+      const btn = document.querySelector(`.stack-block[data-idx="${data.block_index}"] .block-summarize-btn`);
+      if (btn) { btn.classList.add('has-text'); }
+    }
   } else if (data.type === 'persona_changed') {
     rpPersonaFilename = data.persona;
     renderRPSceneBar();
@@ -2871,20 +2890,26 @@ async function deleteRPSession(sessionId) {
 }
 // ─── Stack Builder ──────────────────────────────────────────────
 const STACK_BLOCK_DEFS = {
-  system:  { icon: '⚙️', label: 'System Prompt',    desc: 'Character cards + persona + routing', locked: true },
-  head:    { icon: '📌', label: 'Head Messages',     desc: 'First N messages kept raw (sets the scene)', hasN: true },
-  summary: { icon: '📝', label: 'Scene Summary',     desc: 'Compressed middle section (auto-generated)' },
-  custom:  { icon: '✏️', label: 'Custom Inject',     desc: 'Your own system message — free text', hasText: true },
-  tail:    { icon: '⏩', label: 'Raw Tail',          desc: 'Last N messages kept raw (recent context)', hasN: true },
+  system:         { icon: '⚙️', label: 'System Prompt',  desc: 'Character cards + persona + routing', locked: true },
+  head:           { icon: '📌', label: 'Head Messages',   desc: 'First N messages kept raw (sets the scene)', hasN: true },
+  early_summary:  { icon: '📝', label: 'Early Summary',   desc: 'Summarized range — click button to generate', hasRange: true, hasSummarize: true },
+  raw_mid:        { icon: '📄', label: 'Raw Mid',         desc: 'Raw messages in a range — kept verbatim', hasRange: true },
+  late_summary:   { icon: '📋', label: 'Late Summary',    desc: 'Summarized range — click button to generate', hasRange: true, hasSummarize: true },
+  custom:         { icon: '✏️', label: 'Custom Inject',   desc: 'Your own system message — free text', hasText: true },
+  tail:           { icon: '⏩', label: 'Raw Tail',        desc: 'Last N messages kept raw (recent context)', hasN: true },
+  // backward compat
+  summary:        { icon: '📝', label: 'Scene Summary',   desc: 'Compressed middle section', hasRange: true, hasSummarize: true },
 };
 
 function getDefaultStackConfig() {
   return { blocks: [
-    { type: 'system',  enabled: true, locked: true },
-    { type: 'head',    enabled: true, n: 2 },
-    { type: 'summary', enabled: true },
-    { type: 'custom',  enabled: false, text: '' },
-    { type: 'tail',    enabled: true, n: 3 },
+    { type: 'system',        enabled: true, locked: true },
+    { type: 'head',          enabled: true, n: 2 },
+    { type: 'early_summary', enabled: true, start: 2, end: 5, text: '' },
+    { type: 'raw_mid',       enabled: true, start: 2, end: 5 },
+    { type: 'late_summary',  enabled: true, start: 5, end: 8, text: '' },
+    { type: 'custom',        enabled: false, text: '' },
+    { type: 'tail',          enabled: true, n: 3 },
   ]};
 }
 
@@ -2929,6 +2954,21 @@ function renderStackBlocks() {
 
     if (def.hasN) {
       inner += `<input class="block-n-input" type="number" min="0" max="50" value="${block.n ?? 2}" onchange="updateBlockN(${idx}, this.value)" onclick="event.stopPropagation()" />`;
+    }
+
+    if (def.hasRange) {
+      const startVal = block.start ?? 0;
+      const endVal = block.end ?? 0;
+      const hasText = !!block.text;
+      inner += `<div class="block-range-wrap" onclick="event.stopPropagation()">`;
+      inner += `<input class="block-range-input" type="number" min="0" max="999" value="${startVal}" onchange="updateBlockRange(${idx}, 'start', this.value)" placeholder="from" />`;
+      inner += `<span class="block-range-arrow">→</span>`;
+      inner += `<input class="block-range-input" type="number" min="0" max="999" value="${endVal}" onchange="updateBlockRange(${idx}, 'end', this.value)" placeholder="to" />`;
+      if (def.hasSummarize) {
+        const btnLabel = hasText ? 'Re-summarize' : 'Summarize';
+        inner += `<span class="block-summarize-btn ${hasText ? 'has-text' : ''}" onclick="summarizeBlock(${idx})">${btnLabel}</span>`;
+      }
+      inner += `</div>`;
     }
 
     if (def.hasText) {
@@ -2996,6 +3036,21 @@ function updateBlockN(idx, val) {
   const block = rpStackConfig.blocks[idx];
   if (!block) return;
   block.n = Math.max(0, Math.min(50, parseInt(val) || 0));
+}
+
+function updateBlockRange(idx, field, val) {
+  const block = rpStackConfig.blocks[idx];
+  if (!block) return;
+  block[field] = Math.max(0, parseInt(val) || 0);
+}
+
+let summarizingBlockIdx = null;
+function summarizeBlock(idx) {
+  if (!rpWS || rpWS.readyState !== WebSocket.OPEN) { alert('Not connected.'); return; }
+  summarizingBlockIdx = idx;
+  rpWS.send(JSON.stringify({ type: 'summarize_block', block_index: idx }));
+  const btn = document.querySelector(`.stack-block[data-idx="${idx}"] .block-summarize-btn`);
+  if (btn) { btn.classList.add('summarizing'); btn.textContent = 'Summarizing…'; }
 }
 
 function toggleCustomText(idx) {

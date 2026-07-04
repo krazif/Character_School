@@ -442,7 +442,9 @@ DEFAULT_STACK_CONFIG = {
     "blocks": [
         {"type": "system", "enabled": True, "locked": True},
         {"type": "head", "enabled": True, "n": 2},
-        {"type": "summary", "enabled": True},
+        {"type": "early_summary", "enabled": True, "start": 2, "end": 5, "text": ""},
+        {"type": "raw_mid", "enabled": True, "start": 2, "end": 5},
+        {"type": "late_summary", "enabled": True, "start": 5, "end": 8, "text": ""},
         {"type": "custom", "enabled": False, "text": ""},
         {"type": "tail", "enabled": True, "n": 3},
     ]
@@ -466,6 +468,8 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
     """Build LLM messages from stack block configuration.
     Returns (llm_messages, block_markers) where block_markers is a list of
     {"block": type, "label": str, "start": int, "count": int}.
+    Supports 7-block layout: system, head, early_summary, raw_mid,
+    late_summary, custom, tail.
     """
     blocks = stack_config.get("blocks", [])
     llm_messages = []
@@ -497,10 +501,16 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
             continue
 
         btype = block.get("type", "")
+        # Backward compat: old "summary" type → early_summary
+        if btype == "summary":
+            btype = "early_summary"
+
         labels = {
             "system": "System Prompt",
             "head": f"Head Messages (first {head_n})",
-            "summary": "Scene Summary",
+            "early_summary": f"Early Summary [{block.get('start','?')}-{block.get('end','?')}]",
+            "raw_mid": f"Raw Mid [{block.get('start','?')}-{block.get('end','?')}]",
+            "late_summary": f"Late Summary [{block.get('start','?')}-{block.get('end','?')}]",
             "custom": "Custom Inject",
             "tail": f"Raw Tail (last {tail_n})",
         }
@@ -517,10 +527,32 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
             if c > 0:
                 block_markers.append({"block": btype, "label": label, "start": s, "count": c})
 
-        elif btype == "summary":
-            if summary_text:
+        elif btype == "early_summary":
+            # Use block's own text, fall back to legacy summary_text
+            text = block.get("text", "").strip()
+            if not text and summary_text:
+                text = summary_text.strip()
+            if text:
                 start = len(llm_messages)
-                llm_messages.append({"role": "system", "content": f"SCENE SUMMARY SO FAR:\n{summary_text}"})
+                llm_messages.append({"role": "system", "content": f"SCENE SUMMARY (early):\n{text}"})
+                block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
+
+        elif btype == "raw_mid":
+            s_idx = block.get("start", head_n)
+            e_idx = block.get("end", len(all_msgs) - tail_n)
+            # Clamp to valid range
+            s_idx = max(0, min(s_idx, len(all_msgs)))
+            e_idx = max(s_idx, min(e_idx, len(all_msgs)))
+            mid_msgs = all_msgs[s_idx:e_idx]
+            s, c = _add_raw_msgs(mid_msgs)
+            if c > 0:
+                block_markers.append({"block": btype, "label": label, "start": s, "count": c})
+
+        elif btype == "late_summary":
+            text = block.get("text", "").strip()
+            if text:
+                start = len(llm_messages)
+                llm_messages.append({"role": "system", "content": f"SCENE SUMMARY (late):\n{text}"})
                 block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
 
         elif btype == "custom":
@@ -2404,6 +2436,37 @@ async def ws_rp(ws: WebSocket):
                         stack_cfg_str = json.dumps(stack_cfg_data)
                         db_rp_update_settings(session_id, stack_config=stack_cfg_str)
                         await ws.send_json({"type": "stack_updated", "stack_config": stack_cfg_data})
+
+            elif data["type"] == "summarize_block":
+                if session_id:
+                    block_index = data.get("block_index")
+                    sess = db_rp_get_session(session_id)
+                    stack_cfg = get_stack_config(sess)
+                    blocks = stack_cfg.get("blocks", [])
+                    if block_index is not None and 0 <= block_index < len(blocks):
+                        block = blocks[block_index]
+                        if block.get("type") in ("early_summary", "late_summary"):
+                            start_idx = block.get("start", 0)
+                            end_idx = block.get("end", 0)
+                            all_msgs = db_rp_get_messages(session_id)
+                            start_idx = max(0, min(start_idx, len(all_msgs)))
+                            end_idx = max(start_idx, min(end_idx, len(all_msgs)))
+                            to_summarize = all_msgs[start_idx:end_idx]
+                            existing = block.get("text", "")
+                            if to_summarize:
+                                await ws.send_json({"type": "block_summarizing", "block_index": block_index})
+                                new_summary = await rp_summarize(session_id, to_summarize, existing, ws=ws)
+                                block["text"] = new_summary
+                                stack_cfg["blocks"] = blocks
+                                db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
+                                await ws.send_json({
+                                    "type": "block_summary_updated",
+                                    "block_index": block_index,
+                                    "summary": new_summary,
+                                    "stack_config": stack_cfg,
+                                })
+                            else:
+                                await ws.send_json({"type": "error", "message": "No messages in range to summarize."})
 
             elif data["type"] == "save_console_events":
                 if session_id:
