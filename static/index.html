@@ -240,13 +240,19 @@ body.rp-mode .school-only { display:none; }
 .rp-session-item .meta { font-size:11px; color:var(--text-dim); margin-top:2px; }
 .rp-session-item .del-btn { font-size:11px; color:var(--text-dim); cursor:pointer; float:right; }
 .rp-session-item .del-btn:hover { color:var(--red); }
+.rp-session-item .branch-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
+.rp-session-item .branch-btn:hover { color:var(--green); }
 
 /* RP Center Panel */
 .rp-center-panel { flex:1; display:flex; flex-direction:column; }
 .rp-scene-bar { padding:8px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.rp-scene-bar .scene-chars { display:flex; gap:6px; flex-wrap:wrap; }
-.rp-scene-bar .char-chip { font-size:12px; padding:3px 10px; border-radius:12px; background:var(--surface2); border:1px solid var(--border); }
+.rp-scene-bar .scene-chars { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.rp-scene-bar .char-chip { font-size:12px; padding:3px 10px; border-radius:12px; background:var(--surface2); border:1px solid var(--border); display:inline-flex; align-items:center; gap:2px; }
 .rp-scene-bar .char-chip .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; }
+.rp-scene-bar .char-chip .char-chip-x { font-size:14px; color:var(--text-dim); cursor:pointer; margin-left:4px; padding:0 2px; line-height:1; }
+.rp-scene-bar .char-chip .char-chip-x:hover { color:var(--red); }
+.rp-scene-bar .char-chip-add { font-size:12px; padding:3px 10px; border-radius:12px; background:transparent; border:1px dashed var(--border); color:var(--text-dim); cursor:pointer; }
+.rp-scene-bar .char-chip-add:hover { color:var(--text); border-color:var(--text-dim); }
 .rp-scene-bar .spacer { flex:1; }
 .rp-scene-bar select, .rp-scene-bar .rp-setting-btn { background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:4px 10px; font-size:12px; cursor:pointer; }
 .rp-scene-bar select:focus { outline:none; border-color:var(--accent); }
@@ -314,6 +320,14 @@ body.rp-mode .school-only { display:none; }
 .rp-num-input:focus { outline:none; border-color:var(--accent); }
 .rp-setup-footer { padding:12px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
 .rp-selected-count { font-size:12px; color:var(--text-dim); margin-top:4px; }
+
+/* RP Add Character dropdown */
+.rp-add-char-dropdown { position:fixed; z-index:1000; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.4); max-height:300px; overflow-y:auto; min-width:200px; }
+.rp-add-char-item { padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.rp-add-char-item:last-child { border-bottom:none; }
+.rp-add-char-item:hover { background:var(--surface2); }
+.rp-add-char-item .name { font-size:13px; color:var(--text); }
+.rp-add-char-item .tags { font-size:11px; color:var(--text-dim); }
 
 /* RP Summary indicator */
 .rp-summary-bar { padding:6px 16px; background:rgba(188,140,255,0.08); border-top:1px solid var(--border); font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:8px; cursor:pointer; }
@@ -2550,6 +2564,15 @@ function handleRPMessage(data) {
   } else if (data.type === 'persona_changed') {
     rpPersonaFilename = data.persona;
     renderRPSceneBar();
+  } else if (data.type === 'character_added') {
+    rpCharacters = data.characters;
+    renderRPSceneBar();
+    loadRPSessions(); // refresh sidebar title
+  } else if (data.type === 'character_removed') {
+    rpCharacters = data.characters;
+    renderRPSceneBar();
+  } else if (data.type === 'reload_sessions') {
+    loadRPSessions();
   } else if (data.type === 'message_deleted') {
     // DOM already removed by caller
   } else if (data.type === 'error') {
@@ -2573,8 +2596,15 @@ function renderRPSceneBar() {
   let html = '<div class="scene-chars">';
   rpCharacters.forEach((c, i) => {
     const color = RP_CHAR_COLORS[i % RP_CHAR_COLORS.length];
-    html += `<span class="char-chip"><span class="dot" style="background:${color}"></span>${escapeHtml(c.name)}</span>`;
+    html += `<span class="char-chip" style="border-color:${color}"><span class="dot" style="background:${color}"></span>${escapeHtml(c.name)}`;
+    if (rpCharacters.length > 1) {
+      html += `<span class="char-chip-x" onclick="removeRPChar('${escapeHtml(c.filename)}')" title="Remove ${escapeHtml(c.name)}">×</span>`;
+    }
+    html += `</span>`;
   });
+  if (rpCharacters.length < 4) {
+    html += `<span class="char-chip char-chip-add" onclick="openRPAddCharPicker()">+ Add</span>`;
+  }
   html += '</div><span class="spacer"></span>';
 
   // Settings toggles
@@ -2901,6 +2931,7 @@ async function loadRPSessions() {
       const style = s.response_style === 'brief' ? 'Brief' : 'Full';
       return `<div class="rp-session-item${active}" data-session-id="${s.id}" onclick="resumeRPSession(${s.id})">
         <span class="del-btn" onclick="event.stopPropagation(); deleteRPSession(${s.id})">✕</span>
+        <span class="branch-btn" onclick="event.stopPropagation(); branchRPSession(${s.id})" title="Branch this session">🌿</span>
         <div class="title">${escapeHtml(s.title || 'Untitled')}</div>
         <div class="meta">${routing} · ${style} · ${date}</div>
       </div>`;
@@ -2930,6 +2961,80 @@ async function deleteRPSession(sessionId) {
     loadRPSessions();
   } catch (e) {
     alert('Failed to delete: ' + e.message);
+  }
+}
+
+async function branchRPSession(sessionId) {
+  try {
+    const resp = await fetch('/api/rp/sessions/' + sessionId + '/branch', {method: 'POST'});
+    const result = await resp.json();
+    if (result.error) { alert(result.error); return; }
+    // Reload session list to show the new branch
+    await loadRPSessions();
+    // Optionally auto-resume the branched session
+    if (result.new_session_id) {
+      resumeRPSession(result.new_session_id);
+    }
+  } catch (e) {
+    alert('Failed to branch: ' + e.message);
+  }
+}
+
+// ─── Add/Remove Character mid-session ────────────────
+async function openRPAddCharPicker() {
+  // Load card list if not cached
+  if (rpCardsList.length === 0) {
+    const resp = await fetch('/api/cards');
+    rpCardsList = await resp.json();
+  }
+  const existing = rpCharacters.map(c => c.filename);
+  const available = rpCardsList.filter(c => !existing.includes(c.filename));
+  if (available.length === 0) {
+    alert('No more characters available to add.');
+    return;
+  }
+  // Build a lightweight dropdown/picker
+  const picker = document.createElement('div');
+  picker.className = 'rp-add-char-dropdown';
+  picker.innerHTML = available.map(c => {
+    const tags = (c.tags || []).slice(0, 3).map(t => `<span class="tags">${escapeHtml(t)}</span>`).join(' ');
+    return `<div class="rp-add-char-item" onclick="addRPChar('${escapeHtml(c.filename)}')">
+      <span class="name">${escapeHtml(c.name)}</span>
+      <span class="tags">${tags}</span>
+    </div>`;
+  }).join('');
+  // Position near the + Add button
+  const addBtn = document.querySelector('.char-chip-add');
+  if (!addBtn) return;
+  const rect = addBtn.getBoundingClientRect();
+  picker.style.position = 'fixed';
+  picker.style.top = (rect.bottom + 4) + 'px';
+  picker.style.left = rect.left + 'px';
+  picker.id = 'rpAddCharDropdown';
+  // Close on outside click
+  picker.onclick = (e) => e.stopPropagation();
+  document.body.appendChild(picker);
+  setTimeout(() => {
+    document.addEventListener('click', closeRPAddCharPicker, {once: true});
+  }, 0);
+}
+
+function closeRPAddCharPicker() {
+  const dd = document.getElementById('rpAddCharDropdown');
+  if (dd) dd.remove();
+}
+
+function addRPChar(filename) {
+  closeRPAddCharPicker();
+  if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+    rpWS.send(JSON.stringify({type: 'add_character', filename}));
+  }
+}
+
+function removeRPChar(filename) {
+  if (!confirm('Remove this character from the session? Their existing messages will remain.')) return;
+  if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+    rpWS.send(JSON.stringify({type: 'remove_character', filename}));
   }
 }
 // ─── Stack Builder ──────────────────────────────────────────────

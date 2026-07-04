@@ -759,6 +759,127 @@ def db_rp_update_settings(session_id: int, turn_routing: str = None, response_st
     conn.close()
 
 
+def db_rp_add_character(session_id: int, filename: str, name: str) -> bool:
+    """Add a character to an existing RP session. Returns True on success."""
+    conn = sqlite3.connect(str(DB_PATH))
+    # Check if already exists
+    existing = conn.execute(
+        "SELECT 1 FROM rp_characters WHERE session_id = ? AND card_filename = ?",
+        (session_id, filename),
+    ).fetchone()
+    if existing:
+        conn.close()
+        return False
+    # Get next display_order
+    row = conn.execute(
+        "SELECT COALESCE(MAX(display_order), 0) + 1 FROM rp_characters WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    next_order = row[0]
+    conn.execute(
+        "INSERT INTO rp_characters (session_id, card_filename, char_name, display_order) VALUES (?, ?, ?, ?)",
+        (session_id, filename, name, next_order),
+    )
+    # Update session title
+    chars = conn.execute(
+        "SELECT char_name FROM rp_characters WHERE session_id = ? ORDER BY display_order",
+        (session_id,),
+    ).fetchall()
+    title = ', '.join(c[0] for c in chars)
+    conn.execute(
+        "UPDATE rp_sessions SET title = ?, updated_at = datetime('now') WHERE id = ?",
+        (title, session_id),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def db_rp_remove_character(session_id: int, filename: str) -> bool:
+    """Remove a character from an existing RP session. Returns True on success.
+    Messages from the removed character are preserved (historical record)."""
+    conn = sqlite3.connect(str(DB_PATH))
+    # Count remaining characters
+    count_row = conn.execute(
+        "SELECT COUNT(*) FROM rp_characters WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    if count_row[0] <= 1:
+        conn.close()
+        return False  # Can't remove last character
+    conn.execute(
+        "DELETE FROM rp_characters WHERE session_id = ? AND card_filename = ?",
+        (session_id, filename),
+    )
+    # Re-index display_order
+    chars = conn.execute(
+        "SELECT card_filename FROM rp_characters WHERE session_id = ? ORDER BY display_order",
+        (session_id,),
+    ).fetchall()
+    for i, c in enumerate(chars):
+        conn.execute(
+            "UPDATE rp_characters SET display_order = ? WHERE session_id = ? AND card_filename = ?",
+            (i, session_id, c[0]),
+        )
+    # Update session title
+    names = conn.execute(
+        "SELECT char_name FROM rp_characters WHERE session_id = ? ORDER BY display_order",
+        (session_id,),
+    ).fetchall()
+    title = ', '.join(n[0] for n in names)
+    conn.execute(
+        "UPDATE rp_sessions SET title = ?, updated_at = datetime('now') WHERE id = ?",
+        (title, session_id),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def db_rp_branch_session(session_id: int) -> Optional[dict]:
+    """Duplicate an RP session with all its characters, messages, and settings.
+    Returns {'new_session_id': N, 'title': '...'} or None on failure."""
+    sess = db_rp_get_session(session_id)
+    if not sess:
+        return None
+    conn = sqlite3.connect(str(DB_PATH))
+    # Copy session row with (branch) suffix
+    branch_title = sess['title'] + ' (branch)' if sess['title'] else 'Untitled (branch)'
+    cur = conn.execute(
+        """INSERT INTO rp_sessions
+           (title, persona_filename, turn_routing, response_style, summary_window, raw_window,
+            summary_text, stack_config, console_events)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (branch_title, sess['persona_filename'], sess['turn_routing'], sess['response_style'],
+         sess['summary_window'], sess['raw_window'], sess.get('summary_text', ''),
+         sess.get('stack_config'), sess.get('console_events')),
+    )
+    new_sid = cur.lastrowid
+    # Copy characters
+    chars = conn.execute(
+        "SELECT card_filename, char_name, display_order FROM rp_characters WHERE session_id = ? ORDER BY display_order",
+        (session_id,),
+    ).fetchall()
+    for c in chars:
+        conn.execute(
+            "INSERT INTO rp_characters (session_id, card_filename, char_name, display_order) VALUES (?, ?, ?, ?)",
+            (new_sid, c[0], c[1], c[2]),
+        )
+    # Copy messages (preserving seq, role, speaker, content)
+    msgs = conn.execute(
+        "SELECT seq, role, speaker, content FROM rp_messages WHERE session_id = ? ORDER BY seq",
+        (session_id,),
+    ).fetchall()
+    for m in msgs:
+        conn.execute(
+            "INSERT INTO rp_messages (session_id, seq, role, speaker, content) VALUES (?, ?, ?, ?, ?)",
+            (new_sid, m[0], m[1], m[2], m[3]),
+        )
+    conn.commit()
+    conn.close()
+    return {'new_session_id': new_sid, 'title': branch_title}
+
+
 def db_rp_set_persona(session_id: int, persona_filename: str) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("UPDATE rp_sessions SET persona_filename = ?, updated_at = datetime('now') WHERE id = ?", (persona_filename, session_id))
@@ -2172,6 +2293,14 @@ async def api_rp_delete_session(session_id: int):
     return JSONResponse({"deleted": deleted})
 
 
+@app.post("/api/rp/sessions/{session_id}/branch")
+async def api_rp_branch_session(session_id: int):
+    result = db_rp_branch_session(session_id)
+    if not result:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    return JSONResponse(result)
+
+
 # ─── RP WebSocket ─────────────────────────────────────────────────
 @app.websocket("/ws/rp")
 async def ws_rp(ws: WebSocket):
@@ -2523,6 +2652,72 @@ async def ws_rp(ws: WebSocket):
                 if session_id:
                     db_rp_set_persona(session_id, persona_filename)
                 await ws.send_json({"type": "persona_changed", "persona": persona_filename})
+
+            elif data["type"] == "add_character":
+                if not session_id:
+                    await ws.send_json({"type": "error", "message": "No active session"})
+                    continue
+                fn = data.get("filename")
+                if not fn:
+                    await ws.send_json({"type": "error", "message": "No filename provided"})
+                    continue
+                if fn in character_order:
+                    await ws.send_json({"type": "error", "message": "Character already in session"})
+                    continue
+                if len(character_order) >= 4:
+                    await ws.send_json({"type": "error", "message": "Maximum 4 characters per session"})
+                    continue
+                try:
+                    card = load_card(fn)
+                    d = card.get("data", card)
+                    name = d.get("name", fn)
+                    cards[fn] = card
+                    character_names[fn] = name
+                    character_order.append(fn)
+                    db_rp_add_character(session_id, fn, name)
+                    # Send first_mes from the new character
+                    _rp_user_name = persona.get("name", "User") if persona else "User"
+                    first_mes = get_first_mes(cards[fn], user_name=_rp_user_name)
+                    if first_mes:
+                        msg_id = db_rp_add_message(session_id, "character", first_mes, name)
+                        await ws.send_json({
+                            "type": "character_message", "content": first_mes,
+                            "character_filename": fn, "character_name": name,
+                            "is_first_mes": True, "message_id": msg_id,
+                        })
+                    await ws.send_json({
+                        "type": "character_added",
+                        "filename": fn, "name": name,
+                        "characters": [{"filename": f, "name": character_names[f]} for f in character_order],
+                    })
+                except Exception as e:
+                    await ws.send_json({"type": "error", "message": f"Failed to add character: {e}"})
+
+            elif data["type"] == "remove_character":
+                if not session_id:
+                    await ws.send_json({"type": "error", "message": "No active session"})
+                    continue
+                fn = data.get("filename")
+                if not fn or fn not in character_order:
+                    await ws.send_json({"type": "error", "message": "Character not in session"})
+                    continue
+                if len(character_order) <= 1:
+                    await ws.send_json({"type": "error", "message": "Cannot remove last character"})
+                    continue
+                removed = db_rp_remove_character(session_id, fn)
+                if not removed:
+                    await ws.send_json({"type": "error", "message": "Failed to remove character"})
+                    continue
+                del cards[fn]
+                del character_names[fn]
+                character_order.remove(fn)
+                await ws.send_json({
+                    "type": "character_removed",
+                    "filename": fn,
+                    "characters": [{"filename": f, "name": character_names[f]} for f in character_order],
+                })
+                # Reload session list to update title in sidebar
+                await ws.send_json({"type": "reload_sessions"})
 
     except WebSocketDisconnect:
         pass
