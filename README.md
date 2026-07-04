@@ -4,7 +4,7 @@
 
 A standalone web app for testing and QA-ing character cards with real-time LLM analysis. Chat with your characters, get instant feedback on rule compliance, run multi-character roleplay sessions, and iterate on your cards — all in one place.
 
-**Character School © Krazif & Tunas**
+
 
 ---
 
