@@ -71,22 +71,57 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 
 ---
 
-## Quick Start
+## Installation
 
 ### Prerequisites
 
 - Python 3.11+
 - Any OpenAI-compatible LLM API endpoint (OpenRouter, local LLM, etc.)
 
-### Run
+### 1. Clone the repo
 
 ```bash
-cd character-school
-pip install fastapi uvicorn httpx python-multipart Pillow
+git clone https://github.com/krazif/Character_School.git
+cd Character_School
+```
+
+### 2. (Optional) Create a virtual environment
+
+```bash
+# Linux / macOS
+python -m venv .venv
+source .venv/bin/activate
+
+# Windows (PowerShell)
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# Windows (cmd)
+python -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+### 3. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+## How to Run
+
+```bash
 python server.py
 ```
 
-The app starts on `http://0.0.0.0:7862` by default.
+Or with uvicorn directly:
+
+```bash
+python -m uvicorn server:app --host 0.0.0.0 --port 7862
+```
+
+The app starts on `http://0.0.0.0:7862` by default. Open `http://localhost:7862` in your browser.
+
+> **Note:** The server starts even without API keys configured. Go to the Settings page in the UI to add your LLM API keys.
 
 ### Configuration
 
