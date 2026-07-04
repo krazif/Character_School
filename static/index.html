@@ -352,6 +352,39 @@ body.rp-mode .school-only { display:none; }
 .stack-info { font-size:11px; color:var(--text-dim); padding:8px 12px; background:rgba(88,166,255,0.05); border-radius:6px; margin-bottom:12px; }
 /* Console block separators */
 .console-block-sep { margin:6px 0 2px; padding:3px 8px; font-size:10px; font-weight:600; border-radius:4px; display:inline-block; }
+
+/* Generate Character Dialog */
+.gen-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
+.gen-overlay.show { display:flex; }
+.gen-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:720px; max-height:88vh; display:flex; flex-direction:column; margin:auto; }
+.gen-header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+.gen-header h2 { font-size:16px; font-weight:600; }
+.gen-body { flex:1; overflow-y:auto; padding:16px 20px; }
+.gen-footer { padding:10px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+.gen-field { margin-bottom:14px; }
+.gen-field label { display:block; font-size:12px; font-weight:600; margin-bottom:4px; color:var(--text); }
+.gen-field label .hint { font-weight:400; color:var(--text-dim); font-size:11px; }
+.gen-field input, .gen-field textarea, .gen-field select { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:13px; font-family:inherit; }
+.gen-field input:focus, .gen-field textarea:focus, .gen-field select:focus { outline:none; border-color:var(--accent); }
+.gen-field textarea { resize:vertical; min-height:60px; }
+.gen-row { display:flex; gap:12px; }
+.gen-row .gen-field { flex:1; }
+.gen-toggle-row { display:flex; align-items:center; gap:8px; }
+.gen-toggle { width:36px; height:20px; border-radius:10px; background:var(--bg); border:1px solid var(--border); position:relative; cursor:pointer; transition:background 0.2s; flex-shrink:0; }
+.gen-toggle::after { content:''; position:absolute; top:1px; left:1px; width:16px; height:16px; border-radius:50%; background:var(--text-dim); transition:transform 0.2s, background 0.2s; }
+.gen-toggle.on { background:rgba(88,166,255,0.2); border-color:var(--accent); }
+.gen-toggle.on::after { transform:translateX(16px); background:var(--accent); }
+.gen-preview { display:none; }
+.gen-preview.show { display:block; }
+.gen-preview .gen-preview-header { font-size:13px; font-weight:600; margin-bottom:8px; color:var(--accent); }
+.gen-preview-field { margin-bottom:10px; }
+.gen-preview-field label { display:block; font-size:11px; font-weight:600; color:var(--text-dim); margin-bottom:2px; }
+.gen-preview-field textarea { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:12px; font-family:inherit; resize:vertical; min-height:50px; }
+.gen-preview-field textarea:focus { outline:none; border-color:var(--accent); }
+.gen-loading { text-align:center; padding:40px; color:var(--text-dim); font-size:14px; }
+.gen-loading .spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:12px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.gen-error { color:#ff6b6b; font-size:13px; padding:12px; background:rgba(255,107,107,0.1); border:1px solid rgba(255,107,107,0.3); border-radius:8px; margin-bottom:12px; }
 </style>
 
 </head>
@@ -377,6 +410,7 @@ body.rp-mode .school-only { display:none; }
       <span>Characters</span>
       <span style="flex:1"></span>
       <button onclick="document.getElementById('cardUploadInput').click()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Upload character card (JSON or PNG)">↑ Upload</button>
+      <button onclick="openGenerateModal()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Generate a new character card with AI">✨ Generate</button>
       <input type="file" id="cardUploadInput" accept=".json,application/json,.png,image/png" style="display:none" onchange="uploadCard(event)" />
     </div>
     <div class="card-list" id="cardList">
@@ -734,6 +768,89 @@ body.rp-mode .school-only { display:none; }
   </div>
 </div>
 
+<!-- Generate Character Overlay -->
+<div class="gen-overlay" id="genOverlay">
+  <div class="gen-modal">
+    <div class="gen-header">
+      <h2>✨ Generate Character</h2>
+      <span class="spacer"></span>
+      <button class="btn-reset" onclick="closeGenerateModal()">Close</button>
+    </div>
+    <div class="gen-body" id="genBody">
+      <!-- Form view -->
+      <div id="genForm">
+        <div class="gen-field">
+          <label>Concept <span class="hint">(required — describe the character you want)</span></label>
+          <textarea id="genConcept" placeholder="e.g. A shy librarian who secretly loves rock climbing. She's in her late 20s, works at a small town library, and is introverted but passionate about books." style="min-height:80px"></textarea>
+        </div>
+        <div class="gen-row">
+          <div class="gen-field">
+            <label>Name <span class="hint">(optional)</span></label>
+            <input type="text" id="genName" placeholder="e.g. Emily Chen" />
+          </div>
+          <div class="gen-field" style="max-width:100px">
+            <label>Age <span class="hint">(optional)</span></label>
+            <input type="text" id="genAge" placeholder="28" />
+          </div>
+        </div>
+        <div class="gen-field">
+          <label>Personality hints <span class="hint">(optional)</span></label>
+          <textarea id="genPersonality" placeholder="e.g. shy, witty, stubborn, loyal, speaks softly but has sharp comebacks"></textarea>
+        </div>
+        <div class="gen-field">
+          <label>Scenario / Setting <span class="hint">(optional)</span></label>
+          <textarea id="genScenario" placeholder="e.g. A small town library, present day. The user is a new regular visitor."></textarea>
+        </div>
+        <div class="gen-field">
+          <label>Appearance <span class="hint">(optional)</span></label>
+          <textarea id="genAppearance" placeholder="e.g. short black hair, glasses, petite, always wears cardigans"></textarea>
+        </div>
+        <div class="gen-row">
+          <div class="gen-field" style="max-width:120px">
+            <label>Card version</label>
+            <select id="genVersion">
+              <option value="2" selected>V2 (recommended)</option>
+              <option value="1">V1 (simple)</option>
+            </select>
+          </div>
+          <div class="gen-field">
+            <label>Content rating</label>
+            <div class="gen-toggle-row">
+              <div class="gen-toggle" id="genNsfwToggle" onclick="toggleGenNsfw()"></div>
+              <span id="genNsfwLabel" style="font-size:13px;color:var(--text-dim)">SFW</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading view -->
+      <div id="genLoading" class="gen-loading" style="display:none">
+        <div class="spinner"></div>
+        <div>Generating character card…</div>
+      </div>
+
+      <!-- Error view -->
+      <div id="genError" class="gen-error" style="display:none"></div>
+
+      <!-- Preview view -->
+      <div id="genPreview" class="gen-preview">
+        <div class="gen-preview-header">✅ Generated! Review and edit below, then save.</div>
+        <div id="genPreviewFields"></div>
+      </div>
+    </div>
+    <div class="gen-footer">
+      <div id="genFooterForm">
+        <button class="btn-send" onclick="generateCharacter()">Generate</button>
+      </div>
+      <div id="genFooterPreview" style="display:none">
+        <button class="btn-reset" onclick="resetGenerateForm()">↩ Back to form</button>
+        <button class="btn-reset" onclick="regenerateCharacter()">🔄 Regenerate</button>
+        <button class="btn-send" onclick="saveGeneratedCard()">Save Character</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Report Overlay -->
 <div class="report-overlay" id="reportOverlay">
   <div class="report-modal">
@@ -934,6 +1051,223 @@ function addConsoleEntry(data) {
 }
 
 // ─── API ────────────────────────────────────────
+
+// ─── Character Generation ──────────────────────
+let genNsfwOn = false;
+let genLastCard = null;
+let genLastVersion = 2;
+
+function openGenerateModal() {
+  resetGenerateForm();
+  document.getElementById('genOverlay').classList.add('show');
+}
+
+function closeGenerateModal() {
+  document.getElementById('genOverlay').classList.remove('show');
+}
+
+function toggleGenNsfw() {
+  genNsfwOn = !genNsfwOn;
+  const toggle = document.getElementById('genNsfwToggle');
+  const label = document.getElementById('genNsfwLabel');
+  if (genNsfwOn) {
+    toggle.classList.add('on');
+    label.textContent = 'NSFW';
+    label.style.color = 'var(--accent)';
+  } else {
+    toggle.classList.remove('on');
+    label.textContent = 'SFW';
+    label.style.color = 'var(--text-dim)';
+  }
+}
+
+function showGenView(view) {
+  // view: 'form', 'loading', 'preview'
+  document.getElementById('genForm').style.display = view === 'form' ? '' : 'none';
+  document.getElementById('genLoading').style.display = view === 'loading' ? '' : 'none';
+  document.getElementById('genError').style.display = 'none';
+  document.getElementById('genPreview').classList.toggle('show', view === 'preview');
+  document.getElementById('genFooterForm').style.display = view === 'form' ? '' : 'none';
+  document.getElementById('genFooterPreview').style.display = view === 'preview' ? '' : 'none';
+}
+
+function resetGenerateForm() {
+  document.getElementById('genConcept').value = '';
+  document.getElementById('genName').value = '';
+  document.getElementById('genAge').value = '';
+  document.getElementById('genPersonality').value = '';
+  document.getElementById('genScenario').value = '';
+  document.getElementById('genAppearance').value = '';
+  document.getElementById('genVersion').value = '2';
+  genNsfwOn = false;
+  document.getElementById('genNsfwToggle').classList.remove('on');
+  document.getElementById('genNsfwLabel').textContent = 'SFW';
+  document.getElementById('genNsfwLabel').style.color = 'var(--text-dim)';
+  genLastCard = null;
+  showGenView('form');
+}
+
+async function generateCharacter() {
+  const concept = document.getElementById('genConcept').value.trim();
+  if (!concept) {
+    const err = document.getElementById('genError');
+    err.textContent = 'Please provide a concept for the character.';
+    err.style.display = 'block';
+    return;
+  }
+
+  const payload = {
+    concept,
+    name: document.getElementById('genName').value.trim(),
+    age: document.getElementById('genAge').value.trim(),
+    personality: document.getElementById('genPersonality').value.trim(),
+    scenario: document.getElementById('genScenario').value.trim(),
+    appearance: document.getElementById('genAppearance').value.trim(),
+    version: parseInt(document.getElementById('genVersion').value),
+    nsfw: genNsfwOn,
+  };
+  genLastVersion = payload.version;
+
+  showGenView('loading');
+
+  try {
+    const res = await fetch('/api/generate-character', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      const err = document.getElementById('genError');
+      err.textContent = data.error;
+      err.style.display = 'block';
+      showGenView('form');
+      return;
+    }
+
+    genLastCard = data.card;
+    renderGenPreview(data.card, payload.version);
+    showGenView('preview');
+  } catch (e) {
+    const err = document.getElementById('genError');
+    err.textContent = 'Failed to generate: ' + e.message;
+    err.style.display = 'block';
+    showGenView('form');
+  }
+}
+
+function regenerateCharacter() {
+  // Keep form values, just regenerate
+  generateCharacter();
+}
+
+function renderGenPreview(card, version) {
+  const isV2 = version === 2;
+  const data = isV2 ? (card.data || card) : card;
+
+  // V2 text fields to show in preview
+  const v2Fields = [
+    ['name', 'Name', 'input'],
+    ['description', 'Description', 'textarea'],
+    ['personality', 'Personality', 'textarea'],
+    ['scenario', 'Scenario', 'textarea'],
+    ['first_mes', 'First Message', 'textarea'],
+    ['mes_example', 'Message Examples', 'textarea'],
+    ['creator_notes', 'Creator Notes', 'textarea'],
+    ['system_prompt', 'System Prompt', 'textarea'],
+  ];
+  const v1Fields = [
+    ['name', 'Name', 'input'],
+    ['description', 'Description', 'textarea'],
+    ['personality', 'Personality', 'textarea'],
+    ['scenario', 'Scenario', 'textarea'],
+    ['first_mes', 'First Message', 'textarea'],
+    ['mes_example', 'Message Examples', 'textarea'],
+  ];
+  const fields = isV2 ? v2Fields : v1Fields;
+
+  let html = '';
+  for (const [key, label, type] of fields) {
+    const val = (data[key] || '').toString();
+    if (type === 'input') {
+      html += `<div class="gen-preview-field"><label>${label}</label><input type="text" id="genPrev_${key}" value="${escapeHtml(val)}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:12px;font-family:inherit" /></div>`;
+    } else {
+      const rows = Math.max(3, Math.ceil(val.length / 80));
+      html += `<div class="gen-preview-field"><label>${label}</label><textarea id="genPrev_${key}" rows="${rows}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:12px;font-family:inherit;resize:vertical;min-height:50px">${escapeHtml(val)}</textarea></div>`;
+    }
+  }
+
+  // Tags
+  const tags = Array.isArray(data.tags) ? data.tags.join(', ') : '';
+  html += `<div class="gen-preview-field"><label>Tags (comma-separated)</label><input type="text" id="genPrev_tags" value="${escapeHtml(tags)}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:12px;font-family:inherit" /></div>`;
+
+  document.getElementById('genPreviewFields').innerHTML = html;
+}
+
+function collectGenPreviewCard() {
+  const isV2 = genLastVersion === 2;
+  const data = isV2 ? (genLastCard.data || genLastCard) : genLastCard;
+
+  const v2Fields = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'creator_notes', 'system_prompt'];
+  const v1Fields = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'];
+  const fields = isV2 ? v2Fields : v1Fields;
+
+  for (const key of fields) {
+    const el = document.getElementById('genPrev_' + key);
+    if (el) data[key] = el.value;
+  }
+
+  // Tags
+  const tagsEl = document.getElementById('genPrev_tags');
+  if (tagsEl) {
+    data.tags = tagsEl.value.split(',').map(t => t.trim()).filter(Boolean);
+  }
+
+  if (isV2) {
+    genLastCard.data = data;
+    genLastCard.spec = 'chara_card_v2';
+    genLastCard.spec_version = '2.0';
+  } else {
+    genLastCard = data;
+  }
+
+  return genLastCard;
+}
+
+async function saveGeneratedCard() {
+  if (!genLastCard) return;
+  const card = collectGenPreviewCard();
+
+  try {
+    const res = await fetch('/api/generate-character/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ card }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      const err = document.getElementById('genError');
+      err.textContent = data.error;
+      err.style.display = 'block';
+      return;
+    }
+
+    // Refresh card list and close
+    await loadCardList();
+    closeGenerateModal();
+    // Select the new card
+    if (data.filename) {
+      selectCard(data.filename.replace('.json', ''));
+    }
+  } catch (e) {
+    const err = document.getElementById('genError');
+    err.textContent = 'Failed to save: ' + e.message;
+    err.style.display = 'block';
+  }
+}
+
 async function uploadCard(event) {
   const file = event.target.files[0];
   if (!file) return;

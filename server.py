@@ -2381,6 +2381,179 @@ async def ws_rp(ws: WebSocket):
             pass
 
 
+# ─── Character Generation API ────────────────────────────────────
+
+GEN_V2_SYSTEM = """You are a character card generator. You create rich, compelling character cards for roleplay.
+
+Output ONLY valid JSON, no markdown fences, no commentary.
+
+Generate a chara_card_v2 character card with this exact structure:
+{
+  "spec": "chara_card_v2",
+  "spec_version": "2.0",
+  "data": {
+    "name": "",
+    "description": "",
+    "personality": "",
+    "scenario": "",
+    "first_mes": "",
+    "mes_example": "",
+    "creator_notes": "",
+    "system_prompt": "",
+    "post_history_instructions": "",
+    "tags": [],
+    "creator": "Richard",
+    "character_version": "",
+    "alternate_greetings": [],
+    "extensions": {}
+  }
+}
+
+Field guidelines:
+- **name**: The character's full name.
+- **description**: Physical appearance, background, and core identity. 2-4 paragraphs. Use {{char}} for the character's name.
+- **personality**: Traits, quirks, speech style, values, flaws. 2-3 paragraphs. Use {{char}}.
+- **scenario**: The current situation / context where the roleplay begins. 1-2 paragraphs.
+- **first_mes**: An opening message in character, 2-4 sentences. Use {{char}} and {{user}}. Write in third person narrative + dialogue.
+- **mes_example**: 2-4 example dialogue exchanges showing the character's voice. Use {{char}} and {{user}}. Format as dialogue.
+- **creator_notes**: Brief notes for the user about the character. 1-2 sentences.
+- **system_prompt**: A brief system instruction for the AI playing this character (e.g. "Stay in character as {{char}}. Maintain their personality and speech patterns.").
+- **tags**: 3-8 relevant tags (e.g. ["original", "female", "teacher", "shy"]).
+- **alternate_greetings**: Leave empty array [] unless multiple greetings are clearly warranted.
+- **extensions**: Leave empty object {}.
+
+Be creative but coherent. Every field must be filled with quality content."""
+
+GEN_V1_SYSTEM = """You are a character card generator. You create rich, compelling character cards for roleplay.
+
+Output ONLY valid JSON, no markdown fences, no commentary.
+
+Generate a V1 character card with this exact flat structure:
+{
+  "name": "",
+  "description": "",
+  "personality": "",
+  "scenario": "",
+  "first_mes": "",
+  "mes_example": "",
+  "creator": "Richard",
+  "character_version": "",
+  "tags": []
+}
+
+Field guidelines:
+- **name**: The character's full name.
+- **description**: Physical appearance, background, and core identity. 2-4 paragraphs. Use {{char}} for the character's name.
+- **personality**: Traits, quirks, speech style, values, flaws. 2-3 paragraphs. Use {{char}}.
+- **scenario**: The current situation / context where the roleplay begins. 1-2 paragraphs.
+- **first_mes**: An opening message in character, 2-4 sentences. Use {{char}} and {{user}}. Write in third person narrative + dialogue.
+- **mes_example**: 2-4 example dialogue exchanges showing the character's voice. Use {{char}} and {{user}}. Format as dialogue.
+- **tags**: 3-8 relevant tags (e.g. ["original", "female", "teacher", "shy"]).
+
+Be creative but coherent. Every field must be filled with quality content."""
+
+
+@app.post("/api/generate-character")
+async def generate_character(req: Request):
+    """Generate a character card using the chat LLM endpoint."""
+    body = await req.json()
+    concept = (body.get("concept") or "").strip()
+    if not concept:
+        return JSONResponse({"error": "Concept is required"}, status_code=400)
+
+    version = body.get("version", 2)
+    name_hint = (body.get("name") or "").strip()
+    age_hint = (body.get("age") or "").strip()
+    personality_hint = (body.get("personality") or "").strip()
+    scenario_hint = (body.get("scenario") or "").strip()
+    appearance_hint = (body.get("appearance") or "").strip()
+    nsfw = body.get("nsfw", False)
+
+    # Build user prompt from hints
+    parts = [f"Concept: {concept}"]
+    if name_hint:
+        parts.append(f"Name: {name_hint}")
+    if age_hint:
+        parts.append(f"Age: {age_hint}")
+    if personality_hint:
+        parts.append(f"Personality hints: {personality_hint}")
+    if scenario_hint:
+        parts.append(f"Scenario/setting hints: {scenario_hint}")
+    if appearance_hint:
+        parts.append(f"Appearance hints: {appearance_hint}")
+    if nsfw:
+        parts.append("Content rating: NSFW (adult content is acceptable in the card)")
+    else:
+        parts.append("Content rating: SFW (keep all content safe for work)")
+
+    user_prompt = "\n".join(parts)
+    system_prompt = GEN_V2_SYSTEM if version == 2 else GEN_V1_SYSTEM
+
+    try:
+        completion = await chat_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.9,
+            max_tokens=4000,
+        )
+        raw = completion.choices[0].message.content or ""
+        card = json.loads(repair_json(raw))
+
+        # Normalize: ensure correct spec for V2
+        if version == 2:
+            if "data" not in card:
+                # LLM put everything at top level — wrap it
+                card = {"spec": "chara_card_v2", "spec_version": "2.0", "data": card}
+            card["spec"] = "chara_card_v2"
+            card["spec_version"] = "2.0"
+            card.setdefault("data", {}).setdefault("creator", "Richard")
+        else:
+            # V1: flatten if accidentally nested
+            if "data" in card:
+                card = card["data"]
+            card.pop("spec", None)
+            card.pop("spec_version", None)
+            card.setdefault("creator", "Richard")
+
+        return {"card": card, "version": version, "usage": getattr(completion, "usage", None) and completion.usage.model_dump()}
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/generate-character/save")
+async def save_generated_character(req: Request):
+    """Save a generated/previewed character card to the characters directory."""
+    body = await req.json()
+    card = body.get("card")
+    if not card or not isinstance(card, dict):
+        return JSONResponse({"error": "Invalid card data"}, status_code=400)
+
+    # Extract name for filename
+    version = detect_card_version(card)
+    data = card.get("data", card) if version >= 2 else card
+    name = (data.get("name") or "unnamed").strip()
+    if not name:
+        name = "unnamed"
+
+    # Sanitize filename
+    safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', name).strip('_').lower() or "unnamed"
+    filename = f"{safe_name}.json"
+
+    # Avoid overwriting existing files
+    if CHARACTERS_DIR.exists():
+        counter = 1
+        while (CHARACTERS_DIR / filename).exists():
+            filename = f"{safe_name}_{counter}.json"
+            counter += 1
+
+    save_card(filename, card)
+    return {"status": "ok", "filename": filename, "name": name}
+
+
 # ─── Config API ───────────────────────────────────────────────────
 @app.get("/api/config")
 async def get_config():
