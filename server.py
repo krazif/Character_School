@@ -904,11 +904,10 @@ def list_personas() -> list[dict]:
                 "description": data.get("description", ""),
                 "personality": data.get("personality", ""),
                 "tags": data.get("tags", []),
-                "traits": data.get("traits", {}),
                 "what_it_tests": data.get("what_it_tests", ""),
             })
         except (json.JSONDecodeError, KeyError):
-            personas.append({"filename": p.name, "name": p.stem, "description": "", "personality": "", "tags": [], "traits": {}, "what_it_tests": "", "error": True})
+            personas.append({"filename": p.name, "name": p.stem, "description": "", "personality": "", "tags": [], "what_it_tests": "", "error": True})
     return personas
 
 
@@ -948,7 +947,7 @@ Description: {persona.get('description', '')}
 Personality: {persona.get('personality', '')}
 What it tests: {persona.get('what_it_tests', '')}
 
-When assessing the character's response, consider the persona's pressure level. Guard holding against a highly attractive/pressuring persona is more significant than holding against a neutral one. Desire leaking toward a shy non-pursuing persona is more significant than leaking toward someone actively pursuing. Factor the persona's traits into your assessment of fragility and leakage."""
+When assessing the character's response, consider the persona's pressure level. Guard holding against a highly attractive/pressuring persona is more significant than holding against a neutral one. Desire leaking toward a shy non-pursuing persona is more significant than leaking toward someone actively pursuing. Factor the persona's description and personality into your assessment of fragility and leakage."""
 
 
 # ─── Card Management ──────────────────────────────────────────────
@@ -1732,8 +1731,7 @@ async def api_validate_persona(filename: str, data: dict):
     for field in required:
         if not data.get(field):
             issues.append({"severity": "error", "field": field, "message": f"Missing required field: {field}"})
-    if not data.get("traits"):
-        issues.append({"severity": "warning", "field": "traits", "message": "No traits specified — trait-based analysis won't work"})
+
     return JSONResponse({"valid": len([i for i in issues if i["severity"] == "error"]) == 0, "issues": issues})
 
 
@@ -2265,7 +2263,6 @@ Return ONLY the JSON object."""},
             "filename": persona_filename or "",
             "description": persona.get("description", ""),
             "personality": persona.get("personality", ""),
-            "traits": persona.get("traits", {}),
             "what_it_tests": persona.get("what_it_tests", ""),
         }
 

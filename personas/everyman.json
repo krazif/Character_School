@@ -11,12 +11,5 @@
     "neutral",
     "baseline"
   ],
-  "traits": {
-    "build": "medium",
-    "face": "average",
-    "height": "average",
-    "confidence": "medium",
-    "energy": "neutral"
-  },
   "what_it_tests": "Baseline. What is the character's default response to a normal, non-threatening, non-extraordinary interaction? This is the control group. Any guard behavior, desire leakage, or arc triggering that happens here is not caused by the counterparty's traits — it's coming from the character's own internal state. Compare all other persona results against this baseline."
 }

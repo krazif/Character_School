@@ -5,13 +5,11 @@
   "scenario": "",
   "first_mes": "",
   "mes_example": "",
-  "tags": ["Narrator", "Director", "Meta", "Persona"],
-  "traits": {
-    "build": "medium",
-    "face": "average",
-    "height": "average",
-    "confidence": "high",
-    "energy": "neutral"
-  },
+  "tags": [
+    "Narrator",
+    "Director",
+    "Meta",
+    "Persona"
+  ],
   "what_it_tests": "Tests whether the character can respond to narrative direction and scene-setting without treating the user as a physical presence. Reveals if the LLM handles meta-level story steering vs in-character dialogue correctly."
 }

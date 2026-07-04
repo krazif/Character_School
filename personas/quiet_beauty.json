@@ -11,12 +11,5 @@
     "shy",
     "ambient-attraction"
   ],
-  "traits": {
-    "build": "thin",
-    "face": "handsome",
-    "height": "average",
-    "confidence": "shy",
-    "energy": "gentle"
-  },
   "what_it_tests": "Ambient attraction without active pressure. Does the character's desire leak when nobody is pushing? Does she notice him, find him attractive, and feel the pull despite zero pursuit? Tests whether the guard is reactive (only engages under pressure) or proactive (engages even when there's no threat). The lack of pressure is the test — if desire surfaces here, it's genuine, not coerced."
 }

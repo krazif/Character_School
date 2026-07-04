@@ -762,11 +762,6 @@ body.rp-mode .school-only { display:none; }
         <input id="persona_name" type="text" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px" />
       </div>
       <div class="trait-grid">
-        <div class="trait-item"><label>Build</label><select id="trait_build"><option>thin</option><option>weak</option><option selected>medium</option><option>muscular</option><option>strong</option></select></div>
-        <div class="trait-item"><label>Face</label><select id="trait_face"><option>ugly</option><option selected>average</option><option>handsome</option></select></div>
-        <div class="trait-item"><label>Height</label><select id="trait_height"><option>short</option><option selected>average</option><option>tall</option></select></div>
-        <div class="trait-item"><label>Confidence</label><select id="trait_confidence"><option>shy</option><option>awkward</option><option selected>medium</option><option>confident</option><option>aggressive</option></select></div>
-        <div class="trait-item"><label>Energy</label><select id="trait_energy"><option>gentle</option><option>nervous</option><option selected>neutral</option><option>warm</option><option>intense</option><option>dominant</option></select></div>
         <div class="trait-item"><label>Tags (comma-sep)</label><input id="persona_tags" type="text" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px" /></div>
       </div>
       <div class="editor-field large">
@@ -1477,7 +1472,7 @@ async function loadPersonaList() {
   personasList.forEach(p => {
     const opt = document.createElement('option');
     opt.value = p.filename;
-    opt.textContent = p.name + (p.traits ? ` (${p.traits.build}/${p.traits.face}/${p.traits.confidence})` : '');
+    opt.textContent = p.name;
     select.appendChild(opt);
   });
   // Also populate persona editor load select
@@ -1901,7 +1896,7 @@ function closePersonaEditor() {
 
 function newPersona() {
   personaEditorData = {
-    name: '', tags: [], traits: {build:'medium',face:'average',height:'average',confidence:'medium',energy:'neutral'},
+    name: '', tags: [],
     description: '', personality: '', scenario: '', first_mes: '', mes_example: '', what_it_tests: ''
   };
   personaEditorFilename = '';
@@ -1924,12 +1919,6 @@ function fillPersonaForm() {
   const d = personaEditorData;
   document.getElementById('persona_name').value = d.name || '';
   document.getElementById('persona_tags').value = (d.tags || []).join(', ');
-  const t = d.traits || {};
-  document.getElementById('trait_build').value = t.build || 'medium';
-  document.getElementById('trait_face').value = t.face || 'average';
-  document.getElementById('trait_height').value = t.height || 'average';
-  document.getElementById('trait_confidence').value = t.confidence || 'medium';
-  document.getElementById('trait_energy').value = t.energy || 'neutral';
   document.getElementById('persona_description').value = d.description || '';
   document.getElementById('persona_personality').value = d.personality || '';
   document.getElementById('persona_scenario').value = d.scenario || '';
@@ -1943,15 +1932,8 @@ function fillPersonaForm() {
 function collectPersonaData() {
   const name = document.getElementById('persona_name').value.trim();
   const tags = document.getElementById('persona_tags').value.split(',').map(s=>s.trim()).filter(Boolean);
-  const traits = {
-    build: document.getElementById('trait_build').value,
-    face: document.getElementById('trait_face').value,
-    height: document.getElementById('trait_height').value,
-    confidence: document.getElementById('trait_confidence').value,
-    energy: document.getElementById('trait_energy').value,
-  };
   return {
-    name, tags, traits,
+    name, tags,
     description: document.getElementById('persona_description').value,
     personality: document.getElementById('persona_personality').value,
     scenario: document.getElementById('persona_scenario').value,
@@ -1965,8 +1947,7 @@ function updatePersonaPreview() {
   const d = collectPersonaData();
   const preview = document.getElementById('personaPreview');
   if (!d.name) { preview.innerHTML = '<i>Enter a name to see preview...</i>'; return; }
-  const t = d.traits;
-  preview.innerHTML = `<b>${escapeHtml(d.name)}</b> — ${t.build}/${t.face}/${t.height}/${t.confidence}/${t.energy}<br>${d.tags.join(', ') || '(no tags)'}<br><br>${d.description ? '<b>Description:</b> ' + escapeHtml(d.description.substring(0,200)) + '...' : '<i>(no description)</i>'}`;
+  preview.innerHTML = `<b>${escapeHtml(d.name)}</b><br>${d.tags.join(', ') || '(no tags)'}<br><br>${d.description ? '<b>Description:</b> ' + escapeHtml(d.description.substring(0,200)) + '...' : '<i>(no description)</i>'}`;
 }
 
 async function savePersona() {
@@ -2250,10 +2231,6 @@ function showReport(report) {
   if (report.persona_used) {
     html += `<div class="report-section"><h3>Persona Used</h3>`;
     html += `<p><b>${escapeHtml(report.persona_used.name || '')}</b></p>`;
-    if (report.persona_used.traits) {
-      const t = report.persona_used.traits;
-      html += `<p>Traits: ${t.build}/${t.face}/${t.height}/${t.confidence}/${t.energy}</p>`;
-    }
     if (report.persona_used.what_it_tests) {
       html += `<p style="font-size:12px;color:var(--text-dim)">${escapeHtml(report.persona_used.what_it_tests)}</p>`;
     }
@@ -2390,7 +2367,7 @@ function populateRPPersonaSelect() {
   personasList.forEach(p => {
     const opt = document.createElement('option');
     opt.value = p.filename;
-    opt.textContent = p.name + (p.traits ? ` (${p.traits.build}/${p.traits.confidence})` : '');
+    opt.textContent = p.name;
     sel.appendChild(opt);
   });
 }

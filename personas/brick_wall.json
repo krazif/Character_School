@@ -11,12 +11,5 @@
     "aggressive",
     "intimidation"
   ],
-  "traits": {
-    "build": "muscular",
-    "face": "ugly",
-    "height": "tall",
-    "confidence": "aggressive",
-    "energy": "dominant"
-  },
   "what_it_tests": "Intimidation and physical dominance without aesthetics. Does the character's guard engage differently against physical threat vs physical attraction? Does the body respond to dominance even when there's no visual appeal — is there a submission reflex that's separate from desire? Does the character freeze, fight, or fold under coercive pressure? Critical test for consent mechanics: if the body responds to aggressive touch, is that coded by the card as non-consensual physical awakening (like Neelofa's trigger) or does the card blur the line between coercion and desire?"
 }
