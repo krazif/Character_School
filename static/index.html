@@ -63,6 +63,7 @@ header .status.connected { color:var(--green); }
 .badge-partial { background:rgba(210,153,34,0.2); color:var(--yellow); }
 .msg-delete-link { display:block; text-align:right; font-size:11px; color:var(--text-dim); margin-top:6px; text-decoration:none; cursor:pointer; opacity:0.6; }
 .msg-delete-link:hover { color:var(--red); opacity:1; }
+.msg-number { display:inline-block; font-size:10px; color:var(--text-dim); background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; margin-left:6px; font-weight:600; vertical-align:middle; }
 
 /* Input */
 .chat-input { padding:12px 16px; border-top:1px solid var(--border); display:flex; gap:8px; }
@@ -1585,8 +1586,9 @@ function addMessage(role, content, analysis, isFirst, messageId) {
     badge = `<span class="analysis-badge ${cls}">${analysis.overall.toUpperCase()}</span>`;
   }
 
+  const msgNum = container.querySelectorAll('.message').length;
   const roleLabel = role === 'character' ? (currentCard?.data?.name || 'Character') + badge : role === 'user' ? 'You' : '';
-  div.innerHTML = (roleLabel ? `<div class="role-label">${roleLabel}</div>` : '') + formatMessage(content);
+  div.innerHTML = `<div class="role-label">${roleLabel}<span class="msg-number">${msgNum}</span></div>` + formatMessage(content);
 
   // Store the server-provided message ID (SQLite row id) on the DOM node
   if (messageId != null) {
@@ -1611,6 +1613,11 @@ function addMessage(role, content, analysis, isFirst, messageId) {
       for (let i = allMsgs.length - 1; i >= myIdx; i--) {
         allMsgs[i].remove();
       }
+      // Re-number remaining messages
+      container.querySelectorAll('.message').forEach((msg, i) => {
+        const nb = msg.querySelector('.msg-number');
+        if (nb) nb.textContent = i;
+      });
       // Update analysis panel — clear if no character messages remain
       const remainingChar = document.querySelectorAll('.message.character').length;
       if (remainingChar === 0) {
@@ -2581,13 +2588,16 @@ function addRPMessage(role, content, speaker, messageId) {
   const div = document.createElement('div');
   div.className = 'rp-msg ' + (role === 'user' ? 'user' : role === 'system' ? 'system' : 'character');
 
+  const msgNum = container.querySelectorAll('.rp-msg').length;
   let speakerHtml = '';
   if (role === 'character' && speaker) {
     const idx = rpCharacters.findIndex(c => c.name === speaker);
     const color = idx >= 0 ? RP_CHAR_COLORS[idx % RP_CHAR_COLORS.length] : 'var(--text-dim)';
-    speakerHtml = `<div class="rp-speaker" style="color:${color}">${escapeHtml(speaker)}</div>`;
+    speakerHtml = `<div class="rp-speaker" style="color:${color}">${escapeHtml(speaker)}<span class="msg-number">${msgNum}</span></div>`;
   } else if (role === 'user') {
-    speakerHtml = `<div class="rp-speaker" style="color:#7ec8e3">You</div>`;
+    speakerHtml = `<div class="rp-speaker" style="color:#7ec8e3">You<span class="msg-number">${msgNum}</span></div>`;
+  } else {
+    speakerHtml = `<div class="rp-speaker"><span class="msg-number">${msgNum}</span></div>`;
   }
 
   div.innerHTML = speakerHtml + formatMessage(content);
@@ -2612,6 +2622,11 @@ function addRPMessage(role, content, speaker, messageId) {
       for (let i = allMsgs.length - 1; i >= myIdx; i--) {
         allMsgs[i].remove();
       }
+      // Re-number remaining messages
+      container.querySelectorAll('.rp-msg').forEach((msg, i) => {
+        const nb = msg.querySelector('.msg-number');
+        if (nb) nb.textContent = i;
+      });
     };
     div.appendChild(delLink);
   }
