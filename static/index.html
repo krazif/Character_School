@@ -1956,6 +1956,17 @@ function renderEditor() {
     }
   }).join('');
 
+  // Append {{char}} mode toggle at the end of core tab
+  if (editorTab === 'core') {
+    const charMode = d['char_name_mode'] || 'full';
+    const toggleHtml = `<div class="editor-field" style="flex-direction:row;align-items:center;gap:10px;">
+      <label style="margin:0;white-space:nowrap;">{{char}} uses first name</label>
+      <input id="edit_char_name_mode" type="checkbox" ${charMode === 'first' ? 'checked' : ''} />
+      <span style="font-size:12px;color:#888;">When off, {{char}} → full name (e.g. "Farah Surihani"). When on, {{char}} → first name only (e.g. "Farah").</span>
+    </div>`;
+    body.innerHTML += toggleHtml;
+  }
+
   // Add change listeners
   currentFields.forEach(f => {
     const [key] = f;
@@ -1970,6 +1981,14 @@ function renderEditor() {
       });
     }
   });
+
+  // {{char}} substitution toggle (core tab only)
+  const charModeToggle = document.getElementById('edit_char_name_mode');
+  if (charModeToggle) {
+    charModeToggle.addEventListener('change', () => {
+      d['char_name_mode'] = charModeToggle.checked ? 'first' : 'full';
+    });
+  }
 }
 
 async function saveCard() {

@@ -802,6 +802,20 @@ def save_card(filename: str, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def resolve_char_name(card: dict) -> str:
+    """Resolve the character name based on the card's char_name_mode setting.
+    
+    'full'  (default) — use the full name (e.g. 'Farah Surihani')
+    'first'           — use only the first name (e.g. 'Farah')
+    """
+    d = card.get("data", card)
+    full_name = d.get("name", "Character") or "Character"
+    mode = d.get("char_name_mode", "full") or "full"
+    if mode == "first":
+        return full_name.split()[0] if full_name else "Character"
+    return full_name
+
+
 def substitute_macros(text: str, char_name: str, user_name: str = "User") -> str:
     """Replace {{char}} and {{user}} placeholders with actual names."""
     if not text:
@@ -813,7 +827,7 @@ def build_system_prompt(card: dict, user_name: str = "User") -> str:
     """Build the system prompt for the character LLM from any version card."""
     d = card.get("data", card)
     version = detect_card_version(card)
-    char_name = d.get("name", "Character") or "Character"
+    char_name = resolve_char_name(card)
     parts = []
     # System prompt is the core
     val = get_card_field(d, "system_prompt", version)
@@ -846,7 +860,7 @@ def build_analysis_prompt(card: dict) -> str:
     """Build the system prompt for the analysis LLM."""
     d = card.get("data", card)
     version = detect_card_version(card)
-    char_name = d.get("name", "Character") or "Character"
+    char_name = resolve_char_name(card)
     # Gather all the rules from the card
     rules_text = []
     for field in ["system_prompt", "post_history_instructions", "description", "personality"]:
@@ -937,7 +951,7 @@ def get_first_mes(card: dict, user_name: str = "User") -> Optional[str]:
     val = get_card_field(d, "first_mes", version)
     if not val:
         return None
-    char_name = d.get("name", "Character") or "Character"
+    char_name = resolve_char_name(card)
     return substitute_macros(val, char_name, user_name)
 
 
@@ -962,23 +976,24 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
             d = card.get("data", card)
             version = detect_card_version(card)
             name = d.get("name", "Unknown")
+            char_name = resolve_char_name(card)
             if name.lower() == directed_lower:
                 parts.append(f"=== YOU ARE {name} ===")
                 val = get_card_field(d, "system_prompt", version)
                 if val:
-                    parts.append(substitute_macros(val, name, _user_name))
+                    parts.append(substitute_macros(val, char_name, _user_name))
                 val = get_card_field(d, "description", version)
                 if val:
-                    parts.append(f"CHARACTER DESCRIPTION: {substitute_macros(val, name, _user_name)}")
+                    parts.append(f"CHARACTER DESCRIPTION: {substitute_macros(val, char_name, _user_name)}")
                 val = get_card_field(d, "personality", version)
                 if val:
-                    parts.append(f"PERSONALITY: {substitute_macros(val, name, _user_name)}")
+                    parts.append(f"PERSONALITY: {substitute_macros(val, char_name, _user_name)}")
                 val = get_card_field(d, "mes_example", version)
                 if val:
-                    parts.append(f"EXAMPLE DIALOGUE (for voice reference): {substitute_macros(val, name, _user_name)}")
+                    parts.append(f"EXAMPLE DIALOGUE (for voice reference): {substitute_macros(val, char_name, _user_name)}")
                 val = get_card_field(d, "post_history_instructions", version)
                 if val:
-                    parts.append(f"ALWAYS REMEMBER: {substitute_macros(val, name, _user_name)}")
+                    parts.append(f"ALWAYS REMEMBER: {substitute_macros(val, char_name, _user_name)}")
                 parts.append("")
             else:
                 # Brief context only — just enough to know who else is in the scene
@@ -992,22 +1007,23 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
             d = card.get("data", card)
             version = detect_card_version(card)
             name = d.get("name", "Unknown")
+            char_name = resolve_char_name(card)
             parts.append(f"--- {name} ---")
             val = get_card_field(d, "system_prompt", version)
             if val:
-                parts.append(substitute_macros(val, name, _user_name))
+                parts.append(substitute_macros(val, char_name, _user_name))
             val = get_card_field(d, "description", version)
             if val:
-                parts.append(f"CHARACTER DESCRIPTION: {substitute_macros(val, name, _user_name)}")
+                parts.append(f"CHARACTER DESCRIPTION: {substitute_macros(val, char_name, _user_name)}")
             val = get_card_field(d, "personality", version)
             if val:
-                parts.append(f"PERSONALITY: {substitute_macros(val, name, _user_name)}")
+                parts.append(f"PERSONALITY: {substitute_macros(val, char_name, _user_name)}")
             val = get_card_field(d, "mes_example", version)
             if val:
-                parts.append(f"EXAMPLE DIALOGUE (for voice reference): {substitute_macros(val, name, _user_name)}")
+                parts.append(f"EXAMPLE DIALOGUE (for voice reference): {substitute_macros(val, char_name, _user_name)}")
             val = get_card_field(d, "post_history_instructions", version)
             if val:
-                parts.append(f"ALWAYS REMEMBER: {substitute_macros(val, name, _user_name)}")
+                parts.append(f"ALWAYS REMEMBER: {substitute_macros(val, char_name, _user_name)}")
             parts.append("")
 
     # Turn routing
