@@ -1956,15 +1956,19 @@ function renderEditor() {
     }
   }).join('');
 
-  // Append {{char}} mode toggle at the end of core tab
+  // Insert {{char}} name mode selector at the top of core tab (before name field)
   if (editorTab === 'core') {
     const charMode = d['char_name_mode'] || 'full';
-    const toggleHtml = `<div class="editor-field" style="flex-direction:row;align-items:center;gap:10px;">
-      <label style="margin:0;white-space:nowrap;">{{char}} uses first name</label>
-      <input id="edit_char_name_mode" type="checkbox" ${charMode === 'first' ? 'checked' : ''} />
-      <span style="font-size:12px;color:#888;">When off, {{char}} → full name (e.g. "Farah Surihani"). When on, {{char}} → first name only (e.g. "Farah").</span>
+    const selectorHtml = `<div class="editor-field" style="flex-direction:row;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;">
+      <label style="margin:0;white-space:nowrap;font-size:13px;">{{char}} resolves to</label>
+      <select id="edit_char_name_mode" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:13px;">
+        <option value="full" ${charMode==='full'?'selected':''}>Full name</option>
+        <option value="first" ${charMode==='first'?'selected':''}>First name</option>
+        <option value="last" ${charMode==='last'?'selected':''}>Last name</option>
+      </select>
+      <span style="font-size:11px;color:#777;">e.g. Donald Duck &rarr; "Donald" / "Duck" / "Donald Duck"</span>
     </div>`;
-    body.innerHTML += toggleHtml;
+    body.innerHTML = selectorHtml + body.innerHTML;
   }
 
   // Add change listeners
@@ -1982,11 +1986,11 @@ function renderEditor() {
     }
   });
 
-  // {{char}} substitution toggle (core tab only)
-  const charModeToggle = document.getElementById('edit_char_name_mode');
-  if (charModeToggle) {
-    charModeToggle.addEventListener('change', () => {
-      d['char_name_mode'] = charModeToggle.checked ? 'first' : 'full';
+  // {{char}} name mode selector (core tab only)
+  const charModeSelect = document.getElementById('edit_char_name_mode');
+  if (charModeSelect) {
+    charModeSelect.addEventListener('change', () => {
+      d['char_name_mode'] = charModeSelect.value;
     });
   }
 }

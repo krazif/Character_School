@@ -811,8 +811,11 @@ def resolve_char_name(card: dict) -> str:
     d = card.get("data", card)
     full_name = d.get("name", "Character") or "Character"
     mode = d.get("char_name_mode", "full") or "full"
+    parts = full_name.split()
     if mode == "first":
-        return full_name.split()[0] if full_name else "Character"
+        return parts[0] if parts else "Character"
+    if mode == "last":
+        return parts[-1] if len(parts) > 1 else full_name
     return full_name
 
 
