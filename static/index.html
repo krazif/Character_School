@@ -1630,7 +1630,7 @@ function addMessage(role, content, analysis, isFirst, messageId) {
   }
 
   const msgNum = container.querySelectorAll('.message').length;
-  const roleLabel = role === 'character' ? (currentCard?.data?.name || 'Character') + badge : role === 'user' ? 'You' : '';
+  const roleLabel = role === 'character' ? (currentCard?.data?.name || 'Character') + badge : role === 'user' ? (currentPersona?.name || 'You') : '';
   div.innerHTML = `<div class="role-label">${roleLabel}<span class="msg-number">${msgNum}</span></div>` + formatMessage(content);
 
   // Store the server-provided message ID (SQLite row id) on the DOM node
@@ -2654,7 +2654,8 @@ function addRPMessage(role, content, speaker, messageId) {
     const color = idx >= 0 ? RP_CHAR_COLORS[idx % RP_CHAR_COLORS.length] : 'var(--text-dim)';
     speakerHtml = `<div class="rp-speaker" style="color:${color}">${escapeHtml(speaker)}<span class="msg-number">${msgNum}</span></div>`;
   } else if (role === 'user') {
-    speakerHtml = `<div class="rp-speaker" style="color:#7ec8e3">You<span class="msg-number">${msgNum}</span></div>`;
+    const rpPersonaName = (personasList.find(p => p.filename === rpPersonaFilename)?.name) || 'You';
+    speakerHtml = `<div class="rp-speaker" style="color:#7ec8e3">${escapeHtml(rpPersonaName)}<span class="msg-number">${msgNum}</span></div>`;
   } else {
     speakerHtml = `<div class="rp-speaker"><span class="msg-number">${msgNum}</span></div>`;
   }
