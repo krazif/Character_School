@@ -7,8 +7,9 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Characters directory (symlink to personal cards — users create their own)
-characters
+# Characters directory — keep the folder, ignore personal cards
+characters/*.json
+characters/*.png
 
 # Personal persona
 personas/razif.json
