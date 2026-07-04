@@ -610,6 +610,32 @@ body.rp-mode .school-only { display:none; }
       </div>
 
       <div class="settings-section">
+        <div class="settings-section-title">Summary Endpoint (RP Summarization)</div>
+        <div class="settings-field">
+          <label>Base URL</label>
+          <input type="text" id="cfgSummaryBaseUrl" placeholder="https://openrouter.ai/api/v1" />
+        </div>
+        <div class="settings-field">
+          <label>API Key (leave as-is to keep current)</label>
+          <input type="password" id="cfgSummaryApiKey" placeholder="sk-..." />
+        </div>
+        <div class="settings-field">
+          <label>Model</label>
+          <input type="text" id="cfgSummaryModel" placeholder="deepseek/deepseek-v4-flash" />
+        </div>
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label>Temperature</label>
+            <input type="number" id="cfgSummaryTemp" step="0.1" min="0" max="2" value="0.3" />
+          </div>
+          <div class="settings-field">
+            <label>Max Tokens</label>
+            <input type="number" id="cfgSummaryMaxTok" value="1000" />
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-section-title">Paths</div>
         <div class="settings-field">
           <label>Characters Directory (empty = default ./characters)</label>
@@ -3112,6 +3138,11 @@ async function openSettings() {
     document.getElementById('cfgAnalysisModel').value = cfg.analysis.model || '';
     document.getElementById('cfgAnalysisTemp').value = cfg.analysis.temperature ?? 0.1;
     document.getElementById('cfgAnalysisMaxTok').value = cfg.analysis.max_tokens ?? 1500;
+    document.getElementById('cfgSummaryBaseUrl').value = cfg.summary?.base_url || '';
+    document.getElementById('cfgSummaryApiKey').value = cfg.summary?.api_key || '';
+    document.getElementById('cfgSummaryModel').value = cfg.summary?.model || '';
+    document.getElementById('cfgSummaryTemp').value = cfg.summary?.temperature ?? 0.3;
+    document.getElementById('cfgSummaryMaxTok').value = cfg.summary?.max_tokens ?? 1000;
     document.getElementById('cfgCharactersDir').value = cfg.paths.characters_dir || '';
     document.getElementById('cfgPersonasDir').value = cfg.paths.personas_dir || '';
     if (cfg.version) {
@@ -3152,6 +3183,13 @@ async function saveSettings() {
         model: document.getElementById('cfgAnalysisModel').value.trim(),
         temperature: parseFloat(document.getElementById('cfgAnalysisTemp').value) || 0.1,
         max_tokens: parseInt(document.getElementById('cfgAnalysisMaxTok').value) || 1500,
+      },
+      summary: {
+        base_url: document.getElementById('cfgSummaryBaseUrl').value.trim(),
+        api_key: document.getElementById('cfgSummaryApiKey').value.trim(),
+        model: document.getElementById('cfgSummaryModel').value.trim(),
+        temperature: parseFloat(document.getElementById('cfgSummaryTemp').value) || 0.3,
+        max_tokens: parseInt(document.getElementById('cfgSummaryMaxTok').value) || 1000,
       },
       paths: {
         characters_dir: document.getElementById('cfgCharactersDir').value.trim() || null,

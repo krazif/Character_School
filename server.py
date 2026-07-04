@@ -158,6 +158,17 @@ def save_config(cfg: dict):
     lines.append(f'    "temperature": {float(ana.get("temperature", 0.1))},')
     lines.append(f'    "max_tokens": {int(ana.get("max_tokens", 1500))}')
     lines.append('  },')
+    summ = cfg.get("summary", {})
+    lines.append('')
+    lines.append('  // ── Summary endpoint — summarizes RP conversation blocks ──')
+    lines.append('  "summary": {')
+    lines.append('    "base_url": ' + json.dumps(str(summ.get("base_url", "https://openrouter.ai/api/v1"))) + ',')
+    summ_key = summ.get("api_key")
+    lines.append('    "api_key": ' + (json.dumps(summ_key) if summ_key else 'null') + ',')
+    lines.append('    "model": ' + json.dumps(str(summ.get("model", "deepseek/deepseek-v4-flash"))) + ',')
+    lines.append(f'    "temperature": {float(summ.get("temperature", 0.3))},')
+    lines.append(f'    "max_tokens": {int(summ.get("max_tokens", 1000))}')
+    lines.append('  },')
     paths = cfg.get("paths", {})
     lines.append('')
     lines.append('  // Paths — can be absolute or relative to the app directory')
@@ -175,12 +186,15 @@ def reload_config():
     """Reload config from disk and update all globals + LLM clients."""
     global _cfg, CHAT_BASE_URL, CHAT_API_KEY, CHAT_MODEL, CHAT_TEMPERATURE, CHAT_MAX_TOKENS, CHAT_ENABLE_THINKING
     global ANALYSIS_BASE_URL, ANALYSIS_API_KEY, ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS
-    global chat_client, analysis_client, CHARACTERS_DIR, PERSONAS_DIR
+    global SUMMARY_BASE_URL, SUMMARY_API_KEY, SUMMARY_MODEL, SUMMARY_TEMPERATURE, SUMMARY_MAX_TOKENS
+    global chat_client, analysis_client, summary_client, CHARACTERS_DIR, PERSONAS_DIR
     _cfg = load_config()
     _chat_cfg = _cfg.get("chat", {})
     _analysis_cfg = _cfg.get("analysis", {})
+    _summary_cfg = _cfg.get("summary", {})
     _chat_key = _chat_cfg.get("api_key")
     _analysis_key = _analysis_cfg.get("api_key")
+    _summary_key = _summary_cfg.get("api_key")
     CHAT_BASE_URL    = os.environ.get("CHARACTERSCHOOL_CHAT_BASE_URL",    _chat_cfg.get("base_url", "https://openrouter.ai/api/v1"))
     CHAT_API_KEY     = os.environ.get("CHARACTERSCHOOL_CHAT_API_KEY",     _chat_key or os.environ.get("OPENROUTER_API_KEY", ""))
     CHAT_MODEL       = os.environ.get("CHARACTERSCHOOL_CHAT_MODEL",       _chat_cfg.get("model", "deepseek/deepseek-v4-flash"))
@@ -192,8 +206,14 @@ def reload_config():
     ANALYSIS_MODEL       = os.environ.get("CHARACTERSCHOOL_ANALYSIS_MODEL",       _analysis_cfg.get("model", "deepseek/deepseek-v4-flash"))
     ANALYSIS_TEMPERATURE = _analysis_cfg.get("temperature", 0.1)
     ANALYSIS_MAX_TOKENS  = _analysis_cfg.get("max_tokens", 1500)
-    chat_client     = AsyncOpenAI(base_url=CHAT_BASE_URL,     api_key=CHAT_API_KEY)
-    analysis_client = AsyncOpenAI(base_url=ANALYSIS_BASE_URL, api_key=ANALYSIS_API_KEY)
+    SUMMARY_BASE_URL    = os.environ.get("CHARACTERSCHOOL_SUMMARY_BASE_URL",    _summary_cfg.get("base_url", "https://openrouter.ai/api/v1"))
+    SUMMARY_API_KEY     = os.environ.get("CHARACTERSCHOOL_SUMMARY_API_KEY",     _summary_key or os.environ.get("OPENROUTER_API_KEY", ""))
+    SUMMARY_MODEL       = os.environ.get("CHARACTERSCHOOL_SUMMARY_MODEL",       _summary_cfg.get("model", "deepseek/deepseek-v4-flash"))
+    SUMMARY_TEMPERATURE = _summary_cfg.get("temperature", 0.3)
+    SUMMARY_MAX_TOKENS  = _summary_cfg.get("max_tokens", 1000)
+    chat_client     = AsyncOpenAI(base_url=CHAT_BASE_URL,     api_key=CHAT_API_KEY or "not-configured")
+    analysis_client = AsyncOpenAI(base_url=ANALYSIS_BASE_URL, api_key=ANALYSIS_API_KEY or "not-configured")
+    summary_client  = AsyncOpenAI(base_url=SUMMARY_BASE_URL,  api_key=SUMMARY_API_KEY or "not-configured")
     _cdir = _cfg.get("paths", {}).get("characters_dir")
     CHARACTERS_DIR = Path(os.environ.get("CHARACTERS_DIR", _cdir if _cdir else str(Path(__file__).parent / "characters")))
     _pdir = _cfg.get("paths", {}).get("personas_dir")
@@ -242,6 +262,15 @@ ANALYSIS_MAX_TOKENS  = _analysis_cfg.get("max_tokens", 1500)
 # the user can set real keys via the Settings page or config.jsonc.
 chat_client     = AsyncOpenAI(base_url=CHAT_BASE_URL,     api_key=CHAT_API_KEY or "not-configured")
 analysis_client = AsyncOpenAI(base_url=ANALYSIS_BASE_URL, api_key=ANALYSIS_API_KEY or "not-configured")
+
+_summary_cfg = _cfg.get("summary", {})
+_summary_key = _summary_cfg.get("api_key")
+SUMMARY_BASE_URL    = os.environ.get("CHARACTERSCHOOL_SUMMARY_BASE_URL",    _summary_cfg.get("base_url", "https://openrouter.ai/api/v1"))
+SUMMARY_API_KEY     = os.environ.get("CHARACTERSCHOOL_SUMMARY_API_KEY",     _summary_key or os.environ.get("OPENROUTER_API_KEY", ""))
+SUMMARY_MODEL       = os.environ.get("CHARACTERSCHOOL_SUMMARY_MODEL",       _summary_cfg.get("model", "deepseek/deepseek-v4-flash"))
+SUMMARY_TEMPERATURE = _summary_cfg.get("temperature", 0.3)
+SUMMARY_MAX_TOKENS  = _summary_cfg.get("max_tokens", 1000)
+summary_client  = AsyncOpenAI(base_url=SUMMARY_BASE_URL,  api_key=SUMMARY_API_KEY or "not-configured")
 
 # ─── SQLite Database ─────────────────────────────────────────────
 DB_PATH = APP_DIR / "char_test.db"
@@ -1160,23 +1189,23 @@ async def rp_summarize(session_id: int, messages_to_summarize: list[dict],
 
     if ws:
         await ws.send_json({
-            "type": "console_event", "event": "request", "llm": "analysis",
-            "model": ANALYSIS_MODEL, "label": "Summarization",
-            "temperature": 0.3, "max_tokens": 1000,
+            "type": "console_event", "event": "request", "llm": "summary",
+            "model": SUMMARY_MODEL, "label": "Summarization",
+            "temperature": SUMMARY_TEMPERATURE, "max_tokens": SUMMARY_MAX_TOKENS,
             "messages": messages, "timestamp": _now_iso(),
         })
 
     try:
-        resp = await analysis_client.chat.completions.create(
-            model=ANALYSIS_MODEL, messages=messages,
-            temperature=0.3, max_tokens=1000,
+        resp = await summary_client.chat.completions.create(
+            model=SUMMARY_MODEL, messages=messages,
+            temperature=SUMMARY_TEMPERATURE, max_tokens=SUMMARY_MAX_TOKENS,
         )
         summary = resp.choices[0].message.content.strip()
         usage = resp.usage
         if ws:
             await ws.send_json({
-                "type": "console_event", "event": "response", "llm": "analysis",
-                "model": ANALYSIS_MODEL, "label": "Summarization",
+                "type": "console_event", "event": "response", "llm": "summary",
+                "model": SUMMARY_MODEL, "label": "Summarization",
                 "content": summary,
                 "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
                 "finish_reason": resp.choices[0].finish_reason, "timestamp": _now_iso(),
@@ -2723,6 +2752,13 @@ async def get_config():
             "temperature": _c.get("analysis", {}).get("temperature", 0.1),
             "max_tokens": _c.get("analysis", {}).get("max_tokens", 1500),
         },
+        "summary": {
+            "base_url": _c.get("summary", {}).get("base_url", ""),
+            "api_key": mask(_c.get("summary", {}).get("api_key")),
+            "model": _c.get("summary", {}).get("model", ""),
+            "temperature": _c.get("summary", {}).get("temperature", 0.3),
+            "max_tokens": _c.get("summary", {}).get("max_tokens", 1000),
+        },
         "paths": _c.get("paths", {"characters_dir": None, "personas_dir": None}),
     }
 
@@ -2735,7 +2771,7 @@ async def update_config(req: Request):
     current = load_config()
 
     # Deep-merge: update only provided fields
-    for section in ("server", "chat", "analysis", "paths"):
+    for section in ("server", "chat", "analysis", "summary", "paths"):
         if section not in body:
             continue
         if section not in current:
