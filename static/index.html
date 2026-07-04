@@ -592,6 +592,23 @@ body.rp-mode .school-only { display:none; }
       </div>
 
       <div class="settings-section">
+        <div class="settings-section-title">Context Limit (applies to School &amp; RP)</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">
+          Trims oldest non-system messages before sending to the LLM. 0 = unlimited.
+        </div>
+        <div style="display:flex;gap:16px">
+          <div class="settings-field" style="flex:1">
+            <label>Max Tokens (~4 chars/token estimate)</label>
+            <input type="number" id="cfgCtxMaxTokens" value="0" min="0" />
+          </div>
+          <div class="settings-field" style="flex:1">
+            <label>Max Messages</label>
+            <input type="number" id="cfgCtxMaxMessages" value="0" min="0" />
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-section-title">Paths</div>
         <div class="settings-field">
           <label>Characters Directory (empty = default ./characters)</label>
@@ -2999,6 +3016,9 @@ async function openSettings() {
     document.getElementById('cfgChatTemp').value = cfg.chat.temperature ?? 0.8;
     document.getElementById('cfgChatMaxTok').value = cfg.chat.max_tokens ?? 2000;
     document.getElementById('cfgChatEnableThinking').checked = cfg.chat.enable_thinking ?? false;
+    const cl = cfg.context_limit || {};
+    document.getElementById('cfgCtxMaxTokens').value = cl.max_tokens ?? 0;
+    document.getElementById('cfgCtxMaxMessages').value = cl.max_messages ?? 0;
     document.getElementById('cfgAnalysisBaseUrl').value = cfg.analysis.base_url || '';
     document.getElementById('cfgAnalysisApiKey').value = cfg.analysis.api_key || '';
     document.getElementById('cfgAnalysisModel').value = cfg.analysis.model || '';
@@ -3048,6 +3068,10 @@ async function saveSettings() {
       paths: {
         characters_dir: document.getElementById('cfgCharactersDir').value.trim() || null,
         personas_dir: document.getElementById('cfgPersonasDir').value.trim() || null,
+      },
+      context_limit: {
+        max_tokens: parseInt(document.getElementById('cfgCtxMaxTokens').value) || 0,
+        max_messages: parseInt(document.getElementById('cfgCtxMaxMessages').value) || 0,
       },
     };
     const res = await fetch('/api/config', {

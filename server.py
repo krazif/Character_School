@@ -166,6 +166,14 @@ def save_config(cfg: dict):
     lines.append('    "characters_dir": ' + (json.dumps(_cdir) if _cdir else 'null') + ', // null = defaults to ./characters inside app dir')
     pdir = paths.get("personas_dir")
     lines.append('    "personas_dir": ' + (json.dumps(pdir) if pdir else 'null') + '  // null = defaults to ./personas inside app dir')
+    lines.append('  },')
+    ctx = cfg.get("context_limit", {})
+    lines.append('')
+    lines.append('  // ── Context limit — applies to both School and RP modes ──')
+    lines.append('  // 0 = unlimited. Trims oldest non-system messages to fit.')
+    lines.append('  "context_limit": {')
+    lines.append(f'    "max_tokens": {int(ctx.get("max_tokens", 0))}, // estimated at ~4 chars/token')
+    lines.append(f'    "max_messages": {int(ctx.get("max_messages", 0))}  // 0 = unlimited')
     lines.append('  }')
     lines.append('}')
     config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -187,6 +195,10 @@ def reload_config():
     CHAT_TEMPERATURE = _chat_cfg.get("temperature", 0.8)
     CHAT_MAX_TOKENS  = _chat_cfg.get("max_tokens", 2000)
     CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
+    global CONTEXT_LIMIT_MAX_TOKENS, CONTEXT_LIMIT_MAX_MESSAGES
+    _ctx_cfg = _cfg.get("context_limit", {})
+    CONTEXT_LIMIT_MAX_TOKENS   = int(_ctx_cfg.get("max_tokens", 0))
+    CONTEXT_LIMIT_MAX_MESSAGES = int(_ctx_cfg.get("max_messages", 0))
     ANALYSIS_BASE_URL    = os.environ.get("CHARACTERSCHOOL_ANALYSIS_BASE_URL",    _analysis_cfg.get("base_url", "https://openrouter.ai/api/v1"))
     ANALYSIS_API_KEY     = os.environ.get("CHARACTERSCHOOL_ANALYSIS_API_KEY",     _analysis_key or os.environ.get("OPENROUTER_API_KEY", ""))
     ANALYSIS_MODEL       = os.environ.get("CHARACTERSCHOOL_ANALYSIS_MODEL",       _analysis_cfg.get("model", "deepseek/deepseek-v4-flash"))
@@ -230,6 +242,9 @@ CHAT_MODEL       = os.environ.get("CHARACTERSCHOOL_CHAT_MODEL",       _chat_cfg.
 CHAT_TEMPERATURE = _chat_cfg.get("temperature", 0.8)
 CHAT_MAX_TOKENS  = _chat_cfg.get("max_tokens", 2000)
 CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
+
+CONTEXT_LIMIT_MAX_TOKENS   = int(_cfg.get("context_limit", {}).get("max_tokens", 0))
+CONTEXT_LIMIT_MAX_MESSAGES = int(_cfg.get("context_limit", {}).get("max_messages", 0))
 
 ANALYSIS_BASE_URL    = os.environ.get("CHARACTERSCHOOL_ANALYSIS_BASE_URL",    _analysis_cfg.get("base_url", "https://openrouter.ai/api/v1"))
 ANALYSIS_API_KEY     = os.environ.get("CHARACTERSCHOOL_ANALYSIS_API_KEY",     _analysis_key or os.environ.get("OPENROUTER_API_KEY", ""))
@@ -379,6 +394,46 @@ def db_get_llm_messages(session_id: int) -> list[dict]:
     for r in rows:
         result.append({"role": r[0], "content": r[1]})
     return result
+
+
+def trim_context(messages: list[dict]) -> list[dict]:
+    """Apply global context limits to a list of LLM messages.
+    Preserves all system messages; trims oldest non-system messages.
+    - max_messages > 0: keep only the last N non-system messages
+    - max_tokens  > 0: estimate tokens (~4 chars/token) and trim oldest to fit
+    Both limits apply if set; the stricter one wins.
+    Returns a new list."""
+    if not messages:
+        return messages
+    system_msgs = [m for m in messages if m["role"] == "system"]
+    convo_msgs  = [m for m in messages if m["role"] != "system"]
+
+    max_msgs = CONTEXT_LIMIT_MAX_MESSAGES
+    max_toks = CONTEXT_LIMIT_MAX_TOKENS
+
+    if max_msgs > 0 and len(convo_msgs) > max_msgs:
+        convo_msgs = convo_msgs[-max_msgs:]
+
+    if max_toks > 0:
+        # Estimate tokens for system messages (always included)
+        sys_chars = sum(len(m["content"]) for m in system_msgs)
+        sys_tokens = sys_chars // 4
+        budget = max_toks - sys_tokens
+        if budget <= 0:
+            # System prompt alone exceeds budget — keep only system + last message
+            convo_msgs = convo_msgs[-1:] if convo_msgs else []
+        else:
+            kept = []
+            total = 0
+            for m in reversed(convo_msgs):
+                est = len(m["content"]) // 4 + 1  # +1 rounding per message
+                if total + est > budget:
+                    break
+                kept.insert(0, m)
+                total += est
+            convo_msgs = kept
+
+    return system_msgs + convo_msgs
 
 
 def db_get_assistant_messages(session_id: int) -> list[dict]:
@@ -1660,6 +1715,7 @@ async def ws_chat(ws: WebSocket):
                     try:
                         # Build LLM context from SQLite
                         llm_messages = db_get_llm_messages(session_id)
+                        llm_messages = trim_context(llm_messages)
 
                         # ── Notify frontend: character is responding ──
                         await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
@@ -2307,6 +2363,7 @@ async def ws_rp(ws: WebSocket):
                         llm_messages, block_markers = build_llm_messages_from_stack(
                             stack_cfg, system_prompt, all_msgs, summary_text,
                         )
+                        llm_messages = trim_context(llm_messages)
 
                         # Typing indicator
                         if directed_to and directed_to in character_names:
@@ -2661,6 +2718,10 @@ async def get_config():
             "max_tokens": _c.get("analysis", {}).get("max_tokens", 1500),
         },
         "paths": _c.get("paths", {"characters_dir": None, "personas_dir": None}),
+        "context_limit": {
+            "max_tokens": _c.get("context_limit", {}).get("max_tokens", 0),
+            "max_messages": _c.get("context_limit", {}).get("max_messages", 0),
+        },
     }
 
 
@@ -2672,7 +2733,7 @@ async def update_config(req: Request):
     current = load_config()
 
     # Deep-merge: update only provided fields
-    for section in ("server", "chat", "analysis", "paths"):
+    for section in ("server", "chat", "analysis", "paths", "context_limit"):
         if section not in body:
             continue
         if section not in current:
