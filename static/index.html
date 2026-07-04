@@ -2228,8 +2228,8 @@ function formatMessage(text) {
   let safe = escapeHtml(text);
   // *text* → <em>text</em>  (non-greedy, no nesting across newlines)
   safe = safe.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-  // "text" → <strong>text</strong>
-  safe = safe.replace(/&quot;([^&\n]+?)&quot;/g, '<strong>$1</strong>');
+  // "text" → <strong class="dialog">text</strong>
+  safe = safe.replace(/&quot;([^&\n]+?)&quot;/g, '<strong class="dialog">$1</strong>');
   return safe;
 }
 
@@ -3139,3 +3139,4 @@ async function resetDatabase() {
 </script>
 </body>
 </html>
+.message .dialog, .rp-msg .dialog { color:#ffffff; font-weight:700; }
