@@ -3087,7 +3087,6 @@ function saveStackConfig() {
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {
     rpWS.send(JSON.stringify({ type: 'update_stack', stack_config: rpStackConfig }));
   }
-  closeStackBuilder();
 }
 
 function resetStackConfig() {
