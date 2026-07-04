@@ -770,19 +770,27 @@ body.rp-mode .school-only { display:none; }
         <div class="trait-item"><label>Tags (comma-sep)</label><input id="persona_tags" type="text" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px" /></div>
       </div>
       <div class="editor-field large">
-        <label>Physical Description</label>
-        <textarea id="persona_physical" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+        <label>Description</label>
+        <textarea id="persona_description" style="width:100%;min-height:140px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
       </div>
       <div class="editor-field large">
         <label>Personality</label>
         <textarea id="persona_personality" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
       </div>
       <div class="editor-field large">
-        <label>Behavior Hints (how they act in interactions)</label>
-        <textarea id="persona_behavior" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+        <label>Scenario</label>
+        <textarea id="persona_scenario" style="width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
       </div>
       <div class="editor-field large">
-        <label>What It Tests (diagnostic purpose of this persona)</label>
+        <label>First Message</label>
+        <textarea id="persona_first_mes" style="width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+      </div>
+      <div class="editor-field large">
+        <label>Message Example</label>
+        <textarea id="persona_mes_example" style="width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+      </div>
+      <div class="editor-field large">
+        <label>What It Tests (diagnostic purpose)</label>
         <textarea id="persona_tests" style="width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
       </div>
       <div class="persona-preview" id="personaPreview"></div>
@@ -1894,7 +1902,7 @@ function closePersonaEditor() {
 function newPersona() {
   personaEditorData = {
     name: '', tags: [], traits: {build:'medium',face:'average',height:'average',confidence:'medium',energy:'neutral'},
-    physical_description: '', personality: '', behavior_hints: '', what_it_tests: ''
+    description: '', personality: '', scenario: '', first_mes: '', mes_example: '', what_it_tests: ''
   };
   personaEditorFilename = '';
   document.getElementById('personaLoadSelect').value = '';
@@ -1922,9 +1930,11 @@ function fillPersonaForm() {
   document.getElementById('trait_height').value = t.height || 'average';
   document.getElementById('trait_confidence').value = t.confidence || 'medium';
   document.getElementById('trait_energy').value = t.energy || 'neutral';
-  document.getElementById('persona_physical').value = d.physical_description || '';
+  document.getElementById('persona_description').value = d.description || '';
   document.getElementById('persona_personality').value = d.personality || '';
-  document.getElementById('persona_behavior').value = d.behavior_hints || '';
+  document.getElementById('persona_scenario').value = d.scenario || '';
+  document.getElementById('persona_first_mes').value = d.first_mes || '';
+  document.getElementById('persona_mes_example').value = d.mes_example || '';
   document.getElementById('persona_tests').value = d.what_it_tests || '';
   document.getElementById('personaEditorFilename').textContent = personaEditorFilename || '(new)';
   updatePersonaPreview();
@@ -1942,9 +1952,11 @@ function collectPersonaData() {
   };
   return {
     name, tags, traits,
-    physical_description: document.getElementById('persona_physical').value,
+    description: document.getElementById('persona_description').value,
     personality: document.getElementById('persona_personality').value,
-    behavior_hints: document.getElementById('persona_behavior').value,
+    scenario: document.getElementById('persona_scenario').value,
+    first_mes: document.getElementById('persona_first_mes').value,
+    mes_example: document.getElementById('persona_mes_example').value,
     what_it_tests: document.getElementById('persona_tests').value,
   };
 }
@@ -1954,7 +1966,7 @@ function updatePersonaPreview() {
   const preview = document.getElementById('personaPreview');
   if (!d.name) { preview.innerHTML = '<i>Enter a name to see preview...</i>'; return; }
   const t = d.traits;
-  preview.innerHTML = `<b>${escapeHtml(d.name)}</b> — ${t.build}/${t.face}/${t.height}/${t.confidence}/${t.energy}<br>${d.tags.join(', ') || '(no tags)'}<br><br>${d.physical_description ? '<b>Physical:</b> ' + escapeHtml(d.physical_description.substring(0,200)) + '...' : '<i>(no physical description)</i>'}`;
+  preview.innerHTML = `<b>${escapeHtml(d.name)}</b> — ${t.build}/${t.face}/${t.height}/${t.confidence}/${t.energy}<br>${d.tags.join(', ') || '(no tags)'}<br><br>${d.description ? '<b>Description:</b> ' + escapeHtml(d.description.substring(0,200)) + '...' : '<i>(no description)</i>'}`;
 }
 
 async function savePersona() {
@@ -1984,7 +1996,7 @@ async function savePersona() {
 
 // Auto-update preview on input
 document.addEventListener('input', (e) => {
-  if (e.target && e.target.id && (e.target.id.startsWith('persona_') || e.target.id.startsWith('trait_'))) {
+  if (e.target && e.target.id && (e.target.id.startsWith('persona_') || e.target.id.startsWith('trait_') || e.target.id === 'persona_tests')) {
     updatePersonaPreview();
   }
 });

@@ -893,7 +893,7 @@ app = FastAPI(title="Character Card Tester")
 
 # ─── Persona Management ───────────────────────────────────────────
 def list_personas() -> list[dict]:
-    """List all persona files."""
+    """List all persona files (V1 format)."""
     personas = []
     for p in sorted(PERSONAS_DIR.glob("*.json")):
         try:
@@ -901,12 +901,14 @@ def list_personas() -> list[dict]:
             personas.append({
                 "filename": p.name,
                 "name": data.get("name", p.stem),
+                "description": data.get("description", ""),
+                "personality": data.get("personality", ""),
                 "tags": data.get("tags", []),
                 "traits": data.get("traits", {}),
                 "what_it_tests": data.get("what_it_tests", ""),
             })
         except (json.JSONDecodeError, KeyError):
-            personas.append({"filename": p.name, "name": p.stem, "tags": [], "traits": {}, "what_it_tests": "", "error": True})
+            personas.append({"filename": p.name, "name": p.stem, "description": "", "personality": "", "tags": [], "traits": {}, "what_it_tests": "", "error": True})
     return personas
 
 
@@ -925,28 +927,25 @@ def save_persona(filename: str, data: dict) -> None:
 
 
 def build_persona_context(persona: dict) -> str:
-    """Build the persona context string to inject into the character LLM."""
+    """Build the persona context string to inject into the character LLM.
+    SillyTavern-style: inject V1 fields as plain context, no hardcoded directive.
+    The persona author controls all directives via the description field."""
     parts = []
     parts.append(f"THE PERSON YOU ARE INTERACTING WITH:")
     parts.append(f"Name: {persona.get('name', 'Unknown')}")
-    if persona.get("physical_description"):
-        parts.append(f"Physical appearance: {persona['physical_description']}")
+    if persona.get("description"):
+        parts.append(f"Description: {persona['description']}")
     if persona.get("personality"):
         parts.append(f"Personality: {persona['personality']}")
-    if persona.get("behavior_hints"):
-        parts.append(f"How they behave: {persona['behavior_hints']}")
-    parts.append("")
-    parts.append("IMPORTANT: The user's messages are spoken/acted by this person. React to the user's words AND to who this person is — their appearance, their energy, their physical presence. You can notice their body, their posture, their hands, the way they move — even if the user doesn't describe these things, because this is who they are. Your character should respond to the physical and social reality of this person, not just their words.")
     return "\n".join(parts)
 
 
 def build_analysis_persona_context(persona: dict) -> str:
-    """Build persona context for the analysis LLM."""
+    """Build persona context for the analysis LLM (V1 fields)."""
     return f"""PERSONA USED IN THIS SESSION:
 Name: {persona.get('name', 'Unknown')}
-Physical: {persona.get('physical_description', '')}
+Description: {persona.get('description', '')}
 Personality: {persona.get('personality', '')}
-Behavior: {persona.get('behavior_hints', '')}
 What it tests: {persona.get('what_it_tests', '')}
 
 When assessing the character's response, consider the persona's pressure level. Guard holding against a highly attractive/pressuring persona is more significant than holding against a neutral one. Desire leaking toward a shy non-pursuing persona is more significant than leaking toward someone actively pursuing. Factor the persona's traits into your assessment of fragility and leakage."""
@@ -1729,7 +1728,7 @@ async def api_upload_persona(file: UploadFile = File(...)):
 async def api_validate_persona(filename: str, data: dict):
     """Validate a persona's structure."""
     issues = []
-    required = ["name", "physical_description", "personality"]
+    required = ["name", "description", "personality"]
     for field in required:
         if not data.get(field):
             issues.append({"severity": "error", "field": field, "message": f"Missing required field: {field}"})
@@ -2264,6 +2263,8 @@ Return ONLY the JSON object."""},
         report["persona_used"] = {
             "name": persona.get("name", ""),
             "filename": persona_filename or "",
+            "description": persona.get("description", ""),
+            "personality": persona.get("personality", ""),
             "traits": persona.get("traits", {}),
             "what_it_tests": persona.get("what_it_tests", ""),
         }
