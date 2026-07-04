@@ -2489,17 +2489,36 @@ async def generate_character(req: Request):
     user_prompt = "\n".join(parts)
     system_prompt = GEN_V2_SYSTEM if version == 2 else GEN_V1_SYSTEM
 
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    console_events = [{
+        "type": "console_event", "event": "request", "llm": "character",
+        "model": CHAT_MODEL, "label": "Character Generation",
+        "temperature": 0.9, "max_tokens": 4000,
+        "messages": messages, "timestamp": _now_iso(),
+    }]
+
     try:
         completion = await chat_client.chat.completions.create(
             model=CHAT_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=0.9,
             max_tokens=4000,
         )
         raw = completion.choices[0].message.content or ""
+
+        usage = completion.usage
+        console_events.append({
+            "type": "console_event", "event": "response", "llm": "character",
+            "model": CHAT_MODEL, "label": "Character Generation",
+            "content": raw,
+            "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
+            "finish_reason": completion.choices[0].finish_reason, "timestamp": _now_iso(),
+        })
+
         card = json.loads(repair_json(raw))
 
         # Normalize: ensure correct spec for V2
@@ -2518,10 +2537,15 @@ async def generate_character(req: Request):
             card.pop("spec_version", None)
             card.setdefault("creator", "Richard")
 
-        return {"card": card, "version": version, "usage": getattr(completion, "usage", None) and completion.usage.model_dump()}
+        return {"card": card, "version": version, "console_events": console_events, "usage": getattr(completion, "usage", None) and completion.usage.model_dump()}
 
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        console_events.append({
+            "type": "console_event", "event": "error", "llm": "character",
+            "model": CHAT_MODEL, "label": "Character Generation",
+            "message": str(e), "timestamp": _now_iso(),
+        })
+        return JSONResponse({"error": str(e), "console_events": console_events}, status_code=500)
 
 
 @app.post("/api/generate-character/save")

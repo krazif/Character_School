@@ -1139,6 +1139,13 @@ async function generateCharacter() {
     });
     const data = await res.json();
 
+    // Render console events (request + response/error) in the LLM console
+    if (data.console_events) {
+      for (const ev of data.console_events) {
+        addConsoleEntry(ev);
+      }
+    }
+
     if (data.error) {
       const err = document.getElementById('genError');
       err.textContent = data.error;
