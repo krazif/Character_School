@@ -2231,6 +2231,8 @@ function formatMessage(text) {
   safe = safe.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
   // "text" → <strong class="dialog">text</strong>
   safe = safe.replace(/&quot;([^&\n]+?)&quot;/g, '<strong class="dialog">$1</strong>');
+  // "text" (curly/smart quotes) → <strong class="dialog">text</strong>
+  safe = safe.replace(/\u201C([^\u201D\n]+?)\u201D/g, '<strong class="dialog">$1</strong>');
   return safe;
 }
 
