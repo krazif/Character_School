@@ -802,35 +802,43 @@ def save_card(filename: str, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def build_system_prompt(card: dict) -> str:
+def substitute_macros(text: str, char_name: str, user_name: str = "User") -> str:
+    """Replace {{char}} and {{user}} placeholders with actual names."""
+    if not text:
+        return text
+    return text.replace("{{char}}", char_name).replace("{{user}}", user_name)
+
+
+def build_system_prompt(card: dict, user_name: str = "User") -> str:
     """Build the system prompt for the character LLM from any version card."""
     d = card.get("data", card)
     version = detect_card_version(card)
+    char_name = d.get("name", "Character") or "Character"
     parts = []
     # System prompt is the core
     val = get_card_field(d, "system_prompt", version)
     if val:
-        parts.append(val)
+        parts.append(substitute_macros(val, char_name, user_name))
     # Description adds character context
     val = get_card_field(d, "description", version)
     if val:
-        parts.append(f"\n\nCHARACTER DESCRIPTION:\n{val}")
+        parts.append(f"\n\nCHARACTER DESCRIPTION:\n{substitute_macros(val, char_name, user_name)}")
     # Personality
     val = get_card_field(d, "personality", version)
     if val:
-        parts.append(f"\n\nPERSONALITY:\n{val}")
+        parts.append(f"\n\nPERSONALITY:\n{substitute_macros(val, char_name, user_name)}")
     # Scenario
     val = get_card_field(d, "scenario", version)
     if val:
-        parts.append(f"\n\nSCENARIO:\n{val}")
+        parts.append(f"\n\nSCENARIO:\n{substitute_macros(val, char_name, user_name)}")
     # Post-history instructions (always-on reminders)
     val = get_card_field(d, "post_history_instructions", version)
     if val:
-        parts.append(f"\n\nALWAYS REMEMBER:\n{val}")
+        parts.append(f"\n\nALWAYS REMEMBER:\n{substitute_macros(val, char_name, user_name)}")
     # Mes example for voice reference
     val = get_card_field(d, "mes_example", version)
     if val:
-        parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{val}")
+        parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
     return "\n".join(parts)
 
 
@@ -838,12 +846,13 @@ def build_analysis_prompt(card: dict) -> str:
     """Build the system prompt for the analysis LLM."""
     d = card.get("data", card)
     version = detect_card_version(card)
+    char_name = d.get("name", "Character") or "Character"
     # Gather all the rules from the card
     rules_text = []
     for field in ["system_prompt", "post_history_instructions", "description", "personality"]:
         val = get_card_field(d, field, version)
         if val:
-            rules_text.append(f"--- {field.upper()} ---\n{val}")
+            rules_text.append(f"--- {field.upper()} ---\n{substitute_macros(val, char_name)}")
 
     return f"""You are a QA analysis engine for character card testing. You run alongside a live chat session where a human user is interacting with an LLM playing a character. Your job is to analyze each character response in real-time and check it against the character's rules.
 
@@ -921,11 +930,15 @@ RULES FOR ANALYSIS:
 12. ENHANCEMENTS: Beyond fixing immediate issues, suggest proactive card improvements in the "enhancements" array. Think about what would make the card more robust against LLM training defaults, what patterns could be reinforced, what instructions could be clearer. Each enhancement must also include "placement" specifying exactly where in the field to put it (same rules as fixes.placement). If no enhancements needed, return empty array."""
 
 
-def get_first_mes(card: dict) -> Optional[str]:
+def get_first_mes(card: dict, user_name: str = "User") -> Optional[str]:
     """Get the first message / greeting from the card (V1/V2/V3)."""
     d = card.get("data", card)
     version = detect_card_version(card)
-    return get_card_field(d, "first_mes", version) or None
+    val = get_card_field(d, "first_mes", version)
+    if not val:
+        return None
+    char_name = d.get("name", "Character") or "Character"
+    return substitute_macros(val, char_name, user_name)
 
 
 # ─── RP Prompt Building ───────────────────────────────────────────
@@ -939,6 +952,9 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     parts.append("CHARACTERS IN THIS SCENE:")
     parts.append("")
 
+    # Get persona name for {{user}} substitution
+    _user_name = persona.get("name", "User") if persona else "User"
+
     if directed_character:
         # Directed mode: full detail for the target character, brief listing for others
         directed_lower = directed_character.lower()
@@ -950,19 +966,19 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
                 parts.append(f"=== YOU ARE {name} ===")
                 val = get_card_field(d, "system_prompt", version)
                 if val:
-                    parts.append(val)
+                    parts.append(substitute_macros(val, name, _user_name))
                 val = get_card_field(d, "description", version)
                 if val:
-                    parts.append(f"CHARACTER DESCRIPTION: {val}")
+                    parts.append(f"CHARACTER DESCRIPTION: {substitute_macros(val, name, _user_name)}")
                 val = get_card_field(d, "personality", version)
                 if val:
-                    parts.append(f"PERSONALITY: {val}")
+                    parts.append(f"PERSONALITY: {substitute_macros(val, name, _user_name)}")
                 val = get_card_field(d, "mes_example", version)
                 if val:
-                    parts.append(f"EXAMPLE DIALOGUE (for voice reference): {val}")
+                    parts.append(f"EXAMPLE DIALOGUE (for voice reference): {substitute_macros(val, name, _user_name)}")
                 val = get_card_field(d, "post_history_instructions", version)
                 if val:
-                    parts.append(f"ALWAYS REMEMBER: {val}")
+                    parts.append(f"ALWAYS REMEMBER: {substitute_macros(val, name, _user_name)}")
                 parts.append("")
             else:
                 # Brief context only — just enough to know who else is in the scene
@@ -979,19 +995,19 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
             parts.append(f"--- {name} ---")
             val = get_card_field(d, "system_prompt", version)
             if val:
-                parts.append(val)
+                parts.append(substitute_macros(val, name, _user_name))
             val = get_card_field(d, "description", version)
             if val:
-                parts.append(f"CHARACTER DESCRIPTION: {val}")
+                parts.append(f"CHARACTER DESCRIPTION: {substitute_macros(val, name, _user_name)}")
             val = get_card_field(d, "personality", version)
             if val:
-                parts.append(f"PERSONALITY: {val}")
+                parts.append(f"PERSONALITY: {substitute_macros(val, name, _user_name)}")
             val = get_card_field(d, "mes_example", version)
             if val:
-                parts.append(f"EXAMPLE DIALOGUE (for voice reference): {val}")
+                parts.append(f"EXAMPLE DIALOGUE (for voice reference): {substitute_macros(val, name, _user_name)}")
             val = get_card_field(d, "post_history_instructions", version)
             if val:
-                parts.append(f"ALWAYS REMEMBER: {val}")
+                parts.append(f"ALWAYS REMEMBER: {substitute_macros(val, name, _user_name)}")
             parts.append("")
 
     # Turn routing
@@ -1567,21 +1583,27 @@ async def ws_chat(ws: WebSocket):
                 persona_filename = data.get("persona_filename")
                 try:
                     card = load_card(card_filename)
-                    system_prompt = build_system_prompt(card)
-                    analysis_prompt = build_analysis_prompt(card)
 
-                    # Load persona if provided
+                    # Load persona if provided (needed for {{user}} substitution)
                     if persona_filename:
                         try:
                             persona = load_persona(persona_filename)
-                            persona_context = build_persona_context(persona)
-                            system_prompt = system_prompt + "\n\n" + persona_context
-                            analysis_prompt = analysis_prompt + "\n\n" + build_analysis_persona_context(persona)
+                            _user_name = persona.get("name", "User")
                         except Exception as pe:
                             await ws.send_json({"type": "error", "message": f"Persona error: {pe}"})
                             persona = None
+                            _user_name = "User"
                     else:
                         persona = None
+                        _user_name = "User"
+
+                    system_prompt = build_system_prompt(card, user_name=_user_name)
+                    analysis_prompt = build_analysis_prompt(card)
+
+                    if persona:
+                        persona_context = build_persona_context(persona)
+                        system_prompt = system_prompt + "\n\n" + persona_context
+                        analysis_prompt = analysis_prompt + "\n\n" + build_analysis_persona_context(persona)
 
                     # Create SQLite session
                     session_id = db_create_session(card_filename, system_prompt, analysis_prompt, persona_filename)
@@ -1590,7 +1612,7 @@ async def ws_chat(ws: WebSocket):
                     await ws.send_json({"type": "session_started", "card": card_filename, "persona": persona_filename})
 
                     # Send first_mes if available — NO analysis, just display it.
-                    first_mes = get_first_mes(card)
+                    first_mes = get_first_mes(card, user_name=_user_name)
                     if first_mes:
                         msg_id = db_add_message(session_id, "assistant", first_mes, is_first_mes=True)
 
@@ -1694,18 +1716,23 @@ async def ws_chat(ws: WebSocket):
                 # Change persona mid-session (will rebuild system prompt and reset)
                 persona_filename = data.get("persona_filename")
                 if card:
-                    system_prompt = build_system_prompt(card)
-                    analysis_prompt = build_analysis_prompt(card)
                     if persona_filename:
                         try:
                             persona = load_persona(persona_filename)
-                            system_prompt = system_prompt + "\n\n" + build_persona_context(persona)
-                            analysis_prompt = analysis_prompt + "\n\n" + build_analysis_persona_context(persona)
+                            _user_name = persona.get("name", "User")
                         except Exception as pe:
                             await ws.send_json({"type": "error", "message": f"Persona error: {pe}"})
                             persona = None
+                            _user_name = "User"
                     else:
                         persona = None
+                        _user_name = "User"
+
+                    system_prompt = build_system_prompt(card, user_name=_user_name)
+                    analysis_prompt = build_analysis_prompt(card)
+                    if persona:
+                        system_prompt = system_prompt + "\n\n" + build_persona_context(persona)
+                        analysis_prompt = analysis_prompt + "\n\n" + build_analysis_persona_context(persona)
 
                     # Create new SQLite session for the new persona
                     session_id = db_create_session(card_filename, system_prompt, analysis_prompt, persona_filename)
@@ -1714,7 +1741,7 @@ async def ws_chat(ws: WebSocket):
                     await ws.send_json({"type": "persona_changed", "persona": persona_filename})
 
                     # Send first_mes — NO analysis, just display
-                    first_mes = get_first_mes(card)
+                    first_mes = get_first_mes(card, user_name=_user_name)
                     if first_mes:
                         msg_id = db_add_message(session_id, "assistant", first_mes, is_first_mes=True)
                         await ws.send_json({
@@ -1736,7 +1763,8 @@ async def ws_chat(ws: WebSocket):
                     await ws.send_json({"type": "reset_complete"})
 
                     # Send first_mes — NO analysis, just display
-                    first_mes = get_first_mes(card)
+                    _user_name = persona.get("name", "User") if persona else "User"
+                    first_mes = get_first_mes(card, user_name=_user_name)
                     if first_mes:
                         msg_id = db_add_message(session_id, "assistant", first_mes, is_first_mes=True)
                         await ws.send_json({
@@ -2147,8 +2175,9 @@ async def ws_rp(ws: WebSocket):
                 })
 
                 # Send first_mes from all characters
+                _rp_user_name = persona.get("name", "User") if persona else "User"
                 for fn in character_order:
-                    first_mes = get_first_mes(cards[fn])
+                    first_mes = get_first_mes(cards[fn], user_name=_rp_user_name)
                     if first_mes:
                         msg_id = db_rp_add_message(session_id, "character", first_mes, character_names[fn])
                         await ws.send_json({
