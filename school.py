@@ -4,8 +4,10 @@ Split from server.py.
 """
 import json
 import re
+import asyncio
 import base64
 import io
+from pathlib import Path
 from fastapi import APIRouter, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from json_repair import repair_json
@@ -402,19 +404,109 @@ async def api_validate_persona(filename: str, data: dict):
     return JSONResponse({"valid": len([i for i in issues if i["severity"] == "error"]) == 0, "issues": issues})
 
 
+# ─── School Session REST Routes ────────────
+
+@router.get("/api/school/sessions")
+async def api_school_list_sessions():
+    sessions = db.db_school_list_sessions()
+    return JSONResponse({"sessions": sessions})
+
+
+@router.get("/api/school/sessions/{session_id}")
+async def api_school_get_session(session_id: int):
+    sess = db.db_school_get_session(session_id)
+    if not sess:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    messages = db.db_school_get_messages(session_id)
+    stack_config = db.get_stack_config(sess)
+    return JSONResponse({
+        "session": sess,
+        "messages": messages,
+        "stack_config": stack_config,
+    })
+
+
+@router.delete("/api/school/sessions/{session_id}")
+async def api_school_delete_session(session_id: int):
+    deleted = db.db_school_delete_session(session_id)
+    return JSONResponse({"deleted": deleted})
+
+
+@router.post("/api/school/sessions/{session_id}/branch")
+async def api_school_branch_session(session_id: int):
+    result = db.db_school_branch_session(session_id)
+    if not result:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    return JSONResponse(result)
+
+
+@router.put("/api/school/sessions/{session_id}/stack")
+async def api_school_update_stack(session_id: int, data: dict):
+    stack_config = json.dumps(data.get("stack_config", {}))
+    db.db_school_update_settings(session_id, stack_config=stack_config)
+    return JSONResponse({"updated": True})
+
+
+# ─── School Auto-Summary Check ─────────────
+
+async def check_school_auto_summary(session_id: int, ws: WebSocket) -> dict | None:
+    """Check and run auto-summary for the late_summary block if needed.
+    Returns updated stack_config if summarization happened, else None.
+    """
+    sess = db.db_school_get_session(session_id)
+    if not sess:
+        return None
+    stack_cfg = db.get_stack_config(sess)
+    blocks = stack_cfg.get("blocks", [])
+    late_block = None
+    tail_block = None
+    for b in blocks:
+        if b.get("type") == "late_summary" and b.get("enabled", True) and b.get("auto"):
+            late_block = b
+        if b.get("type") == "tail" and b.get("enabled", True):
+            tail_block = b
+    if not late_block or not tail_block:
+        return None
+
+    all_msgs = db.db_school_get_messages(session_id)
+    end = late_block.get("end", 0)
+    tail_n = tail_block.get("n", 3)
+    msgs_after_end = [m for m in all_msgs if m["seq"] > end]
+    if len(msgs_after_end) < tail_n:
+        return None
+
+    new_end = end + tail_n
+    start = late_block.get("start", 0)
+    msgs_to_summarize = [m for m in all_msgs if start <= m["seq"] <= new_end]
+    sum_msgs = [{"role": m["role"], "content": m["content"]} for m in msgs_to_summarize]
+    existing_summary = late_block.get("text", "")
+    new_summary = await engine.rp_summarize(session_id, sum_msgs, existing_summary, ws=ws)
+
+    late_block["text"] = new_summary
+    late_block["end"] = new_end
+    db.db_school_update_settings(session_id, stack_config=json.dumps(stack_cfg))
+    return stack_cfg
+
+
 # ─── WebSocket Chat ───────────────────────────────────────────────
 @router.websocket("/ws/chat")
 async def ws_chat(ws: WebSocket):
     """
-    WebSocket protocol:
-    → {"type": "start", "card_filename": "neelofa.json"}
-    ← {"type": "character_message", "content": "...", "analysis": {...}}
+    WebSocket protocol (persistent sessions + stack):
+    → {"type": "start", "card_filename": "...", "persona_filename": "...", "stack_config": {...}}
+    ← {"type": "session_started", "session_id": N, ...}
+    ← {"type": "character_message", "content": "...", "analysis": null, "is_first_mes": true}
+    → {"type": "resume", "session_id": N}
+    ← {"type": "session_resumed", "session_id": N, "messages": [...], ...}
     → {"type": "user_message", "content": "..."}
     ← {"type": "character_message", "content": "...", "analysis": {...}}
-    → {"type": "reset"}
-    ← {"type": "character_message", "content": "...", "analysis": {...}}  (first_mes)
+    → {"type": "reset"}  (creates new session, old stays in DB)
+    → {"type": "update_stack", "stack_config": {...}}
+    → {"type": "summarize_block", "block_index": N}
+    → {"type": "save_console_events", "events": [...]}
+    → {"type": "delete_message", "message_id": N}
     → {"type": "get_report"}
-    ← {"type": "report", "content": {...}}
+    → {"type": "stop"}
     """
     await ws.accept()
 
@@ -424,8 +516,18 @@ async def ws_chat(ws: WebSocket):
     persona_filename = None
     system_prompt = ""
     analysis_prompt = ""
-    session_id = None  # SQLite session row id
-    current_gen_task = None  # background generation task (for stop support)
+    session_id = None
+    current_gen_task = None
+
+    def _rebuild_prompts():
+        """Rebuild system_prompt and analysis_prompt from card+persona."""
+        nonlocal system_prompt, analysis_prompt
+        _user_name = persona.get("name", "User") if persona else "User"
+        system_prompt = engine.build_system_prompt(card, user_name=_user_name)
+        analysis_prompt = engine.build_analysis_prompt(card)
+        if persona:
+            system_prompt = system_prompt + "\n\n" + engine.build_persona_context(persona)
+            analysis_prompt = analysis_prompt + "\n\n" + engine.build_analysis_persona_context(persona)
 
     try:
         while True:
@@ -452,38 +554,45 @@ async def ws_chat(ws: WebSocket):
                 try:
                     card = engine.load_card(card_filename)
 
-                    # Load persona if provided (needed for {{user}} substitution)
                     if persona_filename:
                         try:
                             persona = engine.load_persona(persona_filename)
-                            _user_name = persona.get("name", "User")
                         except Exception as pe:
                             await ws.send_json({"type": "error", "message": f"Persona error: {pe}"})
                             persona = None
-                            _user_name = "User"
                     else:
                         persona = None
-                        _user_name = "User"
 
-                    system_prompt = engine.build_system_prompt(card, user_name=_user_name)
-                    analysis_prompt = engine.build_analysis_prompt(card)
+                    _rebuild_prompts()
 
-                    if persona:
-                        persona_context = engine.build_persona_context(persona)
-                        system_prompt = system_prompt + "\n\n" + persona_context
-                        analysis_prompt = analysis_prompt + "\n\n" + engine.build_analysis_persona_context(persona)
+                    # Parse stack config from client or use default
+                    stack_config_json = data.get("stack_config")
+                    stack_config_str = json.dumps(stack_config_json) if stack_config_json else None
 
-                    # Create SQLite session
-                    session_id = db.db_create_session(card_filename, system_prompt, analysis_prompt, persona_filename)
+                    # Create school session
+                    session_id = db.db_school_create_session(
+                        card_filename, persona_filename, stack_config_str
+                    )
 
-                    # Send session_started so the UI enables input
-                    await ws.send_json({"type": "session_started", "card": card_filename, "persona": persona_filename})
+                    # Get the effective stack config
+                    sess = db.db_school_get_session(session_id)
+                    stack_cfg = db.get_stack_config(sess)
 
-                    # Send first_mes if available — NO analysis, just display it.
+                    await ws.send_json({
+                        "type": "session_started",
+                        "session_id": session_id,
+                        "card": card_filename,
+                        "persona": persona_filename,
+                        "stack_config": stack_cfg,
+                    })
+
+                    # Send first_mes
+                    _user_name = persona.get("name", "User") if persona else "User"
                     first_mes = engine.get_first_mes(card, user_name=_user_name)
                     if first_mes:
-                        msg_id = db.db_add_message(session_id, "assistant", first_mes, is_first_mes=True)
-
+                        msg_id = db.db_school_add_message(
+                            session_id, "assistant", first_mes, is_first_mes=True
+                        )
                         await ws.send_json({
                             "type": "character_message",
                             "content": first_mes,
@@ -494,18 +603,70 @@ async def ws_chat(ws: WebSocket):
                 except Exception as e:
                     await ws.send_json({"type": "error", "message": str(e)})
 
+            elif data["type"] == "resume":
+                resume_id = data.get("session_id")
+                sess = db.db_school_get_session(resume_id)
+                if not sess:
+                    await ws.send_json({"type": "error", "message": "Session not found"})
+                    continue
+
+                session_id = resume_id
+                card_filename = sess["card_filename"]
+                persona_filename = sess.get("persona_filename")
+
+                try:
+                    card = engine.load_card(card_filename)
+                except Exception as e:
+                    await ws.send_json({"type": "error", "message": f"Card load error: {e}"})
+                    continue
+
+                if persona_filename:
+                    try:
+                        persona = engine.load_persona(persona_filename)
+                    except:
+                        persona = None
+                else:
+                    persona = None
+
+                _rebuild_prompts()
+
+                messages = db.db_school_get_messages(session_id)
+                stack_cfg = db.get_stack_config(sess)
+
+                await ws.send_json({
+                    "type": "session_resumed",
+                    "session_id": session_id,
+                    "card": card_filename,
+                    "persona": persona_filename,
+                    "stack_config": stack_cfg,
+                    "messages": [{"id": m["id"], "seq": m["seq"], "role": m["role"],
+                                  "content": m["content"], "is_first_mes": m["is_first_mes"],
+                                  "analysis": json.loads(m["analysis_json"]) if m["analysis_json"] else None}
+                                 for m in messages],
+                    "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
+                })
+
             elif data["type"] == "user_message":
                 user_content = data["content"]
-                user_msg_id = db.db_add_message(session_id, "user", user_content)
+                user_msg_id = db.db_school_add_message(session_id, "user", user_content)
 
-                # Send the user message ID back so the frontend can tag the DOM node
                 await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id})
 
-                # Get character response
                 async def _school_gen():
                     try:
-                        # Build LLM context from SQLite
-                        llm_messages = db.db_get_llm_messages(session_id)
+                        # ── Auto-summary check (before LLM call) ──
+                        updated_cfg = await check_school_auto_summary(session_id, ws)
+                        if updated_cfg:
+                            await ws.send_json({"type": "stack_updated", "stack_config": updated_cfg})
+
+                        # Build LLM context from stack
+                        sess = db.db_school_get_session(session_id)
+                        stack_cfg = db.get_stack_config(sess)
+                        all_msgs = db.db_school_get_messages(session_id)
+                        # Stack builder expects 0-indexed list; school messages are seq-ordered
+                        llm_messages, block_markers = db.build_llm_messages_from_stack(
+                            stack_cfg, system_prompt, all_msgs, ""
+                        )
 
                         # ── Notify frontend: character is responding ──
                         await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
@@ -519,6 +680,7 @@ async def ws_chat(ws: WebSocket):
                             "temperature": db.CHAT_TEMPERATURE,
                             "max_tokens": db.CHAT_MAX_TOKENS,
                             "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
+                            "block_markers": block_markers,
                             "timestamp": engine._now_iso(),
                         })
 
@@ -546,9 +708,9 @@ async def ws_chat(ws: WebSocket):
                             "timestamp": engine._now_iso(),
                         })
 
-                        # Get previous assistant responses for drift comparison (before adding the new one)
-                        prev_assistants = db.db_get_assistant_messages(session_id)
-                        prev_texts = [m["content"] for m in prev_assistants]  # includes first_mes + prior responses
+                        # Get previous assistant responses for drift comparison
+                        prev_assistants = db.db_school_get_assistant_messages(session_id)
+                        prev_texts = [m["content"] for m in prev_assistants]
 
                         # ── Notify frontend: analyzer is running ──
                         await ws.send_json({"type": "analysis_typing"})
@@ -560,9 +722,12 @@ async def ws_chat(ws: WebSocket):
 
                         await ws.send_json({"type": "analysis_typing_stopped"})
 
-                        # Store in SQLite with analysis
+                        # Store in school DB with analysis
                         analysis_str = json.dumps(analysis) if analysis else None
-                        msg_id = db.db_add_message(session_id, "assistant", char_content, is_first_mes=False, analysis_json=analysis_str)
+                        msg_id = db.db_school_add_message(
+                            session_id, "assistant", char_content,
+                            is_first_mes=False, analysis_json=analysis_str
+                        )
 
                         await ws.send_json({
                             "type": "character_message",
@@ -571,6 +736,12 @@ async def ws_chat(ws: WebSocket):
                             "is_first_mes": False,
                             "message_id": msg_id,
                         })
+
+                        # ── Auto-summary check (after character message) ──
+                        updated_cfg = await check_school_auto_summary(session_id, ws)
+                        if updated_cfg:
+                            await ws.send_json({"type": "stack_updated", "stack_config": updated_cfg})
+
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
@@ -579,40 +750,43 @@ async def ws_chat(ws: WebSocket):
                         await ws.send_json({"type": "error", "message": f"LLM error: {e}"})
 
                 current_gen_task = asyncio.create_task(_school_gen())
-                continue  # back to main receive_json loop (handles stop)
+                continue
 
             elif data["type"] == "set_persona":
-                # Change persona mid-session (will rebuild system prompt and reset)
                 persona_filename = data.get("persona_filename")
                 if card:
                     if persona_filename:
                         try:
                             persona = engine.load_persona(persona_filename)
-                            _user_name = persona.get("name", "User")
                         except Exception as pe:
                             await ws.send_json({"type": "error", "message": f"Persona error: {pe}"})
                             persona = None
-                            _user_name = "User"
                     else:
                         persona = None
-                        _user_name = "User"
 
-                    system_prompt = engine.build_system_prompt(card, user_name=_user_name)
-                    analysis_prompt = engine.build_analysis_prompt(card)
-                    if persona:
-                        system_prompt = system_prompt + "\n\n" + engine.build_persona_context(persona)
-                        analysis_prompt = analysis_prompt + "\n\n" + engine.build_analysis_persona_context(persona)
+                    _rebuild_prompts()
 
-                    # Create new SQLite session for the new persona
-                    session_id = db.db_create_session(card_filename, system_prompt, analysis_prompt, persona_filename)
+                    # Create new school session for the new persona
+                    session_id = db.db_school_create_session(
+                        card_filename, persona_filename, None
+                    )
 
-                    # Send persona_changed so the client clears the chat
-                    await ws.send_json({"type": "persona_changed", "persona": persona_filename})
+                    sess = db.db_school_get_session(session_id)
+                    stack_cfg = db.get_stack_config(sess)
 
-                    # Send first_mes — NO analysis, just display
+                    await ws.send_json({
+                        "type": "persona_changed",
+                        "persona": persona_filename,
+                        "session_id": session_id,
+                        "stack_config": stack_cfg,
+                    })
+
+                    _user_name = persona.get("name", "User") if persona else "User"
                     first_mes = engine.get_first_mes(card, user_name=_user_name)
                     if first_mes:
-                        msg_id = db.db_add_message(session_id, "assistant", first_mes, is_first_mes=True)
+                        msg_id = db.db_school_add_message(
+                            session_id, "assistant", first_mes, is_first_mes=True
+                        )
                         await ws.send_json({
                             "type": "character_message",
                             "content": first_mes,
@@ -625,17 +799,27 @@ async def ws_chat(ws: WebSocket):
 
             elif data["type"] == "reset":
                 if card:
-                    # Create new SQLite session for the reset
-                    session_id = db.db_create_session(card_filename, system_prompt, analysis_prompt, persona_filename)
+                    # Create new school session (old one stays in DB)
+                    stack_cfg_str = None
+                    session_id = db.db_school_create_session(
+                        card_filename, persona_filename, stack_cfg_str
+                    )
 
-                    # Send reset_complete so the client clears the chat
-                    await ws.send_json({"type": "reset_complete"})
+                    sess = db.db_school_get_session(session_id)
+                    stack_cfg = db.get_stack_config(sess)
 
-                    # Send first_mes — NO analysis, just display
+                    await ws.send_json({
+                        "type": "reset_complete",
+                        "session_id": session_id,
+                        "stack_config": stack_cfg,
+                    })
+
                     _user_name = persona.get("name", "User") if persona else "User"
                     first_mes = engine.get_first_mes(card, user_name=_user_name)
                     if first_mes:
-                        msg_id = db.db_add_message(session_id, "assistant", first_mes, is_first_mes=True)
+                        msg_id = db.db_school_add_message(
+                            session_id, "assistant", first_mes, is_first_mes=True
+                        )
                         await ws.send_json({
                             "type": "character_message",
                             "content": first_mes,
@@ -647,17 +831,57 @@ async def ws_chat(ws: WebSocket):
                     await ws.send_json({"type": "error", "message": "No card loaded"})
 
             elif data["type"] == "delete_message":
-                # Delete a message and all subsequent messages from SQLite.
-                # The frontend removes the DOM nodes.
                 target_id = data.get("message_id")
                 if target_id is not None and session_id is not None:
-                    deleted = db.db_delete_message(session_id, target_id)
+                    deleted = db.db_school_delete_message(session_id, target_id)
                     await ws.send_json({"type": "message_deleted", "message_id": target_id, "success": deleted})
 
+            elif data["type"] == "update_stack":
+                if session_id:
+                    stack_cfg_data = data.get("stack_config")
+                    if stack_cfg_data:
+                        stack_cfg_str = json.dumps(stack_cfg_data)
+                        db.db_school_update_settings(session_id, stack_config=stack_cfg_str)
+                        await ws.send_json({"type": "stack_updated", "stack_config": stack_cfg_data})
+
+            elif data["type"] == "summarize_block":
+                if session_id:
+                    block_index = data.get("block_index")
+                    sess = db.db_school_get_session(session_id)
+                    if sess:
+                        stack_cfg = db.get_stack_config(sess)
+                        blocks = stack_cfg.get("blocks", [])
+                        if block_index is not None and 0 <= block_index < len(blocks):
+                            block = blocks[block_index]
+                            all_msgs = db.db_school_get_messages(session_id)
+                            start = block.get("start", 0)
+                            end = block.get("end", len(all_msgs) - 1)
+                            msgs_to_summarize = [
+                                {"role": m["role"], "content": m["content"]}
+                                for m in all_msgs if start <= m["seq"] <= end
+                            ]
+                            existing = block.get("text", "")
+                            new_text = await engine.rp_summarize(
+                                session_id, msgs_to_summarize, existing, ws=ws
+                            )
+                            block["text"] = new_text
+                            db.db_school_update_settings(
+                                session_id, stack_config=json.dumps(stack_cfg)
+                            )
+                            await ws.send_json({
+                                "type": "block_summarized",
+                                "block_index": block_index,
+                                "text": new_text,
+                                "stack_config": stack_cfg,
+                            })
+
+            elif data["type"] == "save_console_events":
+                if session_id:
+                    events = data.get("events", [])
+                    db.db_school_save_console_events(session_id, json.dumps(events))
+
             elif data["type"] == "get_report":
-                # Gather all assistant responses + analyses from SQLite
-                assistant_msgs = db.db_get_assistant_messages(session_id)
-                # Exclude first_mes from report data (it wasn't analyzed)
+                assistant_msgs = db.db_school_get_assistant_messages(session_id)
                 responses = [m["content"] for m in assistant_msgs if not m["is_first_mes"]]
                 analyses = [m["analysis"] for m in assistant_msgs if not m["is_first_mes"] and m["analysis"]]
 

@@ -241,7 +241,19 @@ body.rp-mode .school-only { display:none; }
 .rp-session-item .del-btn { font-size:11px; color:var(--text-dim); cursor:pointer; float:right; }
 .rp-session-item .del-btn:hover { color:var(--red); }
 .rp-session-item .branch-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
-.rp-session-item .branch-btn:hover { color:var(--green); }
+ .rp-session-item .branch-btn:hover { color:var(--green); }
+
+/* School Sessions */
+.school-session-item { padding:8px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.15s; }
+.school-session-item:hover { background:var(--surface2); }
+.school-session-item.active { background:var(--surface2); border-left:3px solid var(--blue); }
+.school-session-item .title { font-weight:500; font-size:12px; }
+.school-session-item .meta { font-size:10px; color:var(--text-dim); margin-top:2px; }
+.school-session-item .del-btn { font-size:11px; color:var(--text-dim); cursor:pointer; float:right; }
+.school-session-item .del-btn:hover { color:var(--red); }
+.school-session-item .branch-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
+.school-session-item .branch-btn:hover { color:var(--green); }
+
 
 /* RP Center Panel */
 .rp-center-panel { flex:1; display:flex; flex-direction:column; }
@@ -434,6 +446,14 @@ body.rp-mode .school-only { display:none; }
 <div class="main">
   <!-- School Mode: Left Panel -->
   <div class="left-panel school-only">
+    <!-- Sessions section -->
+    <div class="school-sessions-header" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleSchoolSessions()">
+      <span style="font-size:13px;font-weight:600;color:var(--text-dim)">Sessions</span>
+      <span style="flex:1"></span>
+      <span class="chevron" id="schoolSessionsChevron">▼</span>
+    </div>
+    <div class="school-sessions-list" id="schoolSessionsList" style="max-height:200px;overflow-y:auto;border-bottom:1px solid var(--border)"></div>
+    <!-- Card list section -->
     <div class="card-list-header" style="display:flex;align-items:center;gap:8px">
       <span>Characters</span>
       <span style="flex:1"></span>
@@ -473,6 +493,7 @@ body.rp-mode .school-only { display:none; }
       <button class="btn-reset" id="btnReset" onclick="resetChat()" disabled>Reset</button>
       <button class="btn-report" id="btnReport" onclick="getReport()" disabled>Report</button>
       <button class="btn-reset" id="btnEditor" onclick="openEditor()" disabled>Edit Card</button>
+      <button class="btn-reset" id="btnSchoolStack" onclick="openSchoolStackBuilder()" disabled style="background:var(--surface2);border:1px solid var(--border)">📚 Stack</button>
     </div>
     <div class="chat-messages" id="chatMessages">
       <div class="analysis-empty">Select a character from the left to start testing.<br><br>You'll chat as the counterparty. The character responds via LLM. Each response is analyzed in real-time against the card's rules.</div>
@@ -949,6 +970,14 @@ let editorTab = 'core';
 let editorVersion = 2;
 let editorNormalized = null;
 let editorOriginal = null;
+// School session state
+let schoolActiveSessionId = null;
+let schoolStackConfig = null;
+let schoolConsoleEvents = [];
+// Active stack builder context (shared between School and RP modes)
+let activeStackConfig = null;
+let activeStackWS = null;
+let activeStackMode = 'rp';  // 'rp' or 'school'
 
 // ─── Card Version Support (V1/V2/V3) ──────────────
 const V3_ALIASES = { first_mes: 'first_message', mes_example: 'message_examples' };
@@ -1507,7 +1536,11 @@ async function selectCard(filename) {
   connectWS(filename, currentPersonaFilename || null);
 }
 
-function connectWS(filename, personaFilename) {
+function connectWS(filename, personaFilename, resumeSessionId) {
+  // Save console events from previous session before switching
+  if (schoolActiveSessionId && ws && ws.readyState === WebSocket.OPEN && schoolConsoleEvents.length > 0) {
+    ws.send(JSON.stringify({type: 'save_console_events', events: schoolConsoleEvents}));
+  }
   if (ws) ws.close();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(proto + '://' + location.host + '/ws/chat');
@@ -1515,9 +1548,12 @@ function connectWS(filename, personaFilename) {
   ws.onopen = () => {
     document.getElementById('status').textContent = 'Connected';
     document.getElementById('status').classList.add('connected');
-    ws.send(JSON.stringify({type: 'start', card_filename: filename, persona_filename: personaFilename}));
-    // first_mes arrives with no analysis — no loading indicator needed
-    isWaiting = true;  // briefly wait for session_started + first_mes
+    if (resumeSessionId) {
+      ws.send(JSON.stringify({type: 'resume', session_id: resumeSessionId}));
+    } else {
+      ws.send(JSON.stringify({type: 'start', card_filename: filename, persona_filename: personaFilename}));
+    }
+    isWaiting = true;
     updateInputState();
   };
 
@@ -1534,13 +1570,20 @@ function connectWS(filename, personaFilename) {
         _lastUserMsgDiv.dataset.messageId = data.message_id;
       }
     } else if (data.type === 'session_started') {
+      // New session created
+      schoolActiveSessionId = data.session_id;
+      if (data.stack_config) {
+        schoolStackConfig = data.stack_config;
+      }
       // Clear console for new session
       consoleEventCount = 0;
+      schoolConsoleEvents = [];
       document.getElementById('consoleCount').textContent = '0';
       document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
       document.getElementById('btnReset').disabled = false;
       document.getElementById('btnReport').disabled = false;
       document.getElementById('btnEditor').disabled = false;
+      document.getElementById('btnSchoolStack').disabled = false;
       // Enable input — first_mes has no analysis, arrives instantly
       isWaiting = false;
       updateInputState();
@@ -1551,9 +1594,85 @@ function connectWS(filename, personaFilename) {
           document.getElementById('charName').innerHTML = escapeHtml(currentCard?.data?.name || '') + `<span class="persona-badge">vs ${escapeHtml(p.name)}</span>`;
         }
       }
-    } else if (data.type === 'persona_changed') {
-      // Persona changed mid-session, chat was reset
+      // Refresh sessions sidebar
+      loadSchoolSessions();
+    } else if (data.type === 'session_resumed') {
+      // Existing session loaded
+      schoolActiveSessionId = data.session_id;
+      if (data.stack_config) {
+        schoolStackConfig = data.stack_config;
+      }
       consoleEventCount = 0;
+      schoolConsoleEvents = [];
+      document.getElementById('consoleCount').textContent = '0';
+      document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+      // Restore messages
+      const chatEl = document.getElementById('chatMessages');
+      chatEl.innerHTML = '';
+      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
+      if (data.messages) {
+        data.messages.forEach(m => {
+          if (m.role === 'user') {
+            addMessage('user', m.content, null, m.is_first_mes, m.id);
+          } else if (m.role === 'assistant') {
+            addMessage('character', m.content, m.analysis, m.is_first_mes, m.id);
+          }
+        });
+      }
+      // Restore console events
+      if (data.console_events && data.console_events.length > 0) {
+        schoolConsoleEvents = data.console_events;
+        data.console_events.forEach(ev => addConsoleEntry(ev));
+      }
+      // Enable controls
+      document.getElementById('btnReset').disabled = false;
+      document.getElementById('btnReport').disabled = false;
+      document.getElementById('btnEditor').disabled = false;
+      document.getElementById('btnSchoolStack').disabled = false;
+      isWaiting = false;
+      updateInputState();
+      // Update char name display
+      if (data.persona) {
+        const p = personasList.find(p => p.filename === data.persona);
+        if (p) {
+          document.getElementById('charName').innerHTML = escapeHtml(currentCard?.data?.name || '') + `<span class="persona-badge">vs ${escapeHtml(p.name)}</span>`;
+        }
+      } else {
+        document.getElementById('charName').textContent = currentCard?.data?.name || currentFilename;
+      }
+      // Highlight in sidebar
+      document.querySelectorAll('.school-session-item').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.sessionId) === schoolActiveSessionId);
+      });
+    } else if (data.type === 'stack_updated') {
+      // Stack config updated (e.g., auto-summary ran)
+      if (data.stack_config) {
+        schoolStackConfig = data.stack_config;
+        if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
+      }
+    } else if (data.type === 'block_summarized') {
+      if (data.stack_config) {
+        schoolStackConfig = data.stack_config;
+        if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
+      }
+      summarizingBlockIdx = null;
+      // Update stack builder modal if open
+      const overlay = document.getElementById('stackOverlay');
+      if (overlay && overlay.classList.contains('show')) {
+        renderStackBlocks();
+      }
+      if (data.text) {
+        const btn = document.querySelector(`.stack-block[data-idx="${data.block_index}"] .block-summarize-btn`);
+        if (btn) { btn.classList.add('has-text'); }
+      }
+    } else if (data.type === 'persona_changed') {
+      // Persona changed mid-session, new session was created
+      schoolActiveSessionId = data.session_id;
+      if (data.stack_config) {
+        schoolStackConfig = data.stack_config;
+      }
+      consoleEventCount = 0;
+      schoolConsoleEvents = [];
       document.getElementById('consoleCount').textContent = '0';
       document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
       document.getElementById('chatMessages').innerHTML = '';
@@ -1569,8 +1688,14 @@ function connectWS(filename, personaFilename) {
       } else {
         document.getElementById('charName').textContent = currentCard?.data?.name || currentFilename;
       }
+      loadSchoolSessions();
     } else if (data.type === 'reset_complete') {
+      schoolActiveSessionId = data.session_id;
+      if (data.stack_config) {
+        schoolStackConfig = data.stack_config;
+      }
       consoleEventCount = 0;
+      schoolConsoleEvents = [];
       document.getElementById('consoleCount').textContent = '0';
       document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
       document.getElementById('chatMessages').innerHTML = '';
@@ -1578,6 +1703,7 @@ function connectWS(filename, personaFilename) {
       // No analysis on first_mes — enable input immediately
       isWaiting = false;
       updateInputState();
+      loadSchoolSessions();
     } else if (data.type === 'report') {
       showReport(data.content);
     } else if (data.type === 'error') {
@@ -1587,6 +1713,7 @@ function connectWS(filename, personaFilename) {
       updateInputState();
     } else if (data.type === 'console_event') {
       addConsoleEntry(data);
+      schoolConsoleEvents.push(data);
     } else if (data.type === 'character_typing') {
       showSchoolTyping('character', data.character_name);
     } else if (data.type === 'character_typing_stopped') {
@@ -2324,6 +2451,8 @@ function switchMode(mode) {
     loadRPSessions();
     // Populate persona select in setup
     populateRPPersonaSelect();
+  } else if (mode === 'school') {
+    loadSchoolSessions();
   }
 }
 
@@ -2539,10 +2668,12 @@ function handleRPMessage(data) {
     renderRPSceneBar();
   } else if (data.type === 'stack_updated') {
     rpStackConfig = data.stack_config;
+    if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
   } else if (data.type === 'block_summarizing') {
     // Button already shows "Summarizing…" from JS; auto triggers also send this
   } else if (data.type === 'block_summary_updated') {
     if (data.stack_config) rpStackConfig = data.stack_config;
+    if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
     summarizingBlockIdx = null;
     renderStackBlocks();
     // Show brief toast
@@ -2970,6 +3101,129 @@ async function branchRPSession(sessionId) {
   }
 }
 
+// ─── School Sessions List ───────────
+let schoolSessionsCollapsed = false;
+
+function toggleSchoolSessions() {
+  schoolSessionsCollapsed = !schoolSessionsCollapsed;
+  const list = document.getElementById('schoolSessionsList');
+  const chevron = document.getElementById('schoolSessionsChevron');
+  if (schoolSessionsCollapsed) {
+    list.style.display = 'none';
+    chevron.textContent = '▶';
+  } else {
+    list.style.display = '';
+    chevron.textContent = '▼';
+  }
+}
+
+async function loadSchoolSessions() {
+  try {
+    const resp = await fetch('/api/school/sessions');
+    const data = await resp.json();
+    const sessions = data.sessions || [];
+    const list = document.getElementById('schoolSessionsList');
+    if (sessions.length === 0) {
+      list.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-dim);font-size:11px">No saved sessions yet.</div>';
+      return;
+    }
+    list.innerHTML = sessions.map(s => {
+      const active = s.id === schoolActiveSessionId ? ' active' : '';
+      const date = s.updated_at ? new Date(s.updated_at + 'Z').toLocaleDateString() : '';
+      const personaTag = s.persona_filename ? ' · vs persona' : '';
+      return `<div class="school-session-item${active}" data-session-id="${s.id}" onclick="resumeSchoolSession(${s.id})">
+        <span class="del-btn" onclick="event.stopPropagation(); deleteSchoolSession(${s.id})">✕</span>
+        <span class="branch-btn" onclick="event.stopPropagation(); branchSchoolSession(${s.id})" title="Branch this session">🌿</span>
+        <div class="title">${escapeHtml(s.title || 'Untitled')}</div>
+        <div class="meta">${date}${personaTag}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    console.error('Failed to load school sessions:', e);
+  }
+}
+
+async function resumeSchoolSession(sessionId) {
+  // Fetch session metadata to load card
+  try {
+    const resp = await fetch('/api/school/sessions/' + sessionId);
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+    const sess = data.session;
+    // Load card
+    currentFilename = sess.card_filename;
+    const cardResp = await fetch('/api/cards/' + sess.card_filename);
+    currentCard = await cardResp.json();
+    const d = currentCard.data || currentCard;
+    document.getElementById('charName').textContent = d.name || sess.card_filename;
+    // Set persona
+    if (sess.persona_filename) {
+      currentPersonaFilename = sess.persona_filename;
+      try {
+        const pResp = await fetch('/api/personas/' + sess.persona_filename);
+        currentPersona = await pResp.json();
+      } catch (e) {
+        currentPersona = null;
+      }
+      // Update persona dropdown
+      const sel = document.getElementById('personaSelect');
+      if (sel) sel.value = sess.persona_filename;
+    } else {
+      currentPersonaFilename = null;
+      currentPersona = null;
+      const sel = document.getElementById('personaSelect');
+      if (sel) sel.value = '';
+    }
+    // Enable controls
+    document.getElementById('personaSelect').disabled = false;
+    document.getElementById('btnPersonaEditor').disabled = false;
+    // Connect WS in resume mode
+    connectWS(null, null, sessionId);
+    // Highlight active in sidebar
+    document.querySelectorAll('.card-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.filename === sess.card_filename);
+    });
+  } catch (e) {
+    alert('Failed to resume session: ' + e.message);
+  }
+}
+
+async function deleteSchoolSession(sessionId) {
+  if (!confirm('Delete this session? This cannot be undone.')) return;
+  try {
+    await fetch('/api/school/sessions/' + sessionId, {method: 'DELETE'});
+    if (sessionId === schoolActiveSessionId) {
+      // Clear current session
+      schoolActiveSessionId = null;
+      schoolStackConfig = null;
+      document.getElementById('chatMessages').innerHTML = '<div class="analysis-empty" id="chatEmpty">Select a character card to begin testing.</div>';
+      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
+      document.getElementById('btnReset').disabled = true;
+      document.getElementById('btnReport').disabled = true;
+      document.getElementById('btnEditor').disabled = true;
+      document.getElementById('btnSchoolStack').disabled = true;
+      if (ws) ws.close();
+    }
+    loadSchoolSessions();
+  } catch (e) {
+    alert('Failed to delete session: ' + e.message);
+  }
+}
+
+async function branchSchoolSession(sessionId) {
+  try {
+    const resp = await fetch('/api/school/sessions/' + sessionId + '/branch', {method: 'POST'});
+    const result = await resp.json();
+    if (result.error) { alert(result.error); return; }
+    await loadSchoolSessions();
+    if (result.new_session_id) {
+      resumeSchoolSession(result.new_session_id);
+    }
+  } catch (e) {
+    alert('Failed to branch: ' + e.message);
+  }
+}
+
 // ─── Add/Remove Character mid-session ────────────────
 async function openRPAddCharPicker() {
   // Load card list if not cached
@@ -3055,6 +3309,19 @@ function getDefaultStackConfig() {
 function openStackBuilder() {
   if (!rpActiveSessionId) { alert('Start or resume an RP session first.'); return; }
   if (!rpStackConfig) rpStackConfig = getDefaultStackConfig();
+  activeStackConfig = rpStackConfig;
+  activeStackWS = rpWS;
+  activeStackMode = 'rp';
+  renderStackBlocks();
+  document.getElementById('stackOverlay').classList.add('show');
+}
+
+function openSchoolStackBuilder() {
+  if (!schoolActiveSessionId) { alert('Start or resume a session first.'); return; }
+  if (!schoolStackConfig) schoolStackConfig = getDefaultStackConfig();
+  activeStackConfig = schoolStackConfig;
+  activeStackWS = ws;
+  activeStackMode = 'school';
   renderStackBlocks();
   document.getElementById('stackOverlay').classList.add('show');
 }
@@ -3066,7 +3333,7 @@ function closeStackBuilder() {
 function renderStackBlocks() {
   const list = document.getElementById('stackBlockList');
   list.innerHTML = '';
-  const blocks = rpStackConfig.blocks || [];
+  const blocks = activeStackConfig.blocks || [];
 
   // Sync custom textarea
   const customBlock = blocks.find(b => b.type === 'custom');
@@ -3152,7 +3419,7 @@ function renderStackBlocks() {
         // Don't allow dropping before the locked system block (idx 0)
         const targetIdx = idx === 0 ? 1 : idx;
         if (stackDragSrc === 0) return; // can't move system block
-        const blocks = rpStackConfig.blocks;
+        const blocks = activeStackConfig.blocks;
         const moved = blocks.splice(stackDragSrc, 1)[0];
         const insertAt = targetIdx > stackDragSrc ? targetIdx - 1 : targetIdx;
         blocks.splice(insertAt, 0, moved);
@@ -3166,7 +3433,7 @@ function renderStackBlocks() {
 }
 
 function toggleBlock(idx) {
-  const block = rpStackConfig.blocks[idx];
+  const block = activeStackConfig.blocks[idx];
   if (!block || block.locked) return;
   block.enabled = !block.enabled;
   if (block.type === 'custom') {
@@ -3176,35 +3443,35 @@ function toggleBlock(idx) {
 }
 
 function updateBlockN(idx, val) {
-  const block = rpStackConfig.blocks[idx];
+  const block = activeStackConfig.blocks[idx];
   if (!block) return;
   block.n = Math.max(0, Math.min(50, parseInt(val) || 0));
 }
 
 function updateBlockRange(idx, field, val) {
-  const block = rpStackConfig.blocks[idx];
+  const block = activeStackConfig.blocks[idx];
   if (!block) return;
   block[field] = Math.max(0, parseInt(val) || 0);
 }
 
 let summarizingBlockIdx = null;
 function toggleBlockAuto(idx) {
-  const block = rpStackConfig.blocks[idx];
+  const block = activeStackConfig.blocks[idx];
   if (!block) return;
   block.auto = !block.auto;
   renderStackBlocks();
 }
 
 function summarizeBlock(idx) {
-  if (!rpWS || rpWS.readyState !== WebSocket.OPEN) { alert('Not connected.'); return; }
+  if (!activeStackWS || activeStackWS.readyState !== WebSocket.OPEN) { alert('Not connected.'); return; }
   summarizingBlockIdx = idx;
-  rpWS.send(JSON.stringify({ type: 'summarize_block', block_index: idx }));
+  activeStackWS.send(JSON.stringify({ type: 'summarize_block', block_index: idx }));
   const btn = document.querySelector(`.stack-block[data-idx="${idx}"] .block-summarize-btn`);
   if (btn) { btn.classList.add('summarizing'); btn.textContent = 'Summarizing…'; }
 }
 
 function toggleCustomText(idx) {
-  const block = rpStackConfig.blocks[idx];
+  const block = activeStackConfig.blocks[idx];
   if (!block) return;
   if (!block.enabled) {
     block.enabled = true;
@@ -3215,17 +3482,28 @@ function toggleCustomText(idx) {
 
 function saveStackConfig() {
   // Sync custom text
-  const customBlock = rpStackConfig.blocks.find(b => b.type === 'custom');
+  const customBlock = activeStackConfig.blocks.find(b => b.type === 'custom');
   if (customBlock) {
     customBlock.text = document.getElementById('stackCustomText').value;
   }
-  if (rpWS && rpWS.readyState === WebSocket.OPEN) {
-    rpWS.send(JSON.stringify({ type: 'update_stack', stack_config: rpStackConfig }));
+  if (activeStackWS && activeStackWS.readyState === WebSocket.OPEN) {
+    activeStackWS.send(JSON.stringify({ type: 'update_stack', stack_config: activeStackConfig }));
+  } else if (activeStackMode === 'school' && schoolActiveSessionId) {
+    // Fallback: save via REST
+    fetch('/api/school/sessions/' + schoolActiveSessionId + '/stack', {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({stack_config: activeStackConfig})
+    });
   }
 }
 
 function resetStackConfig() {
-  rpStackConfig = getDefaultStackConfig();
+  activeStackConfig = getDefaultStackConfig();
+  if (activeStackMode === 'rp') {
+    rpStackConfig = activeStackConfig;
+  } else {
+    schoolStackConfig = activeStackConfig;
+  }
   renderStackBlocks();
 }
 

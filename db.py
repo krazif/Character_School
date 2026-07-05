@@ -295,6 +295,33 @@ def init_db():
         conn.execute("ALTER TABLE rp_sessions ADD COLUMN console_events TEXT")
     except Exception:
         pass  # Column already exists
+    # ─── School persistent session tables ───
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS school_sessions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            title           TEXT,
+            card_filename   TEXT NOT NULL,
+            persona_filename TEXT,
+            stack_config    TEXT,
+            console_events  TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS school_messages (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  INTEGER NOT NULL,
+            seq         INTEGER NOT NULL,
+            role        TEXT NOT NULL,
+            content     TEXT NOT NULL,
+            is_first_mes INTEGER DEFAULT 0,
+            analysis_json TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (session_id) REFERENCES school_sessions(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_school_messages_session ON school_messages(session_id, seq)")
     conn.commit()
     conn.close()
 
@@ -463,6 +490,8 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
                 llm_messages.append({"role": "user", "content": m["content"]})
             elif m["role"] == "character":
                 llm_messages.append({"role": "assistant", "content": f"[{m['speaker']}]: {m['content']}"})
+            elif m["role"] == "assistant":
+                llm_messages.append({"role": "assistant", "content": m["content"]})
             elif m["role"] == "system":
                 llm_messages.append({"role": "system", "content": m["content"]})
         return start, len(llm_messages) - start
@@ -825,6 +854,170 @@ def db_rp_branch_session(session_id: int) -> Optional[dict]:
 def db_rp_set_persona(session_id: int, persona_filename: str) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("UPDATE rp_sessions SET persona_filename = ?, updated_at = datetime('now') WHERE id = ?", (persona_filename, session_id))
+    conn.commit()
+    conn.close()
+
+
+# ─── School Database Functions ────────────
+
+def db_school_create_session(card_filename: str, persona_filename: str = None,
+                             stack_config: str = None) -> int:
+    conn = sqlite3.connect(str(DB_PATH))
+    title = Path(card_filename).stem
+    cur = conn.execute(
+        "INSERT INTO school_sessions (title, card_filename, persona_filename, stack_config) VALUES (?, ?, ?, ?)",
+        (title, card_filename, persona_filename, stack_config),
+    )
+    sid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return sid
+
+
+def db_school_add_message(session_id: int, role: str, content: str,
+                          is_first_mes: bool = False, analysis_json: str = None) -> int:
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM school_messages WHERE session_id = ?", (session_id,)).fetchone()
+    next_seq = row[0]
+    cur = conn.execute(
+        "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (session_id, next_seq, role, content, 1 if is_first_mes else 0, analysis_json),
+    )
+    msg_id = cur.lastrowid
+    conn.execute("UPDATE school_sessions SET updated_at = datetime('now') WHERE id = ?", (session_id,))
+    conn.commit()
+    conn.close()
+    return msg_id
+
+
+def db_school_get_messages(session_id: int) -> list[dict]:
+    conn = sqlite3.connect(str(DB_PATH))
+    rows = conn.execute(
+        "SELECT id, seq, role, content, is_first_mes, analysis_json FROM school_messages WHERE session_id = ? ORDER BY seq",
+        (session_id,),
+    ).fetchall()
+    conn.close()
+    return [{"id": r[0], "seq": r[1], "role": r[2], "content": r[3],
+             "is_first_mes": bool(r[4]), "analysis_json": r[5]} for r in rows]
+
+
+def db_school_get_session(session_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute(
+        "SELECT id, title, card_filename, persona_filename, stack_config, console_events FROM school_sessions WHERE id = ?",
+        (session_id,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "title": row[1], "card_filename": row[2],
+        "persona_filename": row[3], "stack_config": row[4], "console_events": row[5],
+    }
+
+
+def db_school_list_sessions() -> list[dict]:
+    conn = sqlite3.connect(str(DB_PATH))
+    rows = conn.execute(
+        "SELECT id, title, card_filename, persona_filename, updated_at FROM school_sessions ORDER BY updated_at DESC",
+    ).fetchall()
+    conn.close()
+    return [{"id": r[0], "title": r[1], "card_filename": r[2],
+             "persona_filename": r[3], "updated_at": r[4]} for r in rows]
+
+
+def db_school_delete_session(session_id: int) -> bool:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("DELETE FROM school_messages WHERE session_id = ?", (session_id,))
+    cur = conn.execute("DELETE FROM school_sessions WHERE id = ?", (session_id,))
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
+
+
+def db_school_delete_message(session_id: int, message_id: int) -> bool:
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT seq FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    deleted_seq = row[0]
+    conn.execute("DELETE FROM school_messages WHERE session_id = ? AND seq >= ?", (session_id, deleted_seq))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def db_school_update_settings(session_id: int, stack_config: str = None) -> None:
+    conn = sqlite3.connect(str(DB_PATH))
+    if stack_config is not None:
+        conn.execute("UPDATE school_sessions SET stack_config = ?, updated_at = datetime('now') WHERE id = ?",
+                     (stack_config, session_id))
+        conn.commit()
+    conn.close()
+
+
+def db_school_save_console_events(session_id: int, events_json: str):
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("UPDATE school_sessions SET console_events = ?, updated_at = datetime('now') WHERE id = ?",
+                 (events_json, session_id))
+    conn.commit()
+    conn.close()
+
+
+def db_school_count_messages(session_id: int) -> int:
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT COUNT(*) FROM school_messages WHERE session_id = ?", (session_id,)).fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
+def db_school_get_assistant_messages(session_id: int) -> list[dict]:
+    conn = sqlite3.connect(str(DB_PATH))
+    rows = conn.execute(
+        "SELECT id, content, analysis_json, is_first_mes FROM school_messages WHERE session_id = ? AND role = 'assistant' ORDER BY seq",
+        (session_id,),
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        analysis = json.loads(r[2]) if r[2] else None
+        result.append({"id": r[0], "content": r[1], "analysis": analysis, "is_first_mes": bool(r[3])})
+    return result
+
+
+def db_school_branch_session(session_id: int) -> Optional[dict]:
+    sess = db_school_get_session(session_id)
+    if not sess:
+        return None
+    conn = sqlite3.connect(str(DB_PATH))
+    branch_title = sess['title'] + ' (branch)' if sess['title'] else 'Untitled (branch)'
+    cur = conn.execute(
+        """INSERT INTO school_sessions (title, card_filename, persona_filename, stack_config, console_events)
+           VALUES (?, ?, ?, ?, ?)""",
+        (branch_title, sess['card_filename'], sess['persona_filename'],
+         sess.get('stack_config'), sess.get('console_events')),
+    )
+    new_sid = cur.lastrowid
+    msgs = conn.execute(
+        "SELECT seq, role, content, is_first_mes, analysis_json FROM school_messages WHERE session_id = ? ORDER BY seq",
+        (session_id,),
+    ).fetchall()
+    for m in msgs:
+        conn.execute(
+            "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json) VALUES (?, ?, ?, ?, ?, ?)",
+            (new_sid, m[0], m[1], m[2], m[3], m[4]),
+        )
+    conn.commit()
+    conn.close()
+    return {'new_session_id': new_sid, 'title': branch_title}
+
+
+def db_school_set_persona(session_id: int, persona_filename: str) -> None:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("UPDATE school_sessions SET persona_filename = ?, updated_at = datetime('now') WHERE id = ?",
+                 (persona_filename, session_id))
     conn.commit()
     conn.close()
 
