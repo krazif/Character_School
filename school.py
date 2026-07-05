@@ -518,12 +518,13 @@ async def ws_chat(ws: WebSocket):
     analysis_prompt = ""
     session_id = None
     current_gen_task = None
+    school_response_style = "brief"
 
     def _rebuild_prompts():
         """Rebuild system_prompt and analysis_prompt from card+persona."""
         nonlocal system_prompt, analysis_prompt
         _user_name = persona.get("name", "User") if persona else "User"
-        system_prompt = engine.build_system_prompt(card, user_name=_user_name)
+        system_prompt = engine.build_system_prompt(card, user_name=_user_name, response_style=school_response_style)
         analysis_prompt = engine.build_analysis_prompt(card)
         if persona:
             system_prompt = system_prompt + "\n\n" + engine.build_persona_context(persona)
@@ -635,6 +636,10 @@ async def ws_chat(ws: WebSocket):
 
                 _rebuild_prompts()
 
+                # Restore response style from DB
+                school_response_style = sess.get("response_style") or "brief"
+                _rebuild_prompts()  # rebuild with restored style
+
                 messages = db.db_school_get_messages(session_id)
                 stack_cfg = db.get_stack_config(sess)
 
@@ -649,6 +654,7 @@ async def ws_chat(ws: WebSocket):
                                   "analysis": json.loads(m["analysis_json"]) if m["analysis_json"] else None}
                                  for m in messages],
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
+                    "response_style": school_response_style,
                 })
 
             elif data["type"] == "user_message":
@@ -857,6 +863,14 @@ async def ws_chat(ws: WebSocket):
                 if session_id:
                     events = data.get("events", [])
                     db.db_school_save_console_events(session_id, json.dumps(events))
+
+            elif data["type"] == "set_response_style":
+                school_response_style = data.get("style", "brief")
+                if card:
+                    _rebuild_prompts()
+                if session_id:
+                    db.db_school_update_settings(session_id, response_style=school_response_style)
+                await ws.send_json({"type": "response_style_updated", "style": school_response_style})
 
             elif data["type"] == "get_report":
                 assistant_msgs = db.db_school_get_assistant_messages(session_id)

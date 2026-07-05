@@ -181,7 +181,7 @@ def substitute_macros(text: str, char_name: str, user_name: str = "User") -> str
     return text.replace("{{char}}", char_name).replace("{{user}}", user_name)
 
 
-def build_system_prompt(card: dict, user_name: str = "User") -> str:
+def build_system_prompt(card: dict, user_name: str = "User", response_style: str = None) -> str:
     """Build the system prompt for the character LLM from any version card."""
     d = card.get("data", card)
     version = detect_card_version(card)
@@ -211,6 +211,13 @@ def build_system_prompt(card: dict, user_name: str = "User") -> str:
     val = get_card_field(d, "mes_example", version)
     if val:
         parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
+    # Response style directive
+    if response_style == 'terse':
+        parts.append("\n\nRESPONSE STYLE: Keep your response to 1-2 short sentences. Pure dialogue with minimal action — like a quick text exchange. No internal thoughts, no narration.")
+    elif response_style == 'brief':
+        parts.append("\n\nRESPONSE STYLE: Keep your response to 2-4 short sentences. Prioritize dialogue over description. Some action beats and body language, but still tight.")
+    elif response_style == 'full':
+        parts.append("\n\nRESPONSE STYLE: Respond with a full paragraph. Include actions, internal thoughts, body language, and emotional detail.")
     return "\n".join(parts)
 
 
@@ -410,8 +417,10 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     parts.append("")
 
     # Response style
-    if response_style == 'brief':
-        parts.append("RESPONSE STYLE: Keep each character's response to 1-2 short sentences. Be snappy and reactive. Prioritize dialogue over description.")
+    if response_style == 'terse':
+        parts.append("RESPONSE STYLE: Keep each character's response to 1-2 short sentences. Pure dialogue with minimal action — like a quick text exchange. No internal thoughts, no narration.")
+    elif response_style == 'brief':
+        parts.append("RESPONSE STYLE: Keep each character's response to 2-4 short sentences. Prioritize dialogue over description. Some action beats and body language, but still tight.")
     else:
         parts.append("RESPONSE STYLE: Respond with a full paragraph per character. Include actions, internal thoughts, body language, and emotional detail.")
     parts.append("")

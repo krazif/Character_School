@@ -322,6 +322,11 @@ def init_db():
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_school_messages_session ON school_messages(session_id, seq)")
+    # Migration: add response_style column to school_sessions
+    try:
+        conn.execute("ALTER TABLE school_sessions ADD COLUMN response_style TEXT")
+    except Exception:
+        pass  # Column already exists
     conn.commit()
     conn.close()
 
@@ -980,12 +985,15 @@ def db_school_update_session_meta(session_id: int, persona_filename: str = None,
     conn.close()
 
 
-def db_school_update_settings(session_id: int, stack_config: str = None) -> None:
+def db_school_update_settings(session_id: int, stack_config: str = None, response_style: str = None) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     if stack_config is not None:
         conn.execute("UPDATE school_sessions SET stack_config = ?, updated_at = datetime('now') WHERE id = ?",
                      (stack_config, session_id))
-        conn.commit()
+    if response_style is not None:
+        conn.execute("UPDATE school_sessions SET response_style = ?, updated_at = datetime('now') WHERE id = ?",
+                     (response_style, session_id))
+    conn.commit()
     conn.close()
 
 
