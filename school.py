@@ -1131,11 +1131,3 @@ async def save_generated_character(req: Request):
 
     engine.save_card(filename, card)
     return {"status": "ok", "filename": filename, "name": name}
-
-@router.post("/api/school/sessions/{session_id}/move-to-rp")
-async def api_school_move_to_rp(session_id: int):
-    """Convert a school session to an RP session (one-way)."""
-    rp_sid = db.db_school_to_rp(session_id)
-    if rp_sid is None:
-        return JSONResponse({"error": "Failed to convert session"}, status_code=400)
-    return JSONResponse({"rp_session_id": rp_sid})
