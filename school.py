@@ -569,9 +569,14 @@ async def ws_chat(ws: WebSocket):
                     stack_config_json = data.get("stack_config")
                     stack_config_str = json.dumps(stack_config_json) if stack_config_json else None
 
+                    # Build session title: "CharName" or "CharName vs PersonaName"
+                    _char_name = card.get("data", card).get("name", Path(card_filename).stem)
+                    _persona_name = persona.get("name") if persona else None
+                    _title = f"{_char_name} vs {_persona_name}" if _persona_name else _char_name
+
                     # Create school session
                     session_id = db.db_school_create_session(
-                        card_filename, persona_filename, stack_config_str
+                        card_filename, persona_filename, stack_config_str, title=_title
                     )
 
                     # Get the effective stack config
@@ -708,31 +713,16 @@ async def ws_chat(ws: WebSocket):
                             "timestamp": engine._now_iso(),
                         })
 
-                        # Get previous assistant responses for drift comparison
-                        prev_assistants = db.db_school_get_assistant_messages(session_id)
-                        prev_texts = [m["content"] for m in prev_assistants]
-
-                        # ── Notify frontend: analyzer is running ──
-                        await ws.send_json({"type": "analysis_typing"})
-
-                        # Run analysis
-                        analysis = await engine.analyze_response(
-                            analysis_prompt, char_content, prev_texts, card, ws=ws
-                        )
-
-                        await ws.send_json({"type": "analysis_typing_stopped"})
-
-                        # Store in school DB with analysis
-                        analysis_str = json.dumps(analysis) if analysis else None
+                        # Store in school DB (no auto-analysis)
                         msg_id = db.db_school_add_message(
                             session_id, "assistant", char_content,
-                            is_first_mes=False, analysis_json=analysis_str
+                            is_first_mes=False, analysis_json=None
                         )
 
                         await ws.send_json({
                             "type": "character_message",
                             "content": char_content,
-                            "analysis": analysis,
+                            "analysis": None,
                             "is_first_mes": False,
                             "message_id": msg_id,
                         })
@@ -746,7 +736,6 @@ async def ws_chat(ws: WebSocket):
                         raise
                     except Exception as e:
                         await ws.send_json({"type": "character_typing_stopped"})
-                        await ws.send_json({"type": "analysis_typing_stopped"})
                         await ws.send_json({"type": "error", "message": f"LLM error: {e}"})
 
                 current_gen_task = asyncio.create_task(_school_gen())
@@ -766,43 +755,32 @@ async def ws_chat(ws: WebSocket):
 
                     _rebuild_prompts()
 
-                    # Create new school session for the new persona
-                    session_id = db.db_school_create_session(
-                        card_filename, persona_filename, None
-                    )
-
-                    sess = db.db_school_get_session(session_id)
-                    stack_cfg = db.get_stack_config(sess)
+                    # Update current session's persona + title (no new session)
+                    if session_id:
+                        _char_name = card.get("data", card).get("name", Path(card_filename).stem)
+                        _persona_name = persona.get("name") if persona else None
+                        _title = f"{_char_name} vs {_persona_name}" if _persona_name else _char_name
+                        db.db_school_update_session_meta(
+                            session_id, persona_filename=persona_filename, title=_title
+                        )
 
                     await ws.send_json({
-                        "type": "persona_changed",
+                        "type": "persona_updated",
                         "persona": persona_filename,
+                        "persona_name": persona.get("name") if persona else None,
                         "session_id": session_id,
-                        "stack_config": stack_cfg,
                     })
-
-                    _user_name = persona.get("name", "User") if persona else "User"
-                    first_mes = engine.get_first_mes(card, user_name=_user_name)
-                    if first_mes:
-                        msg_id = db.db_school_add_message(
-                            session_id, "assistant", first_mes, is_first_mes=True
-                        )
-                        await ws.send_json({
-                            "type": "character_message",
-                            "content": first_mes,
-                            "analysis": None,
-                            "is_first_mes": True,
-                            "message_id": msg_id,
-                        })
                 else:
                     await ws.send_json({"type": "error", "message": "No card loaded"})
 
             elif data["type"] == "reset":
                 if card:
                     # Create new school session (old one stays in DB)
-                    stack_cfg_str = None
+                    _char_name = card.get("data", card).get("name", Path(card_filename).stem)
+                    _persona_name = persona.get("name") if persona else None
+                    _title = f"{_char_name} vs {_persona_name}" if _persona_name else _char_name
                     session_id = db.db_school_create_session(
-                        card_filename, persona_filename, stack_cfg_str
+                        card_filename, persona_filename, None, title=_title
                     )
 
                     sess = db.db_school_get_session(session_id)
@@ -889,6 +867,52 @@ async def ws_chat(ws: WebSocket):
                     analysis_prompt, responses, analyses, card, persona, persona_filename, ws=ws
                 )
                 await ws.send_json({"type": "report", "content": report})
+
+            elif data["type"] == "analyze":
+                # Manual analysis triggered by "Analyze Character" button
+                if not card:
+                    await ws.send_json({"type": "error", "message": "No card loaded"})
+                    continue
+                if not session_id:
+                    await ws.send_json({"type": "error", "message": "No active session"})
+                    continue
+
+                guidance = data.get("guidance", "").strip()
+
+                # Get all non-first_mes character responses
+                assistant_msgs = db.db_school_get_assistant_messages(session_id)
+                responses = [m for m in assistant_msgs if not m["is_first_mes"]]
+                if not responses:
+                    await ws.send_json({"type": "error", "message": "No character responses to analyze yet. Chat with the character first."})
+                    continue
+
+                # Analyze the latest response with previous responses as context
+                latest = responses[-1]
+                prev_texts = [m["content"] for m in responses[:-1]]
+
+                await ws.send_json({"type": "analysis_typing"})
+
+                try:
+                    analysis = await engine.analyze_response(
+                        analysis_prompt, latest["content"], prev_texts, card,
+                        guidance=guidance, ws=ws
+                    )
+
+                    await ws.send_json({"type": "analysis_typing_stopped"})
+
+                    if analysis:
+                        # Store on the latest character message for report use
+                        analysis_str = json.dumps(analysis)
+                        db.db_school_update_message_analysis(latest["id"], analysis_str)
+
+                    await ws.send_json({
+                        "type": "analysis_result",
+                        "analysis": analysis,
+                        "message_id": latest["id"],
+                    })
+                except Exception as e:
+                    await ws.send_json({"type": "analysis_typing_stopped"})
+                    await ws.send_json({"type": "error", "message": f"Analysis error: {e}"})
 
     except WebSocketDisconnect:
         pass

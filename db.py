@@ -861,17 +861,28 @@ def db_rp_set_persona(session_id: int, persona_filename: str) -> None:
 # ─── School Database Functions ────────────
 
 def db_school_create_session(card_filename: str, persona_filename: str = None,
-                             stack_config: str = None) -> int:
+                             stack_config: str = None, title: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
-    title = Path(card_filename).stem
+    if title:
+        _title = title
+    else:
+        _title = Path(card_filename).stem
     cur = conn.execute(
         "INSERT INTO school_sessions (title, card_filename, persona_filename, stack_config) VALUES (?, ?, ?, ?)",
-        (title, card_filename, persona_filename, stack_config),
+        (_title, card_filename, persona_filename, stack_config),
     )
     sid = cur.lastrowid
     conn.commit()
     conn.close()
     return sid
+
+
+def db_school_update_message_analysis(message_id: int, analysis_json: str) -> None:
+    """Store analysis result on an existing school message."""
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("UPDATE school_messages SET analysis_json = ? WHERE id = ?", (analysis_json, message_id))
+    conn.commit()
+    conn.close()
 
 
 def db_school_add_message(session_id: int, role: str, content: str,
@@ -947,6 +958,26 @@ def db_school_delete_message(session_id: int, message_id: int) -> bool:
     conn.commit()
     conn.close()
     return True
+
+
+def db_school_update_session_meta(session_id: int, persona_filename: str = None,
+                                  title: str = None) -> None:
+    """Update persona_filename and/or title on an existing school session."""
+    conn = sqlite3.connect(str(DB_PATH))
+    fields = []
+    vals = []
+    if persona_filename is not None:
+        fields.append("persona_filename = ?")
+        vals.append(persona_filename)
+    if title is not None:
+        fields.append("title = ?")
+        vals.append(title)
+    if fields:
+        fields.append("updated_at = datetime('now')")
+        vals.append(session_id)
+        conn.execute(f"UPDATE school_sessions SET {', '.join(fields)} WHERE id = ?", vals)
+        conn.commit()
+    conn.close()
 
 
 def db_school_update_settings(session_id: int, stack_config: str = None) -> None:

@@ -79,6 +79,12 @@ header .status.connected { color:var(--green); }
 
 /* Analysis Panel */
 .analysis-header { padding:10px 14px; font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.analysis-controls { padding:8px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+.analysis-controls textarea { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; padding:8px 10px; resize:vertical; font-family:inherit; box-sizing:border-box; }
+.analysis-controls textarea:focus { outline:none; border-color:var(--accent); }
+.btn-analyze { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:12px; cursor:pointer; font-weight:600; transition:opacity 0.15s; }
+.btn-analyze:hover { opacity:0.85; }
+.btn-analyze:disabled { opacity:0.4; cursor:not-allowed; }
 .analysis-content { flex:1; overflow-y:auto; padding:14px; }
 .analysis-empty { color:var(--text-dim); text-align:center; padding:40px 20px; font-size:13px; }
 .analysis-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:12px; }
@@ -559,9 +565,13 @@ body.rp-mode .school-only { display:none; }
 
   <!-- School Mode: Right Panel -->
   <div class="right-panel school-only">
-    <div class="analysis-header">📊 Live Analysis</div>
+    <div class="analysis-header">📊 Character Analysis</div>
+    <div class="analysis-controls">
+      <textarea id="analysisGuidance" placeholder="Describe desired characteristics...  e.g. 'I want the character to be more shy and use more Malay fillers like kan, weh'" rows="3"></textarea>
+      <button class="btn-analyze" id="btnAnalyze" onclick="triggerAnalyze()">🔍 Analyze Character</button>
+    </div>
     <div class="analysis-content" id="analysisPanel">
-      <div class="analysis-empty">Analysis appears here after each character response.</div>
+      <div class="analysis-empty">Click "Analyze Character" to run analysis on the conversation so far.</div>
     </div>
   </div>
 </div>
@@ -1609,7 +1619,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       // Restore messages
       const chatEl = document.getElementById('chatMessages');
       chatEl.innerHTML = '';
-      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
+      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Click "Analyze Character" to run analysis.</div>';
       if (data.messages) {
         data.messages.forEach(m => {
           if (m.role === 'user') {
@@ -1665,21 +1675,8 @@ function connectWS(filename, personaFilename, resumeSessionId) {
         const btn = document.querySelector(`.stack-block[data-idx="${data.block_index}"] .block-summarize-btn`);
         if (btn) { btn.classList.add('has-text'); }
       }
-    } else if (data.type === 'persona_changed') {
-      // Persona changed mid-session, new session was created
-      schoolActiveSessionId = data.session_id;
-      if (data.stack_config) {
-        schoolStackConfig = data.stack_config;
-      }
-      consoleEventCount = 0;
-      schoolConsoleEvents = [];
-      document.getElementById('consoleCount').textContent = '0';
-      document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
-      document.getElementById('chatMessages').innerHTML = '';
-      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
-      // No analysis on first_mes — enable input immediately
-      isWaiting = false;
-      updateInputState();
+    } else if (data.type === 'persona_updated') {
+      // Persona changed on current session (no new session created)
       if (data.persona) {
         const p = personasList.find(p => p.filename === data.persona);
         if (p) {
@@ -1689,6 +1686,13 @@ function connectWS(filename, personaFilename, resumeSessionId) {
         document.getElementById('charName').textContent = currentCard?.data?.name || currentFilename;
       }
       loadSchoolSessions();
+    } else if (data.type === 'analysis_result') {
+      // Manual analysis result from "Analyze Character" button
+      if (data.analysis) {
+        updateAnalysis(data.analysis);
+      } else {
+        document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis returned no results.</div>';
+      }
     } else if (data.type === 'reset_complete') {
       schoolActiveSessionId = data.session_id;
       if (data.stack_config) {
@@ -1699,8 +1703,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('consoleCount').textContent = '0';
       document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
       document.getElementById('chatMessages').innerHTML = '';
-      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
-      // No analysis on first_mes — enable input immediately
+      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Click "Analyze Character" to run analysis.</div>';
       isWaiting = false;
       updateInputState();
       loadSchoolSessions();
@@ -1717,9 +1720,8 @@ function connectWS(filename, personaFilename, resumeSessionId) {
     } else if (data.type === 'character_typing') {
       showSchoolTyping('character', data.character_name);
     } else if (data.type === 'character_typing_stopped') {
-      // Character done — switch to analyzer indicator if analysis is pending
-      if (isWaiting) showSchoolTyping('analyzer');
-      else hideSchoolTyping();
+      // Character done — analysis is now manual, just hide typing
+      hideSchoolTyping();
     } else if (data.type === 'analysis_typing') {
       showSchoolTyping('analyzer');
     } else if (data.type === 'analysis_typing_stopped') {
@@ -1794,7 +1796,7 @@ function addMessage(role, content, analysis, isFirst, messageId) {
       // Update analysis panel — clear if no character messages remain
       const remainingChar = document.querySelectorAll('.message.character').length;
       if (remainingChar === 0) {
-        document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
+        document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Click "Analyze Character" to run analysis.</div>';
       }
     };
     div.appendChild(delLink);
@@ -2003,11 +2005,21 @@ function onPersonaChange() {
   // Fetch persona details
   fetch('/api/personas/' + filename).then(r => r.json()).then(p => {
     currentPersona = p;
-    // Send to server — this will reset the chat with the new persona
+    // Send to server — updates current session's persona (no new session)
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({type: 'set_persona', persona_filename: filename}));
     }
   });
+}
+
+function triggerAnalyze() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    alert('Connect to a character first.');
+    return;
+  }
+  const guidance = document.getElementById('analysisGuidance').value || '';
+  ws.send(JSON.stringify({type: 'analyze', guidance: guidance}));
+  document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analyzing...</div>';
 }
 
 function openPersonaEditor() {
@@ -3197,7 +3209,7 @@ async function deleteSchoolSession(sessionId) {
       schoolActiveSessionId = null;
       schoolStackConfig = null;
       document.getElementById('chatMessages').innerHTML = '<div class="analysis-empty" id="chatEmpty">Select a character card to begin testing.</div>';
-      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Analysis appears here after each character response.</div>';
+      document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Click "Analyze Character" to run analysis.</div>';
       document.getElementById('btnReset').disabled = true;
       document.getElementById('btnReport').disabled = true;
       document.getElementById('btnEditor').disabled = true;

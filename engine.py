@@ -648,8 +648,13 @@ def _now_iso() -> str:
 
 async def analyze_response(analysis_prompt: str, response: str,
                            previous_responses: list[str], card: dict,
+                           guidance: str = "",
                            ws: Optional[Any] = None) -> dict:
-    """Run analysis LLM call on a character response."""
+    """Run analysis LLM call on a character response.
+
+    If *guidance* is provided, the analyzer is asked to focus on the user's
+    desired characteristics and suggest specific card edits.
+    """
     d = card.get("data", card)
     char_name = d.get("name", "Unknown")
 
@@ -660,11 +665,20 @@ async def analyze_response(analysis_prompt: str, response: str,
         for i, r in enumerate(previous_responses[-3:], 1):  # last 3 for context
             prev_context += f"Response {i}: {r[:300]}...\n"
 
+    guidance_block = ""
+    if guidance and guidance.strip():
+        guidance_block = f"""
+
+USER GUIDANCE — DESIRED CHARACTERISTICS:
+{guidance.strip()}
+
+Focus your analysis on how well the character matches these desired characteristics. In your fixes and enhancements, suggest specific card edits — what to add exactly, where to add it (which field, which section, quoting nearby text) — that would make the character better match these desired characteristics."""
+
     user_msg = f"""Analyze this response from the character "{char_name}":
 
 RESPONSE TO ANALYZE:
 {response}
-{prev_context}
+{prev_context}{guidance_block}
 
 Return ONLY the JSON object."""
 
