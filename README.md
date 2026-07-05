@@ -110,13 +110,13 @@ pip install -r requirements.txt
 ## How to Run
 
 ```bash
-python server.py
+python main.py
 ```
 
 Or with uvicorn directly:
 
 ```bash
-python -m uvicorn server:app --host 0.0.0.0 --port 7862
+python -m uvicorn main:app --host 0.0.0.0 --port 7862
 ```
 
 The app starts on `http://0.0.0.0:7862` by default. Open `http://localhost:7862` in your browser.
@@ -175,7 +175,11 @@ All settings can also be overridden via environment variables with the `CHARACTE
 
 ```
 character-school/
-├── server.py              # FastAPI backend (all API + WebSocket logic)
+├── main.py                # FastAPI app entry point (routers + static mount)
+├── db.py                  # Config + SQLite data layer
+├── engine.py              # Pure logic (cards, personas, prompts, PNG, analysis)
+├── school.py              # School mode routes + WebSocket + card generation
+├── rp.py                  # RP mode routes + WebSocket + config API
 ├── config.jsonc           # Configuration (auto-created, editable in-app)
 ├── char_test.db           # SQLite database (sessions, messages)
 ├── LICENSE                # Apache 2.0
