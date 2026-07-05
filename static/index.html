@@ -1932,6 +1932,9 @@ function updateAnalysis(analysis, content) {
       if (e.placement) {
         html += `<div style="font-size:11px;color:var(--orange);margin-top:2px">📌 ${escapeHtml(e.placement)}</div>`;
       }
+      if (e.suggested_text) {
+        html += `<div class="fix-text" style="margin-top:4px;color:var(--text-dim)">${escapeHtml(e.suggested_text)}</div>`;
+      }
       if (e.rationale) html += `<div class="enh-rationale">${escapeHtml(e.rationale)}</div>`;
       html += `</div>`;
     });
@@ -2332,6 +2335,9 @@ function showReport(report) {
       html += `<div class="enh-location">📍 ${escapeHtml(e.field || 'unknown field')}</div>`;
       if (e.placement) {
         html += `<div style="font-size:11px;color:var(--orange);margin-top:2px">📌 ${escapeHtml(e.placement)}</div>`;
+      }
+      if (e.suggested_text) {
+        html += `<div class="fix-text" style="margin-top:4px;color:var(--text-dim)">${escapeHtml(e.suggested_text)}</div>`;
       }
       if (e.rationale) html += `<div class="enh-rationale">${escapeHtml(e.rationale)}</div>`;
       html += `</div>`;

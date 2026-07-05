@@ -274,6 +274,7 @@ For each character response, analyze it and return a JSON object with these fiel
       "suggestion": "how to improve the card to prevent this class of issue",
       "location": "which card field to edit",
       "placement": "exactly where in that field, same as fixes.placement",
+      "suggested_text": "the exact text to add or replace with — ready-to-paste, same as fixes.suggested_text",
       "rationale": "why this enhancement helps"
     }}
   ]
@@ -299,7 +300,13 @@ RULES FOR ANALYSIS:
     - "suggested_text": the actual text the card author should paste in (be specific and ready-to-use)
     - "priority": how urgent — "critical" for banned words or broken rules, "high" for drift/violations, "medium" for fragility, "low" for minor polish
     If the response passes cleanly, return an empty fixes array.
-12. ENHANCEMENTS: Beyond fixing immediate issues, suggest proactive card improvements in the "enhancements" array. Think about what would make the card more robust against LLM training defaults, what patterns could be reinforced, what instructions could be clearer. Each enhancement must also include "placement" specifying exactly where in the field to put it (same rules as fixes.placement). If no enhancements needed, return empty array."""
+12. ENHANCEMENTS: Beyond fixing immediate issues, suggest proactive card improvements in the "enhancements" array. Think about what would make the card more robust against LLM training defaults, what patterns could be reinforced, what instructions could be clearer. Each enhancement must include:
+    - "suggestion": what the enhancement does
+    - "location": which card field to edit
+    - "placement": EXACTLY where in that field (same rules as fixes.placement — quote nearby existing text)
+    - "suggested_text": the actual ready-to-paste text the card author should insert — NOT a description of what to write, but the actual text itself, written in the card's voice and style
+    - "rationale": why this enhancement helps
+    If no enhancements needed, return empty array."""
 
 
 def get_first_mes(card: dict, user_name: str = "User") -> Optional[str]:
@@ -824,7 +831,7 @@ Return a JSON object with this structure:
     {{"priority": 1, "fix": "specific actionable fix with exact wording", "field": "which field to edit", "location": "exact section within the field", "placement": "exactly where in the field — quote nearby text or name the section", "action": "add/replace/append", "suggested_text": "ready-to-paste text", "issue": "what problem this fix addresses"}}
   ],
   "enhancement_suggestions": [
-    {{"suggestion": "how to improve the card proactively", "field": "which field to edit", "placement": "exactly where in the field", "rationale": "why this helps"}}
+    {{"suggestion": "how to improve the card proactively", "field": "which field to edit", "placement": "exactly where in the field", "suggested_text": "ready-to-paste text", "rationale": "why this helps"}}
   ],
   "retest_recommendation": "should they retest? which areas?"
 }}
