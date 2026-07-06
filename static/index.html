@@ -259,6 +259,8 @@ body.rp-mode .school-only { display:none; }
 .school-session-item .del-btn:hover { color:var(--red); }
 .school-session-item .branch-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
 .school-session-item .branch-btn:hover { color:var(--green); }
+.school-session-item .move-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
+.school-session-item .move-btn:hover { color:var(--blue); }
 
 
 /* RP Center Panel */
@@ -3189,6 +3191,7 @@ async function loadSchoolSessions() {
       const styleTag = s.response_style ? ' · ' + (rpStyleLabels[s.response_style] || 'Brief') : '';
       return `<div class="school-session-item${active}" data-session-id="${s.id}" onclick="resumeSchoolSession(${s.id})">
         <span class="del-btn" onclick="event.stopPropagation(); deleteSchoolSession(${s.id})">✕</span>
+        <span class="move-btn" onclick="event.stopPropagation(); moveSchoolToRP(${s.id})" title="Move to RP">→</span>
         <span class="branch-btn" onclick="event.stopPropagation(); branchSchoolSession(${s.id})" title="Branch this session">🌿</span>
         <div class="title">${escapeHtml(s.title || 'Untitled')}</div>
         <div class="meta">${date}${personaTag}${styleTag}</div>
@@ -3277,6 +3280,21 @@ async function branchSchoolSession(sessionId) {
     }
   } catch (e) {
     alert('Failed to branch: ' + e.message);
+  }
+}
+
+async function moveSchoolToRP(sessionId) {
+  if (!confirm('Move this school session to RP mode? This creates a new RP session with the same character, persona, and message history. The school session is NOT deleted.')) return;
+  try {
+    const resp = await fetch('/api/school/sessions/' + sessionId + '/move-to-rp', {method: 'POST'});
+    const result = await resp.json();
+    if (result.error) { alert(result.error); return; }
+    await loadRPSessions();
+    // Switch to RP tab and resume the new session
+    switchMode('rp');
+    resumeRPSession(result.rp_session_id);
+  } catch (e) {
+    alert('Failed to move: ' + e.message);
   }
 }
 

@@ -1062,3 +1062,66 @@ def db_school_set_persona(session_id: int, persona_filename: str) -> None:
 
 
 # ─── App ──────────────────────────────────────────────────────────
+
+def db_school_to_rp(session_id: int) -> Optional[int]:
+    """Convert a school session to an RP session (one-way).
+    Copies card as single character, all messages (stripping analysis),
+    stack_config, console_events, persona, and response_style.
+    Returns new RP session ID or None on failure."""
+    sess = db_school_get_session(session_id)
+    if not sess:
+        return None
+
+    # Load card to get character name
+    card_path = CHARACTERS_DIR / sess['card_filename']
+    if not card_path.exists():
+        return None
+    try:
+        card = json.loads(card_path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+    d = card.get('data', card)
+    char_name = d.get('name', Path(sess['card_filename']).stem)
+
+    # Get response_style from school session
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute(
+        "SELECT response_style FROM school_sessions WHERE id = ?", (session_id,)
+    ).fetchone()
+    response_style = row[0] if row and row[0] else 'brief'
+
+    # Get messages
+    msgs = db_school_get_messages(session_id)
+
+    # Create RP session
+    title = sess.get('title', char_name)
+    cur = conn.execute(
+        """INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style,
+           summary_window, raw_window, stack_config, console_events)
+           VALUES (?, ?, 'auto', ?, 20, 10, ?, ?)""",
+        (title, sess.get('persona_filename'), response_style,
+         sess.get('stack_config'), sess.get('console_events')),
+    )
+    rp_sid = cur.lastrowid
+
+    # Add single character
+    conn.execute(
+        "INSERT INTO rp_characters (session_id, card_filename, char_name, display_order) VALUES (?, ?, ?, 0)",
+        (rp_sid, sess['card_filename'], char_name),
+    )
+
+    # Copy messages — map assistant→character, strip analysis_json
+    for m in msgs:
+        role = m['role']
+        speaker = None
+        if role == 'assistant':
+            role = 'character'
+            speaker = char_name
+        conn.execute(
+            "INSERT INTO rp_messages (session_id, seq, role, speaker, content) VALUES (?, ?, ?, ?, ?)",
+            (rp_sid, m['seq'], role, speaker, m['content']),
+        )
+
+    conn.commit()
+    conn.close()
+    return rp_sid
