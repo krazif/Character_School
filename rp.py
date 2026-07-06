@@ -2,6 +2,7 @@
 Character School — RP mode routes + WebSocket + config API.
 Split from server.py.
 """
+import asyncio
 import json
 import os
 import sqlite3
@@ -612,4 +613,3 @@ async def check_auto_summary(session_id, ws):
     })
 
     return stack_cfg
-
