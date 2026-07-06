@@ -776,16 +776,6 @@ body.rp-mode .school-only { display:none; }
           </div>
         </div>
       </div>
-      <div class="rp-setup-row">
-        <div class="rp-setup-section">
-          <label>Summarize after N messages</label>
-          <input type="number" id="rpSummaryWindow" class="rp-num-input" value="20" min="5" max="100" />
-        </div>
-        <div class="rp-setup-section">
-          <label>Keep N recent messages raw</label>
-          <input type="number" id="rpRawWindow" class="rp-num-input" value="10" min="2" max="50" />
-        </div>
-      </div>
     </div>
   </div>
 </div>
@@ -2554,8 +2544,6 @@ const rpStyleLabels = {terse:'Snappy', brief:'Brief', full:'Full'};
 const rpStyleOrder = ['terse','brief','full'];
 const rpStyleTokens = {terse:'~20-40', brief:'~40-80', full:'~80-150'};
 let schoolResponseStyle = 'brief';
-let rpSummaryWindow = 20;
-let rpRawWindow = 10;
 let rpStackConfig = null;
 let stackDragSrc = null;
 let rpIsWaiting = false;
@@ -2609,8 +2597,6 @@ async function openRPSetup() {
   // Reset toggles
   rpToggleSetting('turn', 'auto');
   rpToggleSetting('style', 'brief');
-  document.getElementById('rpSummaryWindow').value = 20;
-  document.getElementById('rpRawWindow').value = 10;
   // Populate persona select
   populateRPPersonaSelect();
   document.getElementById('rpSetupOverlay').classList.add('show');
@@ -2662,8 +2648,6 @@ function rpToggleSetting(group, value) {
 
 function startRPSession() {
   const persona = document.getElementById('rpPersonaSelect').value || null;
-  const summaryWindow = parseInt(document.getElementById('rpSummaryWindow').value) || 20;
-  const rawWindow = parseInt(document.getElementById('rpRawWindow').value) || 10;
 
   closeRPSetup();
   connectRPWS({
@@ -2671,8 +2655,6 @@ function startRPSession() {
     persona_filename: persona,
     turn_routing: rpSetupTurn,
     response_style: rpSetupStyle,
-    summary_window: summaryWindow,
-    raw_window: rawWindow,
   });
 }
 
@@ -2733,8 +2715,6 @@ function handleRPMessage(data) {
     rpPersonaFilename = data.persona;
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
-    rpSummaryWindow = data.summary_window;
-    rpRawWindow = data.raw_window;
     rpStackConfig = data.stack_config || null;
     // Clear summary bar from any previous session
     const oldSummaryBar = document.getElementById('rpSummaryBar');
@@ -2764,10 +2744,6 @@ function handleRPMessage(data) {
         }
       });
     }
-    // Restore summary bar if this session has a summary
-    if (data.summary_text) {
-      showRPSummaryBar(data.summary_text, data.messages ? data.messages.length : 0);
-    }
     document.getElementById('rpInputArea').style.display = 'flex';
     rpIsWaiting = false;
     updateRPInputState();
@@ -2794,8 +2770,6 @@ function handleRPMessage(data) {
   } else if (data.type === 'settings_updated') {
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
-    rpSummaryWindow = data.summary_window;
-    rpRawWindow = data.raw_window;
     renderRPSceneBar();
   } else if (data.type === 'stack_updated') {
     rpStackConfig = data.stack_config;

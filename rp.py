@@ -56,8 +56,6 @@ async def ws_rp(ws: WebSocket):
     persona_filename = None
     turn_routing = 'auto'
     response_style = 'brief'
-    summary_window = 20
-    raw_window = 10
     current_gen_task = None  # background generation task (for stop support)
 
     try:
@@ -83,8 +81,6 @@ async def ws_rp(ws: WebSocket):
                 persona_filename = data.get("persona_filename")
                 turn_routing = data.get("turn_routing", "auto")
                 response_style = data.get("response_style", "brief")
-                summary_window = data.get("summary_window", 20)
-                raw_window = data.get("raw_window", 10)
 
                 cards = {}
                 character_names = {}
@@ -118,7 +114,7 @@ async def ws_rp(ws: WebSocket):
                 stack_config_json = data.get("stack_config")
                 stack_config_str = json.dumps(stack_config_json) if stack_config_json else None
 
-                session_id = db.db_rp_create_session(char_list, persona_filename, turn_routing, response_style, summary_window, raw_window, stack_config_str)
+                session_id = db.db_rp_create_session(char_list, persona_filename, turn_routing, response_style, stack_config_str)
 
                 await ws.send_json({
                     "type": "session_started", "session_id": session_id,
@@ -151,8 +147,6 @@ async def ws_rp(ws: WebSocket):
                 session_id = resume_id
                 turn_routing = sess["turn_routing"]
                 response_style = sess["response_style"]
-                summary_window = sess["summary_window"]
-                raw_window = sess["raw_window"]
                 persona_filename = sess["persona_filename"]
 
                 cards = {}
@@ -184,8 +178,6 @@ async def ws_rp(ws: WebSocket):
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
                     "turn_routing": turn_routing, "response_style": response_style,
-                    "summary_window": summary_window, "raw_window": raw_window,
-                    "summary_text": sess.get("summary_text", ""),
                     "stack_config": stack_cfg,
                     "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"]} for m in messages],
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
@@ -206,29 +198,6 @@ async def ws_rp(ws: WebSocket):
                         sess = db.db_rp_get_session(session_id)
                         stack_cfg = db.get_stack_config(sess)
 
-                        # Determine head_n and tail_n from stack
-                        head_n = 0
-                        tail_n = 0
-                        for blk in stack_cfg.get("blocks", []):
-                            if blk.get("type") == "head" and blk.get("enabled", True):
-                                head_n = blk.get("n", 2)
-                            elif blk.get("type") == "tail" and blk.get("enabled", True):
-                                tail_n = blk.get("n", 3)
-
-                        # Check if summarization needed (middle section between head and tail)
-                        msg_count = db.db_rp_count_messages(session_id)
-                        all_msgs = db.db_rp_get_messages(session_id)
-                        if msg_count > head_n + summary_window + tail_n:
-                            end_idx = len(all_msgs) - tail_n if tail_n > 0 else len(all_msgs)
-                            to_summarize = all_msgs[head_n:end_idx] if head_n < end_idx else []
-                            if to_summarize:
-                                existing_summary = sess.get("summary_text", "") if sess else ""
-                                new_summary = await engine.rp_summarize(session_id, to_summarize, existing_summary, ws=ws)
-                                db.db_rp_update_summary(session_id, new_summary)
-                                await ws.send_json({"type": "summary_updated", "summary": new_summary, "summarized_count": len(to_summarize)})
-                                # Refresh session to get updated summary
-                                sess = db.db_rp_get_session(session_id)
-
                         # Build system prompt
                         system_prompt = engine.build_rp_system_prompt(
                             [cards[fn] for fn in character_order],
@@ -237,10 +206,9 @@ async def ws_rp(ws: WebSocket):
                         )
 
                         # Build LLM messages from stack config
-                        summary_text = sess.get("summary_text", "") if sess else ""
                         all_msgs = db.db_rp_get_messages(session_id)
                         llm_messages, block_markers = db.build_llm_messages_from_stack(
-                            stack_cfg, system_prompt, all_msgs, summary_text,
+                            stack_cfg, system_prompt, all_msgs,
                         )
 
                         # Typing indicator
@@ -331,10 +299,8 @@ async def ws_rp(ws: WebSocket):
                 if session_id:
                     turn_routing = data.get("turn_routing", turn_routing)
                     response_style = data.get("response_style", response_style)
-                    summary_window = data.get("summary_window", summary_window)
-                    raw_window = data.get("raw_window", raw_window)
-                    db.db_rp_update_settings(session_id, turn_routing, response_style, summary_window, raw_window)
-                    await ws.send_json({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "summary_window": summary_window, "raw_window": raw_window})
+                    db.db_rp_update_settings(session_id, turn_routing, response_style)
+                    await ws.send_json({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style})
 
             elif data["type"] == "update_stack":
                 if session_id:

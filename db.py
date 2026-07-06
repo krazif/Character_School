@@ -254,9 +254,8 @@ def init_db():
             persona_filename TEXT,
             turn_routing    TEXT DEFAULT 'auto',
             response_style  TEXT DEFAULT 'brief',
-            summary_window  INTEGER DEFAULT 20,
-            raw_window      INTEGER DEFAULT 10,
-            summary_text    TEXT DEFAULT '',
+            stack_config    TEXT,
+            console_events  TEXT,
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
         )
@@ -471,7 +470,7 @@ def get_stack_config(sess: dict) -> dict:
 
 
 def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
-                                  all_msgs: list[dict], summary_text: str):
+                                  all_msgs: list[dict]):
     """Build LLM messages from stack block configuration.
     Returns (llm_messages, block_markers) where block_markers is a list of
     {"block": type, "label": str, "start": int, "count": int}.
@@ -548,10 +547,7 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
                 block_markers.append({"block": btype, "label": label, "start": s, "count": c})
 
         elif btype == "summary_chunk":
-            # Use block's own text, fall back to legacy summary_text
             text = block.get("text", "").strip()
-            if not text and summary_text:
-                text = summary_text.strip()
             if text:
                 start = len(llm_messages)
                 llm_messages.append({"role": "system", "content": f"SCENE SUMMARY:\n{text}"})
@@ -589,12 +585,11 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
 # ─── RP Database Functions ────────────────────────────────────────
 def db_rp_create_session(characters: list[dict], persona_filename: str,
                          turn_routing: str, response_style: str,
-                         summary_window: int, raw_window: int,
                          stack_config: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     cur = conn.execute(
-        "INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style, summary_window, raw_window, stack_config) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (', '.join(c['name'] for c in characters), persona_filename, turn_routing, response_style, summary_window, raw_window, stack_config),
+        "INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style, stack_config) VALUES (?, ?, ?, ?, ?)",
+        (', '.join(c['name'] for c in characters), persona_filename, turn_routing, response_style, stack_config),
     )
     sid = cur.lastrowid
     for i, c in enumerate(characters):
@@ -635,7 +630,7 @@ def db_rp_get_messages(session_id: int) -> list[dict]:
 def db_rp_get_session(session_id: int) -> Optional[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute(
-        "SELECT id, title, persona_filename, turn_routing, response_style, summary_window, raw_window, summary_text, stack_config, console_events FROM rp_sessions WHERE id = ?",
+        "SELECT id, title, persona_filename, turn_routing, response_style, stack_config, console_events FROM rp_sessions WHERE id = ?",
         (session_id,),
     ).fetchone()
     if not row:
@@ -649,9 +644,8 @@ def db_rp_get_session(session_id: int) -> Optional[dict]:
     return {
         "id": row[0], "title": row[1], "persona_filename": row[2],
         "turn_routing": row[3], "response_style": row[4],
-        "summary_window": row[5], "raw_window": row[6], "summary_text": row[7],
-        "stack_config": row[8] if len(row) > 8 else None,
-        "console_events": row[9] if len(row) > 9 else None,
+        "stack_config": row[5] if len(row) > 5 else None,
+        "console_events": row[6] if len(row) > 6 else None,
         "characters": [{"card_filename": c[0], "char_name": c[1], "display_order": c[2]} for c in chars],
     }
 
@@ -700,11 +694,8 @@ def db_rp_delete_message(session_id: int, message_id: int) -> bool:
     return True
 
 
-def db_rp_update_summary(session_id: int, summary_text: str) -> None:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("UPDATE rp_sessions SET summary_text = ?, updated_at = datetime('now') WHERE id = ?", (summary_text, session_id))
-    conn.commit()
-    conn.close()
+
+
 
 
 def db_rp_count_messages(session_id: int) -> int:
@@ -715,8 +706,7 @@ def db_rp_count_messages(session_id: int) -> int:
 
 
 def db_rp_update_settings(session_id: int, turn_routing: str = None, response_style: str = None,
-                          summary_window: int = None, raw_window: int = None,
-                          stack_config: str = None) -> None:
+                           stack_config: str = None) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     updates = []
     params = []
@@ -726,12 +716,6 @@ def db_rp_update_settings(session_id: int, turn_routing: str = None, response_st
     if response_style is not None:
         updates.append("response_style = ?")
         params.append(response_style)
-    if summary_window is not None:
-        updates.append("summary_window = ?")
-        params.append(summary_window)
-    if raw_window is not None:
-        updates.append("raw_window = ?")
-        params.append(raw_window)
     if stack_config is not None:
         updates.append("stack_config = ?")
         params.append(stack_config)
@@ -831,11 +815,10 @@ def db_rp_branch_session(session_id: int) -> Optional[dict]:
     branch_title = sess['title'] + ' (branch)' if sess['title'] else 'Untitled (branch)'
     cur = conn.execute(
         """INSERT INTO rp_sessions
-           (title, persona_filename, turn_routing, response_style, summary_window, raw_window,
-            summary_text, stack_config, console_events)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (title, persona_filename, turn_routing, response_style,
+             stack_config, console_events)
+           VALUES (?, ?, ?, ?, ?, ?)""",
         (branch_title, sess['persona_filename'], sess['turn_routing'], sess['response_style'],
-         sess['summary_window'], sess['raw_window'], sess.get('summary_text', ''),
          sess.get('stack_config'), sess.get('console_events')),
     )
     new_sid = cur.lastrowid
@@ -1105,8 +1088,8 @@ def db_school_to_rp(session_id: int) -> Optional[int]:
     title = sess.get('title', char_name)
     cur = conn.execute(
         """INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style,
-           summary_window, raw_window, stack_config, console_events)
-           VALUES (?, ?, 'auto', ?, 20, 10, ?, ?)""",
+           stack_config, console_events)
+           VALUES (?, ?, 'auto', ?, ?, ?)""",
         (title, sess.get('persona_filename'), response_style,
          sess.get('stack_config'), sess.get('console_events')),
     )

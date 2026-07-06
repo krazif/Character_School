@@ -714,7 +714,7 @@ async def ws_chat(ws: WebSocket):
                         all_msgs = db.db_school_get_messages(session_id)
                         # Stack builder expects 0-indexed list; school messages are seq-ordered
                         llm_messages, block_markers = db.build_llm_messages_from_stack(
-                            stack_cfg, system_prompt, all_msgs, ""
+                            stack_cfg, system_prompt, all_msgs,
                         )
 
                         # ── Notify frontend: character is responding ──
