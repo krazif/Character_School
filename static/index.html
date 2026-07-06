@@ -394,6 +394,11 @@ body.rp-mode .school-only { display:none; }
 .block-text-inline.custom-text { padding:0; background:none; max-height:none; }
 .block-custom-ta { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text); padding:6px 8px; font-size:12px; font-family:inherit; resize:vertical; box-sizing:border-box; }
 .block-custom-ta:focus { outline:none; border-color:var(--accent); }
+.block-token-info { font-size:10px; color:var(--text-dim); margin-top:4px; display:flex; gap:6px; align-items:baseline; flex-wrap:wrap; }
+.tok-before { color:var(--text-dim); }
+.tok-after { color:#4caf50; font-weight:600; }
+.tok-saved { color:#4caf50; font-size:9px; }
+.tok-unsaved { color:#f44336; font-size:9px; }
 .stack-add-row { display:flex; gap:6px; margin-bottom:12px; }
 .btn-add-block { font-size:11px; padding:6px 12px; background:var(--surface2); border:1px dashed var(--border); border-radius:6px; color:var(--accent); cursor:pointer; }
 .btn-add-block:hover { border-color:var(--accent); background:rgba(88,166,255,0.05); }
@@ -1139,6 +1144,72 @@ function estimateTokens(messages) {
     total += Math.ceil(content.length / 4) + 4;
   }
   return total;
+}
+
+function getSessionMessages() {
+  // Extract messages from DOM for the active session
+  const container = activeStackMode === 'rp'
+    ? document.getElementById('rpChatMessages')
+    : document.getElementById('chatMessages');
+  if (!container) return [];
+  const msgs = [];
+  container.querySelectorAll(activeStackMode === 'rp' ? '.rp-msg' : '.message').forEach(el => {
+    // Get raw text (strip speaker labels, badges, numbers)
+    let text = el.textContent || '';
+    // RP messages have speaker prefix like "SpeakerName0text..." — trim the leading number
+    // The msg-number badge is at the end of speaker line; strip it
+    const numSpan = el.querySelector('.msg-number');
+    if (numSpan) {
+      const numText = numSpan.textContent;
+      const idx = text.indexOf(numText);
+      if (idx >= 0) text = text.substring(0, idx) + text.substring(idx + numText.length);
+    }
+    // Also strip role-label / analysis badge
+    const badge = el.querySelector('.analysis-badge');
+    if (badge) text = text.replace(badge.textContent, '');
+    text = text.trim();
+    if (text) msgs.push({ content: text });
+  });
+  return msgs;
+}
+
+function estimateBlockTokens(block, allMsgs) {
+  const btype = block.type;
+  if (btype === 'system' || btype === 'custom') {
+    const text = block.text || '';
+    return { summary: text ? Math.ceil(text.length / 4) + 4 : 0, raw: 0 };
+  }
+  if (btype === 'summary_chunk') {
+    const summaryTok = block.text ? Math.ceil(block.text.length / 4) + 4 : 0;
+    const start = block.start ?? 0;
+    const end = block.end ?? 0;
+    const rawMsgs = allMsgs.slice(start, end);
+    const rawTok = estimateTokens(rawMsgs);
+    return { summary: summaryTok, raw: rawTok };
+  }
+  if (btype === 'head') {
+    const n = block.n ?? 2;
+    const rawMsgs = allMsgs.slice(0, n);
+    return { summary: 0, raw: estimateTokens(rawMsgs) };
+  }
+  if (btype === 'raw_mid') {
+    const start = block.start ?? 0;
+    const end = block.end ?? 0;
+    const rawMsgs = allMsgs.slice(start, end);
+    return { summary: 0, raw: estimateTokens(rawMsgs) };
+  }
+  if (btype === 'tail') {
+    const n = block.n ?? 3;
+    const rawMsgs = allMsgs.slice(-n);
+    return { summary: 0, raw: estimateTokens(rawMsgs) };
+  }
+  return { summary: 0, raw: 0 };
+}
+
+function formatTokens(n) {
+  if (n === 0) return '0';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return String(n);
 }
 
 function addConsoleEntry(data) {
@@ -3520,6 +3591,31 @@ function renderStackBlocks() {
     }
 
     div.innerHTML = inner;
+
+    // ── Token display ──
+    if (enabled && (def.hasRange || def.hasN || isSummaryChunk || isCustom || block.type === 'system')) {
+      const allMsgs = getSessionMessages();
+      const tok = estimateBlockTokens(block, allMsgs);
+      const tokDiv = document.createElement('div');
+      tokDiv.className = 'block-token-info';
+      if (isSummaryChunk) {
+        if (tok.summary > 0 && tok.raw > 0) {
+          const saved = Math.round((1 - tok.summary / tok.raw) * 100);
+          tokDiv.innerHTML = `<span class="tok-before">${formatTokens(tok.raw)} →</span> <span class="tok-after">${formatTokens(tok.summary)}</span> <span class="tok-saved">(−${saved}%)</span>`;
+        } else if (tok.summary > 0) {
+          tokDiv.innerHTML = `<span class="tok-after">${formatTokens(tok.summary)}</span> summarised`;
+        } else if (tok.raw > 0) {
+          tokDiv.innerHTML = `<span class="tok-before">${formatTokens(tok.raw)} raw</span> <span class="tok-unsaved">(not summarised)</span>`;
+        }
+      } else if (tok.raw > 0) {
+        tokDiv.innerHTML = `<span class="tok-before">≈ ${formatTokens(tok.raw)} tokens</span>`;
+      } else if (tok.summary > 0) {
+        tokDiv.innerHTML = `<span class="tok-before">≈ ${formatTokens(tok.summary)} tokens</span>`;
+      }
+      if ((tok.summary > 0 || tok.raw > 0) || isSummaryChunk) {
+        div.appendChild(tokDiv);
+      }
+    }
 
     // ── Inline text content for summary_chunk and custom ──
     if (isSummaryChunk && block.text) {
