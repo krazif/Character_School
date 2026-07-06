@@ -352,7 +352,8 @@ async def ws_rp(ws: WebSocket):
                     blocks = stack_cfg.get("blocks", [])
                     if block_index is not None and 0 <= block_index < len(blocks):
                         block = blocks[block_index]
-                        if block.get("type") in ("early_summary", "late_summary"):
+                        # Accept summary_chunk and legacy types
+                        if block.get("type") in ("summary_chunk", "early_summary", "late_summary", "summary"):
                             start_idx = block.get("start", 0)
                             end_idx = block.get("end", 0)
                             all_msgs = db.db_rp_get_messages(session_id)
@@ -364,6 +365,9 @@ async def ws_rp(ws: WebSocket):
                                 await ws.send_json({"type": "block_summarizing", "block_index": block_index})
                                 new_summary = await engine.rp_summarize(session_id, to_summarize, existing, ws=ws)
                                 block["text"] = new_summary
+                                # Normalize type
+                                if block.get("type") in ("early_summary", "late_summary", "summary"):
+                                    block["type"] = "summary_chunk"
                                 stack_cfg["blocks"] = blocks
                                 db.db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
                                 await ws.send_json({
@@ -557,56 +561,76 @@ async def reset_database():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 async def check_auto_summary(session_id, ws):
-    """Check if late_summary block has auto enabled and tail has grown enough to trigger.
+    """Chunked incremental auto-summarize (option B).
+    Finds the last summary_chunk with auto=true (the "anchor").
+    When enough new messages accumulate past its end, summarizes ONLY
+    the new batch (tail_n messages) — never re-processes old chunks.
+    Creates a NEW summary_chunk after the anchor for each batch.
     Returns updated stack_cfg if summarization happened, else None."""
     sess = db.db_rp_get_session(session_id)
     stack_cfg = db.get_stack_config(sess)
     blocks = stack_cfg.get("blocks", [])
 
-    # Find late_summary block with auto enabled
-    late_block = None
-    late_idx = None
+    # Normalize legacy types to summary_chunk
+    for blk in blocks:
+        if blk.get("type") in ("early_summary", "late_summary", "summary"):
+            blk["type"] = "summary_chunk"
+
+    # Find last summary_chunk with auto enabled (the anchor)
+    anchor_idx = None
+    anchor_block = None
     tail_n = 0
     for i, blk in enumerate(blocks):
-        if blk.get("type") == "late_summary" and blk.get("enabled", True) and blk.get("auto"):
-            late_block = blk
-            late_idx = i
+        if blk.get("type") == "summary_chunk" and blk.get("enabled", True) and blk.get("auto"):
+            anchor_idx = i
+            anchor_block = blk
         elif blk.get("type") == "tail" and blk.get("enabled", True):
             tail_n = blk.get("n", 3)
 
-    if late_block is None or tail_n <= 0:
+    if anchor_block is None or tail_n <= 0:
         return None
 
     all_msgs = db.db_rp_get_messages(session_id)
     total_msgs = len(all_msgs)
-    end_idx = late_block.get("end", 0)
+    anchor_end = anchor_block.get("end", 0)
 
-    # Count messages from end_idx to latest
-    tail_count = total_msgs - end_idx
-    if tail_count < tail_n:
+    # How many unsummarized messages exist past the anchor?
+    unsummarized = total_msgs - anchor_end
+    if unsummarized < tail_n:
         return None
 
-    # Advance end by tail_n and summarize [start, new_end]
-    start_idx = max(0, late_block.get("start", 0))
-    new_end = end_idx + tail_n
-    new_end = min(new_end, total_msgs)
-
-    to_summarize = all_msgs[start_idx:new_end]
-    if not to_summarize:
+    # Summarize ONLY the next batch — bounded input!
+    batch_start = anchor_end
+    batch_end = min(anchor_end + tail_n, total_msgs)
+    batch_msgs = all_msgs[batch_start:batch_end]
+    if not batch_msgs:
         return None
 
-    existing = late_block.get("text", "")
-    await ws.send_json({"type": "block_summarizing", "block_index": late_idx, "auto": True})
-    new_summary = await engine.rp_summarize(session_id, to_summarize, existing, ws=ws)
+    await ws.send_json({"type": "block_summarizing", "block_index": anchor_idx, "auto": True})
+    # No existing summary to incorporate — each chunk is standalone
+    new_summary = await engine.rp_summarize(session_id, batch_msgs, "", ws=ws)
 
-    late_block["text"] = new_summary
-    late_block["end"] = new_end
+    # Create a new summary_chunk right after the anchor
+    new_chunk = {
+        "type": "summary_chunk",
+        "enabled": True,
+        "start": batch_start,
+        "end": batch_end,
+        "text": new_summary,
+        "auto": False,  # only the anchor has auto
+    }
+    insert_at = anchor_idx + 1
+    blocks.insert(insert_at, new_chunk)
+
+    # Advance the anchor's end boundary
+    anchor_block["end"] = batch_end
+
     stack_cfg["blocks"] = blocks
     db.db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
 
     await ws.send_json({
-        "type": "block_summary_updated",
-        "block_index": late_idx,
+        "type": "chunk_added",
+        "chunk_index": insert_at,
         "summary": new_summary,
         "stack_config": stack_cfg,
         "auto": True,

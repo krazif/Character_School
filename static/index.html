@@ -386,6 +386,17 @@ body.rp-mode .school-only { display:none; }
 .stack-block .block-summarize-btn:hover { border-color:var(--accent); }
 .stack-block .block-summarize-btn.has-text { color:#4caf50; border-color:rgba(76,175,80,0.3); }
 .stack-block .block-summarize-btn.summarizing { opacity:0.5; pointer-events:none; }
+.stack-block .block-delete-btn { font-size:14px; color:var(--text-dim); cursor:pointer; padding:2px 6px; border-radius:4px; flex-shrink:0; visibility:hidden; }
+.stack-block:hover .block-delete-btn { visibility:visible; }
+.stack-block .block-delete-btn:hover { color:#f44336; background:rgba(244,67,54,0.1); }
+.block-text-inline { margin-top:6px; padding:6px 8px; background:var(--bg); border-radius:4px; font-size:11px; color:var(--text-dim); max-height:60px; overflow:hidden; line-height:1.4; width:100%; box-sizing:border-box; }
+.block-text-inline.summary-text { border-left:3px solid var(--accent); }
+.block-text-inline.custom-text { padding:0; background:none; max-height:none; }
+.block-custom-ta { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text); padding:6px 8px; font-size:12px; font-family:inherit; resize:vertical; box-sizing:border-box; }
+.block-custom-ta:focus { outline:none; border-color:var(--accent); }
+.stack-add-row { display:flex; gap:6px; margin-bottom:12px; }
+.btn-add-block { font-size:11px; padding:6px 12px; background:var(--surface2); border:1px dashed var(--border); border-radius:6px; color:var(--accent); cursor:pointer; }
+.btn-add-block:hover { border-color:var(--accent); background:rgba(88,166,255,0.05); }
 .stack-block .block-custom-btn { font-size:11px; color:var(--accent); cursor:pointer; padding:2px 8px; border:1px solid var(--border); border-radius:4px; }
 .stack-block .block-custom-btn:hover { border-color:var(--accent); }
 .stack-block .block-auto-wrap { display:flex; align-items:center; gap:3px; font-size:10px; color:var(--text-dim); cursor:pointer; padding:2px 6px; border:1px solid var(--border); border-radius:4px; margin-left:4px; white-space:nowrap; user-select:none; }
@@ -841,9 +852,12 @@ body.rp-mode .school-only { display:none; }
       <button class="btn-reset" onclick="closeStackBuilder()">Close</button>
     </div>
     <div class="stack-body">
-      <div class="stack-info">The order below is the order the LLM receives. Drag blocks to reorder. Toggle off to skip a block.</div>
+      <div class="stack-info">The order below is the order the LLM receives. Drag blocks to reorder. Toggle off to skip a block. Summary Chunks are engine-generated (read-only). Custom Inject blocks are free text.</div>
+      <div class="stack-add-row">
+        <button class="btn-add-block" onclick="addStackBlock('summary_chunk')">+ Summary Chunk</button>
+        <button class="btn-add-block" onclick="addStackBlock('custom')">+ Custom Inject</button>
+      </div>
       <div class="stack-list" id="stackBlockList"></div>
-      <textarea class="stack-custom-textarea" id="stackCustomText" placeholder="Custom system message — injected into the prompt at the Custom block position..."></textarea>
     </div>
     <div class="stack-footer">
       <button class="btn-reset" onclick="resetStackConfig()">Reset to Default</button>
@@ -1680,7 +1694,6 @@ function connectWS(filename, personaFilename, resumeSessionId) {
         if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
       }
       summarizingBlockIdx = null;
-      // Update stack builder modal if open
       const overlay = document.getElementById('stackOverlay');
       if (overlay && overlay.classList.contains('show')) {
         renderStackBlocks();
@@ -1688,6 +1701,16 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.text) {
         const btn = document.querySelector(`.stack-block[data-idx="${data.block_index}"] .block-summarize-btn`);
         if (btn) { btn.classList.add('has-text'); }
+      }
+    } else if (data.type === 'chunk_added') {
+      // Auto-summary created a new chunk (school mode)
+      if (data.stack_config) {
+        schoolStackConfig = data.stack_config;
+        if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
+      }
+      const overlay = document.getElementById('stackOverlay');
+      if (overlay && overlay.classList.contains('show')) {
+        renderStackBlocks();
       }
     } else if (data.type === 'persona_updated') {
       // Persona changed on current session (no new session created)
@@ -2718,6 +2741,15 @@ function handleRPMessage(data) {
       const btn = document.querySelector(`.stack-block[data-idx="${data.block_index}"] .block-summarize-btn`);
       if (btn) { btn.classList.add('has-text'); }
     }
+  } else if (data.type === 'chunk_added') {
+    // Auto-summary created a new summary_chunk
+    if (data.stack_config) rpStackConfig = data.stack_config;
+    if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
+    summarizingBlockIdx = null;
+    renderStackBlocks();
+    if (data.summary) {
+      addConsoleEvent('auto-sum', `Auto-summarized msgs ${data.chunk_index ? '→ chunk #' + data.chunk_index : ''}: ${data.summary.substring(0, 80)}...`);
+    }
   } else if (data.type === 'persona_changed') {
     rpPersonaFilename = data.persona;
     renderRPSceneBar();
@@ -3359,30 +3391,54 @@ function removeRPChar(filename) {
 const STACK_BLOCK_DEFS = {
   system:         { icon: '⚙️', label: 'System Prompt',  desc: 'Character cards + persona + routing', locked: true },
   head:           { icon: '📌', label: 'Head Messages',   desc: 'First N messages kept raw (sets the scene)', hasN: true },
-  early_summary:  { icon: '📝', label: 'Early Summary',   desc: 'Summarized range — click button to generate', hasRange: true, hasSummarize: true },
+  summary_chunk:  { icon: '📝', label: 'Summary Chunk',   desc: 'Engine-summarized msg range — read-only', hasRange: true, hasSummarize: true, hasAuto: true },
   raw_mid:        { icon: '📄', label: 'Raw Mid',         desc: 'Raw messages in a range — kept verbatim', hasRange: true },
-  late_summary:   { icon: '📋', label: 'Late Summary',    desc: 'Summarized range — click button to generate', hasRange: true, hasSummarize: true, hasAuto: true },
   custom:         { icon: '✏️', label: 'Custom Inject',   desc: 'Your own system message — free text', hasText: true },
   tail:           { icon: '⏩', label: 'Raw Tail',        desc: 'Last N messages kept raw (recent context)', hasN: true },
-  // backward compat
-  summary:        { icon: '📝', label: 'Scene Summary',   desc: 'Compressed middle section', hasRange: true, hasSummarize: true },
+  // backward compat (normalized to summary_chunk on load)
+  early_summary:  { icon: '📝', label: 'Summary Chunk (legacy)', desc: 'Summarized range', hasRange: true, hasSummarize: true },
+  late_summary:   { icon: '📝', label: 'Summary Chunk (legacy)', desc: 'Summarized range', hasRange: true, hasSummarize: true },
+  summary:        { icon: '📝', label: 'Summary Chunk (legacy)', desc: 'Summarized range', hasRange: true, hasSummarize: true },
 };
 
 function getDefaultStackConfig() {
   return { blocks: [
     { type: 'system',        enabled: true, locked: true },
     { type: 'head',          enabled: true, n: 2 },
-    { type: 'early_summary', enabled: true, start: 2, end: 5, text: '' },
-    { type: 'raw_mid',       enabled: true, start: 2, end: 5 },
-    { type: 'late_summary',  enabled: true, start: 5, end: 8, text: '' },
+    { type: 'summary_chunk', enabled: true, start: 2, end: 5, text: '' },
+    { type: 'raw_mid',       enabled: true, start: 5, end: 8 },
+    { type: 'summary_chunk', enabled: true, start: 8, end: 11, text: '', auto: false },
     { type: 'custom',        enabled: false, text: '' },
     { type: 'tail',          enabled: true, n: 3 },
   ]};
 }
 
+function normalizeStackTypes(blocks) {
+  for (const b of blocks) {
+    if (b.type === 'early_summary' || b.type === 'late_summary' || b.type === 'summary') {
+      b.type = 'summary_chunk';
+    }
+    // Remove legacy auto from all but the last summary_chunk
+  }
+  // Ensure only the LAST summary_chunk keeps auto=true
+  let lastAuto = null;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].type === 'summary_chunk') {
+      if (lastAuto === null) {
+        lastAuto = i;
+        blocks[i].auto = !!blocks[i].auto;
+      } else {
+        blocks[i].auto = false;
+      }
+    }
+  }
+  return blocks;
+}
+
 function openStackBuilder() {
   if (!rpActiveSessionId) { alert('Start or resume an RP session first.'); return; }
   if (!rpStackConfig) rpStackConfig = getDefaultStackConfig();
+  normalizeStackTypes(rpStackConfig.blocks);
   activeStackConfig = rpStackConfig;
   activeStackWS = rpWS;
   activeStackMode = 'rp';
@@ -3393,6 +3449,7 @@ function openStackBuilder() {
 function openSchoolStackBuilder() {
   if (!schoolActiveSessionId) { alert('Start or resume a session first.'); return; }
   if (!schoolStackConfig) schoolStackConfig = getDefaultStackConfig();
+  normalizeStackTypes(schoolStackConfig.blocks);
   activeStackConfig = schoolStackConfig;
   activeStackWS = ws;
   activeStackMode = 'school';
@@ -3409,18 +3466,15 @@ function renderStackBlocks() {
   list.innerHTML = '';
   const blocks = activeStackConfig.blocks || [];
 
-  // Sync custom textarea
-  const customBlock = blocks.find(b => b.type === 'custom');
-  const ta = document.getElementById('stackCustomText');
-  if (customBlock) {
-    ta.value = customBlock.text || '';
-    ta.classList.toggle('show', !!customBlock.enabled);
-  }
+  // Normalize legacy types
+  normalizeStackTypes(blocks);
 
   blocks.forEach((block, idx) => {
     const def = STACK_BLOCK_DEFS[block.type] || {};
     const enabled = block.enabled !== false;
     const locked = !!def.locked || !!block.locked;
+    const isSummaryChunk = block.type === 'summary_chunk';
+    const isCustom = block.type === 'custom';
 
     const div = document.createElement('div');
     div.className = 'stack-block ' + (enabled ? 'enabled' : 'disabled') + (locked ? ' locked' : '');
@@ -3428,7 +3482,7 @@ function renderStackBlocks() {
     div.dataset.idx = idx;
 
     let inner = '';
-    inner += `<span class="drag-handle">⋮⋮</span>`;
+    inner += `<span class="drag-handle">${locked ? '' : '⋮⋮'}</span>`;
     inner += `<span class="block-icon">${def.icon || '❓'}</span>`;
     inner += `<div style="flex:1"><div class="block-label">${def.label || block.type}</div><div class="block-desc">${def.desc || ''}</div></div>`;
 
@@ -3455,8 +3509,8 @@ function renderStackBlocks() {
       inner += `</div>`;
     }
 
-    if (def.hasText) {
-      inner += `<span class="block-custom-btn" onclick="toggleCustomText(${idx})">${enabled ? 'Edit' : 'Enable & Edit'}</span>`;
+    if (!locked) {
+      inner += `<span class="block-delete-btn" onclick="deleteBlock(${idx})" title="Delete">✕</span>`;
     }
 
     if (!locked) {
@@ -3466,6 +3520,29 @@ function renderStackBlocks() {
     }
 
     div.innerHTML = inner;
+
+    // ── Inline text content for summary_chunk and custom ──
+    if (isSummaryChunk && block.text) {
+      const txtDiv = document.createElement('div');
+      txtDiv.className = 'block-text-inline summary-text';
+      txtDiv.textContent = block.text;
+      txtDiv.title = block.text;
+      div.appendChild(txtDiv);
+    }
+    if (isCustom && enabled) {
+      const txtDiv = document.createElement('div');
+      txtDiv.className = 'block-text-inline custom-text';
+      const ta = document.createElement('textarea');
+      ta.className = 'block-custom-ta';
+      ta.value = block.text || '';
+      ta.placeholder = 'Custom system message...';
+      ta.rows = 2;
+      ta.onchange = function() { block.text = this.value; };
+      ta.oninput = function() { block.text = this.value; };
+      ta.onclick = function(e) { e.stopPropagation(); };
+      txtDiv.appendChild(ta);
+      div.appendChild(txtDiv);
+    }
 
     // Drag events
     if (!locked) {
@@ -3490,14 +3567,14 @@ function renderStackBlocks() {
         e.preventDefault();
         div.classList.remove('drag-over');
         if (stackDragSrc === null || stackDragSrc === idx) return;
-        // Don't allow dropping before the locked system block (idx 0)
-        const targetIdx = idx === 0 ? 1 : idx;
-        if (stackDragSrc === 0) return; // can't move system block
-        const blocks = activeStackConfig.blocks;
-        const moved = blocks.splice(stackDragSrc, 1)[0];
-        const insertAt = targetIdx > stackDragSrc ? targetIdx - 1 : targetIdx;
-        blocks.splice(insertAt, 0, moved);
+        if (idx === 0) return; // can't drop before system
+        if (stackDragSrc === 0) return; // can't move system
+        const blks = activeStackConfig.blocks;
+        const moved = blks.splice(stackDragSrc, 1)[0];
+        const insertAt = idx > stackDragSrc ? idx - 1 : idx;
+        blks.splice(insertAt, 0, moved);
         stackDragSrc = null;
+        normalizeStackTypes(blks);
         renderStackBlocks();
       });
     }
@@ -3510,9 +3587,6 @@ function toggleBlock(idx) {
   const block = activeStackConfig.blocks[idx];
   if (!block || block.locked) return;
   block.enabled = !block.enabled;
-  if (block.type === 'custom') {
-    document.getElementById('stackCustomText').classList.toggle('show', block.enabled);
-  }
   renderStackBlocks();
 }
 
@@ -3533,6 +3607,14 @@ function toggleBlockAuto(idx) {
   const block = activeStackConfig.blocks[idx];
   if (!block) return;
   block.auto = !block.auto;
+  // Only one summary_chunk can have auto at a time
+  if (block.auto) {
+    for (let i = 0; i < activeStackConfig.blocks.length; i++) {
+      if (i !== idx && activeStackConfig.blocks[i].type === 'summary_chunk') {
+        activeStackConfig.blocks[i].auto = false;
+      }
+    }
+  }
   renderStackBlocks();
 }
 
@@ -3544,22 +3626,11 @@ function summarizeBlock(idx) {
   if (btn) { btn.classList.add('summarizing'); btn.textContent = 'Summarizing…'; }
 }
 
-function toggleCustomText(idx) {
-  const block = activeStackConfig.blocks[idx];
-  if (!block) return;
-  if (!block.enabled) {
-    block.enabled = true;
-  }
-  document.getElementById('stackCustomText').classList.toggle('show');
-  renderStackBlocks();
-}
-
 function saveStackConfig() {
-  // Sync custom text
-  const customBlock = activeStackConfig.blocks.find(b => b.type === 'custom');
-  if (customBlock) {
-    customBlock.text = document.getElementById('stackCustomText').value;
-  }
+  // Sync custom block textareas back into block.text
+  document.querySelectorAll('.block-custom-ta').forEach(ta => {
+    // oninput already syncs, but just in case
+  });
   if (activeStackWS && activeStackWS.readyState === WebSocket.OPEN) {
     activeStackWS.send(JSON.stringify({ type: 'update_stack', stack_config: activeStackConfig }));
   } else if (activeStackMode === 'school' && schoolActiveSessionId) {
@@ -3578,6 +3649,30 @@ function resetStackConfig() {
   } else {
     schoolStackConfig = activeStackConfig;
   }
+  renderStackBlocks();
+}
+
+function addStackBlock(type) {
+  const newBlock = type === 'summary_chunk'
+    ? { type: 'summary_chunk', enabled: true, start: 0, end: 0, text: '', auto: false }
+    : { type: 'custom', enabled: true, text: '' };
+  // Insert before tail if tail exists, otherwise at end
+  const blocks = activeStackConfig.blocks;
+  const tailIdx = blocks.findIndex(b => b.type === 'tail');
+  const insertAt = tailIdx >= 0 ? tailIdx : blocks.length;
+  blocks.splice(insertAt, 0, newBlock);
+  normalizeStackTypes(blocks);
+  renderStackBlocks();
+}
+
+function deleteBlock(idx) {
+  const block = activeStackConfig.blocks[idx];
+  if (!block || block.locked) return;
+  if (block.type === 'system') return;
+  // Only allow deleting summary_chunk and custom
+  if (block.type !== 'summary_chunk' && block.type !== 'custom') return;
+  activeStackConfig.blocks.splice(idx, 1);
+  normalizeStackTypes(activeStackConfig.blocks);
   renderStackBlocks();
 }
 

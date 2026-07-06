@@ -450,41 +450,79 @@ async def api_school_update_stack(session_id: int, data: dict):
 # ─── School Auto-Summary Check ─────────────
 
 async def check_school_auto_summary(session_id: int, ws: WebSocket) -> dict | None:
-    """Check and run auto-summary for the late_summary block if needed.
-    Returns updated stack_config if summarization happened, else None.
+    """Chunked incremental auto-summarize (option B) for School mode.
+    Finds the last summary_chunk with auto=true (the "anchor").
+    When enough new messages accumulate past its end, summarizes ONLY
+    the new batch (tail_n messages). Never re-processes old chunks.
+    Normalizes legacy early_summary/late_summary types on load.
     """
     sess = db.db_school_get_session(session_id)
     if not sess:
         return None
     stack_cfg = db.get_stack_config(sess)
     blocks = stack_cfg.get("blocks", [])
-    late_block = None
-    tail_block = None
-    for b in blocks:
-        if b.get("type") == "late_summary" and b.get("enabled", True) and b.get("auto"):
-            late_block = b
+
+    # Normalize legacy types
+    for blk in blocks:
+        if blk.get("type") in ("early_summary", "late_summary", "summary"):
+            blk["type"] = "summary_chunk"
+
+    # Find last summary_chunk with auto enabled
+    anchor_block = None
+    anchor_idx = None
+    tail_n = 0
+    for i, b in enumerate(blocks):
+        if b.get("type") == "summary_chunk" and b.get("enabled", True) and b.get("auto"):
+            anchor_block = b
+            anchor_idx = i
         if b.get("type") == "tail" and b.get("enabled", True):
-            tail_block = b
-    if not late_block or not tail_block:
+            tail_n = b.get("n", 3)
+
+    if not anchor_block or tail_n <= 0:
         return None
 
     all_msgs = db.db_school_get_messages(session_id)
-    end = late_block.get("end", 0)
-    tail_n = tail_block.get("n", 3)
-    msgs_after_end = [m for m in all_msgs if m["seq"] > end]
-    if len(msgs_after_end) < tail_n:
+    total_msgs = len(all_msgs)
+    anchor_end = anchor_block.get("end", 0)
+
+    unsummarized = total_msgs - anchor_end
+    if unsummarized < tail_n:
         return None
 
-    new_end = end + tail_n
-    start = late_block.get("start", 0)
-    msgs_to_summarize = [m for m in all_msgs if start <= m["seq"] <= new_end]
-    sum_msgs = [{"role": m["role"], "content": m["content"]} for m in msgs_to_summarize]
-    existing_summary = late_block.get("text", "")
-    new_summary = await engine.rp_summarize(session_id, sum_msgs, existing_summary, ws=ws)
+    # Summarize ONLY the next batch
+    batch_start = anchor_end
+    batch_end = min(anchor_end + tail_n, total_msgs)
+    batch_msgs = all_msgs[batch_start:batch_end]
+    sum_msgs = [{"role": m["role"], "content": m["content"]} for m in batch_msgs]
+    if not sum_msgs:
+        return None
 
-    late_block["text"] = new_summary
-    late_block["end"] = new_end
+    await ws.send_json({"type": "block_summarizing", "block_index": anchor_idx, "auto": True})
+    new_summary = await engine.rp_summarize(session_id, sum_msgs, "", ws=ws)
+
+    # Create new chunk after anchor
+    new_chunk = {
+        "type": "summary_chunk",
+        "enabled": True,
+        "start": batch_start,
+        "end": batch_end,
+        "text": new_summary,
+        "auto": False,
+    }
+    blocks.insert(anchor_idx + 1, new_chunk)
+
+    # Advance anchor's end boundary
+    anchor_block["end"] = batch_end
+
     db.db_school_update_settings(session_id, stack_config=json.dumps(stack_cfg))
+
+    await ws.send_json({
+        "type": "chunk_added",
+        "chunk_index": anchor_idx + 1,
+        "summary": new_summary,
+        "stack_config": stack_cfg,
+        "auto": True,
+    })
     return stack_cfg
 
 
@@ -837,27 +875,30 @@ async def ws_chat(ws: WebSocket):
                         blocks = stack_cfg.get("blocks", [])
                         if block_index is not None and 0 <= block_index < len(blocks):
                             block = blocks[block_index]
-                            all_msgs = db.db_school_get_messages(session_id)
-                            start = block.get("start", 0)
-                            end = block.get("end", len(all_msgs) - 1)
-                            msgs_to_summarize = [
-                                {"role": m["role"], "content": m["content"]}
-                                for m in all_msgs if start <= m["seq"] <= end
-                            ]
-                            existing = block.get("text", "")
-                            new_text = await engine.rp_summarize(
-                                session_id, msgs_to_summarize, existing, ws=ws
-                            )
-                            block["text"] = new_text
-                            db.db_school_update_settings(
-                                session_id, stack_config=json.dumps(stack_cfg)
-                            )
-                            await ws.send_json({
-                                "type": "block_summarized",
-                                "block_index": block_index,
-                                "text": new_text,
-                                "stack_config": stack_cfg,
-                            })
+                            if block.get("type") in ("summary_chunk", "early_summary", "late_summary", "summary"):
+                                all_msgs = db.db_school_get_messages(session_id)
+                                start = block.get("start", 0)
+                                end = block.get("end", len(all_msgs) - 1)
+                                msgs_to_summarize = [
+                                    {"role": m["role"], "content": m["content"]}
+                                    for m in all_msgs if start <= m["seq"] <= end
+                                ]
+                                existing = block.get("text", "")
+                                new_text = await engine.rp_summarize(
+                                    session_id, msgs_to_summarize, existing, ws=ws
+                                )
+                                block["text"] = new_text
+                                if block.get("type") in ("early_summary", "late_summary", "summary"):
+                                    block["type"] = "summary_chunk"
+                                db.db_school_update_settings(
+                                    session_id, stack_config=json.dumps(stack_cfg)
+                                )
+                                await ws.send_json({
+                                    "type": "block_summarized",
+                                    "block_index": block_index,
+                                    "text": new_text,
+                                    "stack_config": stack_cfg,
+                                })
 
             elif data["type"] == "save_console_events":
                 if session_id:

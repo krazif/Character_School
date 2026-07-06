@@ -441,13 +441,17 @@ def db_get_session(session_id: int) -> Optional[dict]:
 
 
 # ─── RP Stack Config ─────────────────────────────────────────────
+# Chunk-based summary system (option B):
+#   summary_chunk — engine-generated, read-only, covers a fixed msg range
+#   custom        — user-editable free-text inject
+#   Multiple of each can be interleaved arbitrarily.
 DEFAULT_STACK_CONFIG = {
     "blocks": [
         {"type": "system", "enabled": True, "locked": True},
         {"type": "head", "enabled": True, "n": 2},
-        {"type": "early_summary", "enabled": True, "start": 2, "end": 5, "text": ""},
-        {"type": "raw_mid", "enabled": True, "start": 2, "end": 5},
-        {"type": "late_summary", "enabled": True, "start": 5, "end": 8, "text": "", "auto": False},
+        {"type": "summary_chunk", "enabled": True, "start": 2, "end": 5, "text": ""},
+        {"type": "raw_mid", "enabled": True, "start": 5, "end": 8},
+        {"type": "summary_chunk", "enabled": True, "start": 8, "end": 11, "text": "", "auto": False},
         {"type": "custom", "enabled": False, "text": ""},
         {"type": "tail", "enabled": True, "n": 3},
     ]
@@ -471,8 +475,9 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
     """Build LLM messages from stack block configuration.
     Returns (llm_messages, block_markers) where block_markers is a list of
     {"block": type, "label": str, "start": int, "count": int}.
-    Supports 7-block layout: system, head, early_summary, raw_mid,
-    late_summary, custom, tail.
+    Supports dynamic blocks: system, head, summary_chunk, raw_mid,
+    custom, tail. summary_chunk and custom can appear multiple times.
+    Backward-compatible with early_summary/late_summary/summary.
     """
     blocks = stack_config.get("blocks", [])
     llm_messages = []
@@ -501,25 +506,35 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
                 llm_messages.append({"role": "system", "content": m["content"]})
         return start, len(llm_messages) - start
 
+    # Count summary chunks for labels
+    summary_chunk_num = 0
+    custom_num = 0
+
     for block in blocks:
         if not block.get("enabled", True) and not block.get("locked", False):
             continue
 
         btype = block.get("type", "")
-        # Backward compat: old "summary" type → early_summary
-        if btype == "summary":
-            btype = "early_summary"
+        # Backward compat: old types → summary_chunk
+        if btype in ("summary", "early_summary", "late_summary"):
+            btype = "summary_chunk"
 
-        labels = {
-            "system": "System Prompt",
-            "head": f"Head Messages (first {head_n})",
-            "early_summary": f"Early Summary [{block.get('start','?')}-{block.get('end','?')}]",
-            "raw_mid": f"Raw Mid [{block.get('start','?')}-{block.get('end','?')}]",
-            "late_summary": f"Late Summary [{block.get('start','?')}-{block.get('end','?')}]",
-            "custom": "Custom Inject",
-            "tail": f"Raw Tail (last {tail_n})",
-        }
-        label = labels.get(btype, btype)
+        if btype == "summary_chunk":
+            summary_chunk_num += 1
+            label = f"Summary Chunk {summary_chunk_num} [{block.get('start','?')}-{block.get('end','?')}]"
+        elif btype == "custom":
+            custom_num += 1
+            label = f"Custom Inject {custom_num}"
+        elif btype == "system":
+            label = "System Prompt"
+        elif btype == "head":
+            label = f"Head Messages (first {head_n})"
+        elif btype == "raw_mid":
+            label = f"Raw Mid [{block.get('start','?')}-{block.get('end','?')}]"
+        elif btype == "tail":
+            label = f"Raw Tail (last {tail_n})"
+        else:
+            label = btype
 
         if btype == "system":
             start = len(llm_messages)
@@ -532,14 +547,14 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
             if c > 0:
                 block_markers.append({"block": btype, "label": label, "start": s, "count": c})
 
-        elif btype == "early_summary":
+        elif btype == "summary_chunk":
             # Use block's own text, fall back to legacy summary_text
             text = block.get("text", "").strip()
             if not text and summary_text:
                 text = summary_text.strip()
             if text:
                 start = len(llm_messages)
-                llm_messages.append({"role": "system", "content": f"SCENE SUMMARY (early):\n{text}"})
+                llm_messages.append({"role": "system", "content": f"SCENE SUMMARY:\n{text}"})
                 block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
 
         elif btype == "raw_mid":
@@ -552,13 +567,6 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
             s, c = _add_raw_msgs(mid_msgs)
             if c > 0:
                 block_markers.append({"block": btype, "label": label, "start": s, "count": c})
-
-        elif btype == "late_summary":
-            text = block.get("text", "").strip()
-            if text:
-                start = len(llm_messages)
-                llm_messages.append({"role": "system", "content": f"SCENE SUMMARY (late):\n{text}"})
-                block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
 
         elif btype == "custom":
             text = block.get("text", "").strip()
