@@ -527,11 +527,11 @@ async def reset_database():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 async def check_auto_summary(session_id, ws):
-    """Chunked incremental auto-summarize (option B).
-    Finds the last summary_chunk with auto=true (the "anchor").
+    """Auto-summarize by growing the anchor block.
+    Finds the LAST summary_chunk with auto=true (the "anchor").
     When enough new messages accumulate past its end, summarizes ONLY
-    the new batch (tail_n messages) — never re-processes old chunks.
-    Creates a NEW summary_chunk after the anchor for each batch.
+    the new batch (tail_n messages) and APPENDS the summary to the
+    anchor's text. The anchor's end boundary expands — no new chunks.
     Returns updated stack_cfg if summarization happened, else None."""
     sess = db.db_rp_get_session(session_id)
     stack_cfg = db.get_stack_config(sess)
@@ -542,7 +542,8 @@ async def check_auto_summary(session_id, ws):
         if blk.get("type") in ("early_summary", "late_summary", "summary"):
             blk["type"] = "summary_chunk"
 
-    # Find last summary_chunk with auto enabled (the anchor)
+    # Find the last summary_chunk with auto enabled (the anchor).
+    # Also find the last enabled tail block to get tail_n.
     anchor_idx = None
     anchor_block = None
     tail_n = 0
@@ -560,12 +561,11 @@ async def check_auto_summary(session_id, ws):
     total_msgs = len(all_msgs)
     anchor_end = anchor_block.get("end", 0)
 
-    # How many unsummarized messages exist past the anchor?
-    unsummarized = total_msgs - anchor_end
-    if unsummarized < tail_n:
+    # Enough unsummarized messages past the anchor?
+    if total_msgs - anchor_end < tail_n:
         return None
 
-    # Summarize ONLY the next batch — bounded input!
+    # Summarize ONLY the next batch (bounded input — never re-summarizes old ranges)
     batch_start = anchor_end
     batch_end = min(anchor_end + tail_n, total_msgs)
     batch_msgs = all_msgs[batch_start:batch_end]
@@ -573,35 +573,22 @@ async def check_auto_summary(session_id, ws):
         return None
 
     await ws.send_json({"type": "block_summarizing", "block_index": anchor_idx, "auto": True})
-    # No existing summary to incorporate — each chunk is standalone
     new_summary = await engine.rp_summarize(session_id, batch_msgs, "", ws=ws)
 
-    # Insert new chunk after the LAST summary_chunk (chronological order)
-    new_chunk = {
-        "type": "summary_chunk",
-        "enabled": True,
-        "start": batch_start,
-        "end": batch_end,
-        "text": new_summary,
-        "auto": False,  # only the anchor has auto
-    }
-    # Find the last summary_chunk for correct insertion point
-    insert_at = anchor_idx + 1
-    for i in range(len(blocks) - 1, anchor_idx, -1):
-        if blocks[i].get("type") == "summary_chunk":
-            insert_at = i + 1
-            break
-    blocks.insert(insert_at, new_chunk)
-
-    # Advance the anchor's end boundary
+    # Grow the anchor: expand end boundary + append summary text
     anchor_block["end"] = batch_end
+    existing_text = anchor_block.get("text", "")
+    if existing_text:
+        anchor_block["text"] = existing_text + "\n\n[Messages " + str(batch_start) + "-" + str(batch_end) + "]: " + new_summary
+    else:
+        anchor_block["text"] = "[Messages " + str(batch_start) + "-" + str(batch_end) + "]: " + new_summary
 
     stack_cfg["blocks"] = blocks
     db.db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
 
     await ws.send_json({
-        "type": "chunk_added",
-        "chunk_index": insert_at,
+        "type": "block_summary_updated",
+        "block_index": anchor_idx,
         "summary": new_summary,
         "stack_config": stack_cfg,
         "auto": True,
