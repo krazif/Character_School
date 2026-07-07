@@ -579,9 +579,9 @@ async def check_auto_summary(session_id, ws):
     anchor_block["end"] = batch_end
     existing_text = anchor_block.get("text", "")
     if existing_text:
-        anchor_block["text"] = existing_text + "\n\n[Messages " + str(batch_start) + "-" + str(batch_end) + "]: " + new_summary
+        anchor_block["text"] = existing_text + "\n\n" + new_summary
     else:
-        anchor_block["text"] = "[Messages " + str(batch_start) + "-" + str(batch_end) + "]: " + new_summary
+        anchor_block["text"] = new_summary
 
     stack_cfg["blocks"] = blocks
     db.db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
