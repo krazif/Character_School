@@ -474,6 +474,7 @@ body.rp-mode .school-only { display:none; }
     <div class="school-sessions-header" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleSchoolSessions()">
       <span style="font-size:13px;font-weight:600;color:var(--text-dim)">Sessions</span>
       <span style="flex:1"></span>
+      <button id="btnNewSchoolSession" onclick="event.stopPropagation(); createSchoolSession()" style="font-size:11px;padding:3px 8px;background:var(--accent);border:none;border-radius:4px;color:#fff;cursor:pointer;display:none" title="Create a new session with the selected character">+ New</button>
       <span class="chevron" id="schoolSessionsChevron">▼</span>
     </div>
     <div class="school-sessions-list" id="schoolSessionsList" style="max-height:200px;overflow-y:auto;border-bottom:1px solid var(--border)"></div>
@@ -1619,12 +1620,21 @@ async function selectCard(filename) {
   const d = currentCard.data || currentCard;
   document.getElementById('charName').textContent = d.name || filename;
 
-  // Enable persona selector
+  // Enable persona selector (no session yet — just load card data)
   document.getElementById('personaSelect').disabled = false;
   document.getElementById('btnPersonaEditor').disabled = false;
 
-  // Connect WebSocket and start session (with current persona if selected)
-  connectWS(filename, currentPersonaFilename || null);
+  // Show the "+ New" button so user can create a session
+  document.getElementById('btnNewSchoolSession').style.display = '';
+
+  // If there's an active session from a different card, disconnect it
+  if (schoolActiveSessionId && ws && ws.readyState === WebSocket.OPEN) {
+    if (schoolConsoleEvents.length > 0) {
+      ws.send(JSON.stringify({type: 'save_console_events', events: schoolConsoleEvents}));
+    }
+    ws.close();
+    ws = null;
+  }
 }
 
 function connectWS(filename, personaFilename, resumeSessionId) {
@@ -2121,11 +2131,16 @@ function onPersonaChange() {
   // Fetch persona details
   fetch('/api/personas/' + filename).then(r => r.json()).then(p => {
     currentPersona = p;
-    // Send to server — updates current session's persona (no new session)
+    // Only send to server if a session is already active
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({type: 'set_persona', persona_filename: filename}));
     }
   });
+}
+
+function createSchoolSession() {
+  if (!currentFilename) { alert('Select a character card first.'); return; }
+  connectWS(currentFilename, currentPersonaFilename || null);
 }
 
 function triggerAnalyze() {
