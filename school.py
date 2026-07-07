@@ -450,11 +450,11 @@ async def api_school_update_stack(session_id: int, data: dict):
 # ─── School Auto-Summary Check ─────────────
 
 async def check_school_auto_summary(session_id: int, ws: WebSocket) -> dict | None:
-    """Chunked incremental auto-summarize (option B) for School mode.
-    Finds the last summary_chunk with auto=true (the "anchor").
+    """Auto-summarize by growing the anchor block (School mode).
+    Finds the LAST summary_chunk with auto=true (the "anchor").
     When enough new messages accumulate past its end, summarizes ONLY
-    the new batch (tail_n messages). Never re-processes old chunks.
-    Normalizes legacy early_summary/late_summary types on load.
+    the new batch (tail_n messages) and APPENDS the summary to the
+    anchor's text. The anchor's end boundary expands — no new chunks.
     """
     sess = db.db_school_get_session(session_id)
     if not sess:
@@ -467,7 +467,8 @@ async def check_school_auto_summary(session_id: int, ws: WebSocket) -> dict | No
         if blk.get("type") in ("early_summary", "late_summary", "summary"):
             blk["type"] = "summary_chunk"
 
-    # Find last summary_chunk with auto enabled
+    # Find the last summary_chunk with auto enabled (the anchor).
+    # Also find the last enabled tail block to get tail_n.
     anchor_block = None
     anchor_idx = None
     tail_n = 0
@@ -485,11 +486,11 @@ async def check_school_auto_summary(session_id: int, ws: WebSocket) -> dict | No
     total_msgs = len(all_msgs)
     anchor_end = anchor_block.get("end", 0)
 
-    unsummarized = total_msgs - anchor_end
-    if unsummarized < tail_n:
+    # Enough unsummarized messages past the anchor?
+    if total_msgs - anchor_end < tail_n:
         return None
 
-    # Summarize ONLY the next batch
+    # Summarize ONLY the next batch (bounded input — never re-summarizes old ranges)
     batch_start = anchor_end
     batch_end = min(anchor_end + tail_n, total_msgs)
     batch_msgs = all_msgs[batch_start:batch_end]
@@ -500,25 +501,19 @@ async def check_school_auto_summary(session_id: int, ws: WebSocket) -> dict | No
     await ws.send_json({"type": "block_summarizing", "block_index": anchor_idx, "auto": True})
     new_summary = await engine.rp_summarize(session_id, sum_msgs, "", ws=ws)
 
-    # Create new chunk after anchor
-    new_chunk = {
-        "type": "summary_chunk",
-        "enabled": True,
-        "start": batch_start,
-        "end": batch_end,
-        "text": new_summary,
-        "auto": False,
-    }
-    blocks.insert(anchor_idx + 1, new_chunk)
-
-    # Advance anchor's end boundary
+    # Grow the anchor: expand end boundary + append summary text
     anchor_block["end"] = batch_end
+    existing_text = anchor_block.get("text", "")
+    if existing_text:
+        anchor_block["text"] = existing_text + "\n\n[Messages " + str(batch_start) + "-" + str(batch_end) + "]: " + new_summary
+    else:
+        anchor_block["text"] = "[Messages " + str(batch_start) + "-" + str(batch_end) + "]: " + new_summary
 
     db.db_school_update_settings(session_id, stack_config=json.dumps(stack_cfg))
 
     await ws.send_json({
-        "type": "chunk_added",
-        "chunk_index": anchor_idx + 1,
+        "type": "block_summary_updated",
+        "block_index": anchor_idx,
         "summary": new_summary,
         "stack_config": stack_cfg,
         "auto": True,

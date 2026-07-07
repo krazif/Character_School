@@ -1764,7 +1764,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
         if (btn) { btn.classList.add('has-text'); }
       }
     } else if (data.type === 'chunk_added') {
-      // Auto-summary created a new chunk (school mode)
+      // Legacy: auto-summary created a new chunk (school mode) — kept for old sessions
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
         if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
@@ -1772,6 +1772,21 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       const overlay = document.getElementById('stackOverlay');
       if (overlay && overlay.classList.contains('show')) {
         renderStackBlocks();
+      }
+    } else if (data.type === 'block_summary_updated') {
+      // Auto-summary grew the anchor block (school mode)
+      if (data.stack_config) {
+        schoolStackConfig = data.stack_config;
+        if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
+      }
+      summarizingBlockIdx = null;
+      const overlay = document.getElementById('stackOverlay');
+      if (overlay && overlay.classList.contains('show')) {
+        renderStackBlocks();
+      }
+      if (data.summary) {
+        const btn = document.querySelector(`.stack-block[data-idx="${data.block_index}"] .block-summarize-btn`);
+        if (btn) { btn.classList.add('has-text'); }
       }
     } else if (data.type === 'persona_updated') {
       // Persona changed on current session (no new session created)
