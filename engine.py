@@ -11,6 +11,12 @@ from typing import Optional, Any
 from json_repair import repair_json
 import db
 
+# ─── Character Card Version Support ───────────────────────────────
+# V3 field name aliases (V2 name → V3 name)
+V3_FIELD_ALIASES = {
+    "first_mes": "first_message",
+    "mes_example": "message_examples",
+}
 
 
 def detect_card_version(card: dict) -> int:
@@ -929,4 +935,5 @@ Return ONLY the JSON object."""},
         }
 
     return report
+
 
