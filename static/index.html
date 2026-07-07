@@ -3463,20 +3463,8 @@ function normalizeStackTypes(blocks) {
     if (b.type === 'early_summary' || b.type === 'late_summary' || b.type === 'summary') {
       b.type = 'summary_chunk';
     }
-    // Remove legacy auto from all but the last summary_chunk
   }
-  // Ensure only the LAST summary_chunk keeps auto=true
-  let lastAuto = null;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i].type === 'summary_chunk') {
-      if (lastAuto === null) {
-        lastAuto = i;
-        blocks[i].auto = !!blocks[i].auto;
-      } else {
-        blocks[i].auto = false;
-      }
-    }
-  }
+  // Don't touch auto — toggleBlockAuto and the auto-summary system manage it.
   return blocks;
 }
 

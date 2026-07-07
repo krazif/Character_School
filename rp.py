@@ -576,7 +576,7 @@ async def check_auto_summary(session_id, ws):
     # No existing summary to incorporate — each chunk is standalone
     new_summary = await engine.rp_summarize(session_id, batch_msgs, "", ws=ws)
 
-    # Create a new summary_chunk right after the anchor
+    # Insert new chunk after the LAST summary_chunk (chronological order)
     new_chunk = {
         "type": "summary_chunk",
         "enabled": True,
@@ -585,7 +585,12 @@ async def check_auto_summary(session_id, ws):
         "text": new_summary,
         "auto": False,  # only the anchor has auto
     }
+    # Find the last summary_chunk for correct insertion point
     insert_at = anchor_idx + 1
+    for i in range(len(blocks) - 1, anchor_idx, -1):
+        if blocks[i].get("type") == "summary_chunk":
+            insert_at = i + 1
+            break
     blocks.insert(insert_at, new_chunk)
 
     # Advance the anchor's end boundary
