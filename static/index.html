@@ -3883,7 +3883,7 @@ async function saveSettings() {
         temperature: parseFloat(document.getElementById('cfgChatTemp').value) || 0.8,
         max_tokens: parseInt(document.getElementById('cfgChatMaxTok').value) || 2000,
         top_p: (() => { const v = document.getElementById('cfgChatTopP').value.trim(); return v === '' ? null : (parseFloat(v) ?? 1.0); })(),
-        top_k: (() => { const v = document.getElementById('cfgChatTopK').value.trim(); return v === '' ? null : (parseInt(v) || 40); })(),
+        top_k: (() => { const v = document.getElementById('cfgChatTopK').value.trim(); return v === '' ? null : (isNaN(v) ? null : parseInt(v)); })(),
         enable_thinking: document.getElementById('cfgChatEnableThinking').checked,
       },
       analysis: {
@@ -3893,7 +3893,7 @@ async function saveSettings() {
         temperature: parseFloat(document.getElementById('cfgAnalysisTemp').value) || 0.1,
         max_tokens: parseInt(document.getElementById('cfgAnalysisMaxTok').value) || 1500,
         top_p: (() => { const v = document.getElementById('cfgAnalysisTopP').value.trim(); return v === '' ? null : (parseFloat(v) ?? 1.0); })(),
-        top_k: (() => { const v = document.getElementById('cfgAnalysisTopK').value.trim(); return v === '' ? null : (parseInt(v) || 40); })(),
+        top_k: (() => { const v = document.getElementById('cfgAnalysisTopK').value.trim(); return v === '' ? null : (isNaN(v) ? null : parseInt(v)); })(),
       },
       summary: {
         base_url: document.getElementById('cfgSummaryBaseUrl').value.trim(),
@@ -3902,7 +3902,7 @@ async function saveSettings() {
         temperature: parseFloat(document.getElementById('cfgSummaryTemp').value) || 0.3,
         max_tokens: parseInt(document.getElementById('cfgSummaryMaxTok').value) || 1000,
         top_p: (() => { const v = document.getElementById('cfgSummaryTopP').value.trim(); return v === '' ? null : (parseFloat(v) ?? 1.0); })(),
-        top_k: (() => { const v = document.getElementById('cfgSummaryTopK').value.trim(); return v === '' ? null : (parseInt(v) || 40); })(),
+        top_k: (() => { const v = document.getElementById('cfgSummaryTopK').value.trim(); return v === '' ? null : (isNaN(v) ? null : parseInt(v)); })(),
       },
       paths: {
         characters_dir: document.getElementById('cfgCharactersDir').value.trim() || null,
@@ -3990,7 +3990,7 @@ function getEndpointFields(section) {
     temperature: parseFloat(document.getElementById(`cfg${cap}Temp`).value) || 0.8,
     max_tokens: parseInt(document.getElementById(`cfg${cap}MaxTok`).value) || 2000,
     top_p: topP === '' ? null : (parseFloat(topP) ?? 1.0),
-    top_k: topK === '' ? null : (parseInt(topK) || 40),
+    top_k: topK === '' ? null : (isNaN(topK) ? null : parseInt(topK)),
   };
 }
 
