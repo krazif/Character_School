@@ -1223,30 +1223,9 @@ function estimateTokens(messages) {
 }
 
 function getSessionMessages() {
-  // Extract messages from DOM for the active session
-  const container = activeStackMode === 'rp'
-    ? document.getElementById('rpChatMessages')
-    : document.getElementById('chatMessages');
-  if (!container) return [];
-  const msgs = [];
-  container.querySelectorAll(activeStackMode === 'rp' ? '.rp-msg' : '.message').forEach(el => {
-    // Get raw text (strip speaker labels, badges, numbers)
-    let text = el.textContent || '';
-    // RP messages have speaker prefix like "SpeakerName0text..." — trim the leading number
-    // The msg-number badge is at the end of speaker line; strip it
-    const numSpan = el.querySelector('.msg-number');
-    if (numSpan) {
-      const numText = numSpan.textContent;
-      const idx = text.indexOf(numText);
-      if (idx >= 0) text = text.substring(0, idx) + text.substring(idx + numText.length);
-    }
-    // Also strip role-label / analysis badge
-    const badge = el.querySelector('.analysis-badge');
-    if (badge) text = text.replace(badge.textContent, '');
-    text = text.trim();
-    if (text) msgs.push({ content: text });
-  });
-  return msgs;
+  // Extract messages from the virtual scrolling arrays (not DOM, since not all are rendered)
+  const messages = activeStackMode === 'rp' ? rpMessages : schoolMessages;
+  return messages.map(m => ({ content: m.content }));
 }
 
 function estimateBlockTokens(block, allMsgs) {
@@ -1754,13 +1733,15 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       updateInputState();
     } else if (data.type === 'user_message_stored') {
       // Server confirms the user message was stored and gives us the DB row id.
-      // Match by client_msg_id to tag the right DOM node.
+      // Match by client_msg_id to tag the right entry in the array.
       if (data.message_id != null) {
         const target = data.client_msg_id
-          ? document.querySelector(`[data-client-id="${data.client_msg_id}"]`)
-          : _lastUserMsgDiv;
+          ? schoolMessages.find(m => m.clientId === data.client_msg_id)
+          : null;
         if (target) {
-          target.dataset.messageId = data.message_id;
+          target.messageId = data.message_id;
+        } else if (_lastUserMsgDiv) {
+          _lastUserMsgDiv.dataset.messageId = data.message_id;
         }
       }
     } else if (data.type === 'session_started') {
@@ -1769,6 +1750,8 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
       }
+      // Clear virtual scroll state
+      clearSchoolChat();
       // Clear console for new session
       consoleEventCount = 0;
       schoolConsoleEvents = [];
@@ -1802,19 +1785,21 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolConsoleEvents = [];
       document.getElementById('consoleCount').textContent = '0';
       document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
-      // Restore messages
-      const chatEl = document.getElementById('chatMessages');
-      chatEl.innerHTML = '';
       document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Click "Analyze Character" to run analysis.</div>';
+      // Clear virtual scroll state and populate from server messages
+      clearSchoolChat();
       if (data.messages) {
         data.messages.forEach(m => {
           if (m.role === 'user') {
-            addMessage('user', m.content, null, m.is_first_mes, m.id);
+            schoolMessages.push({ role: 'user', content: m.content, analysis: null, isFirst: m.is_first_mes, messageId: m.id, clientId: null });
           } else if (m.role === 'assistant') {
-            addMessage('character', m.content, m.analysis, m.is_first_mes, m.id);
+            schoolMessages.push({ role: 'character', content: m.content, analysis: m.analysis, isFirst: m.is_first_mes, messageId: m.id, clientId: null });
           }
         });
       }
+      schoolVisibleCount.value = Math.min(VIRTUAL_SCROLL_BATCH, schoolMessages.length);
+      renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
+      initVirtualScroll('chatMessages', schoolMessages, schoolVisibleCount, schoolObserver);
       // Restore console events
       if (data.console_events && data.console_events.length > 0) {
         schoolConsoleEvents = data.console_events;
@@ -1920,6 +1905,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('consoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
       document.getElementById('chatMessages').innerHTML = '';
       document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Click "Analyze Character" to run analysis.</div>';
+      clearSchoolChat();
       isWaiting = false;
       updateInputState();
       loadSchoolSessions();
@@ -1967,70 +1953,27 @@ function addMessage(role, content, analysis, isFirst, messageId, clientId) {
   const loading = document.getElementById('firstMesLoading');
   if (loading) loading.remove();
 
-  const container = document.getElementById('chatMessages');
-  const div = document.createElement('div');
-  div.className = 'message ' + (role === 'user' ? 'user' : role === 'system' ? 'system' : 'character');
+  // Push to array
+  const msg = { role, content, analysis, isFirst, messageId, clientId };
+  schoolMessages.push(msg);
 
-  let badge = '';
-  if (analysis && analysis.overall) {
-    const cls = analysis.overall === 'pass' ? 'badge-pass' : analysis.overall === 'fail' ? 'badge-fail' : 'badge-partial';
-    badge = `<span class="analysis-badge ${cls}">${analysis.overall.toUpperCase()}</span>`;
+  // Render
+  renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
+
+  // Init observer if not yet set up
+  if (!schoolObserver) {
+    initVirtualScroll('chatMessages', schoolMessages, schoolVisibleCount, schoolObserver);
   }
-
-  const msgNum = container.querySelectorAll('.message').length;
-  const roleLabel = role === 'character' ? (currentCard?.data?.name || 'Character') + badge : role === 'user' ? (currentPersona?.name || 'You') : '';
-  div.innerHTML = `<div class="role-label">${roleLabel}<span class="msg-number">${msgNum}</span></div>` + formatMessage(content);
-
-  // Store the server-provided message ID (SQLite row id) on the DOM node
-  if (messageId != null) {
-    div.dataset.messageId = messageId;
-  }
-  // Store client-generated id for matching user_message_stored
-  if (clientId != null) {
-    div.dataset.clientId = clientId;
-  }
-
-  // Add delete link for non-system messages
-  if (role !== 'system') {
-    const delLink = document.createElement('a');
-    delLink.className = 'msg-delete-link';
-    delLink.textContent = 'delete';
-    delLink.href = '#';
-    delLink.onclick = (e) => {
-      e.preventDefault();
-      const msgId = parseInt(div.dataset.messageId);
-      if (!msgId || !(ws && ws.readyState === WebSocket.OPEN)) return;
-      ws.send(JSON.stringify({type: 'delete_message', message_id: msgId}));
-      // The server deletes this message and all subsequent ones.
-      // We remove all DOM siblings after (and including) this one.
-      const allMsgs = Array.from(container.querySelectorAll('.message'));
-      const myIdx = allMsgs.indexOf(div);
-      for (let i = allMsgs.length - 1; i >= myIdx; i--) {
-        allMsgs[i].remove();
-      }
-      // Re-number remaining messages
-      container.querySelectorAll('.message').forEach((msg, i) => {
-        const nb = msg.querySelector('.msg-number');
-        if (nb) nb.textContent = i;
-      });
-      // Update analysis panel — clear if no character messages remain
-      const remainingChar = document.querySelectorAll('.message.character').length;
-      if (remainingChar === 0) {
-        document.getElementById('analysisPanel').innerHTML = '<div class="analysis-empty">Click "Analyze Character" to run analysis.</div>';
-      }
-    };
-    div.appendChild(delLink);
-  }
-
-  container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
 
   // Update analysis panel
   if (analysis) {
     updateAnalysis(analysis, content);
   }
 
-  return div;  // return DOM node so callers can tag it later
+  // Return the last rendered DOM node for callers that need to tag it
+  const container = document.getElementById('chatMessages');
+  const msgs = container.querySelectorAll('.message');
+  return msgs.length > 0 ? msgs[msgs.length - 1] : null;
 }
 
 function updateAnalysis(analysis, content) {
@@ -2862,17 +2805,20 @@ function handleRPMessage(data) {
       document.getElementById('rpConsoleCount').textContent = '0';
     }
     renderRPSceneBar();
-    document.getElementById('rpChatMessages').innerHTML = '';
-    // Re-render messages
+    // Clear virtual scroll state and populate from server messages
+    clearRPChat();
     if (data.messages) {
       data.messages.forEach(m => {
         if (m.role === 'user') {
-          addRPMessage('user', m.content, null, m.id);
+          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null });
         } else if (m.role === 'character') {
-          addRPMessage('character', m.content, m.speaker, m.id);
+          rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: null });
         }
       });
     }
+    rpVisibleCount.value = Math.min(VIRTUAL_SCROLL_BATCH, rpMessages.length);
+    renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+    initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
     document.getElementById('rpInputArea').style.display = 'flex';
     rpIsWaiting = false;
     updateRPInputState();
@@ -2893,13 +2839,13 @@ function handleRPMessage(data) {
     hideRPTyping();
     updateRPInputState();
   } else if (data.type === 'user_message_stored') {
-    // Tag the RP user message DOM node with the DB row id so delete works
+    // Tag the RP user message in the array with the DB row id so delete works
     if (data.message_id != null) {
       const target = data.client_msg_id
-        ? document.querySelector(`[data-client-id="${data.client_msg_id}"]`)
+        ? rpMessages.find(m => m.clientId === data.client_msg_id)
         : null;
       if (target) {
-        target.dataset.messageId = data.message_id;
+        target.messageId = data.message_id;
       }
     }
   } else if (data.type === 'summary_updated') {
@@ -3016,60 +2962,17 @@ function addRPMessage(role, content, speaker, messageId, clientId) {
   const empty = document.getElementById('rpChatEmpty');
   if (empty) empty.remove();
 
-  const container = document.getElementById('rpChatMessages');
-  const div = document.createElement('div');
-  div.className = 'rp-msg ' + (role === 'user' ? 'user' : role === 'system' ? 'system' : 'character');
+  // Push to array
+  const msg = { role, content, speaker, messageId, clientId };
+  rpMessages.push(msg);
 
-  const msgNum = container.querySelectorAll('.rp-msg').length;
-  let speakerHtml = '';
-  if (role === 'character' && speaker) {
-    const idx = rpCharacters.findIndex(c => c.name === speaker);
-    const color = idx >= 0 ? RP_CHAR_COLORS[idx % RP_CHAR_COLORS.length] : 'var(--text-dim)';
-    speakerHtml = `<div class="rp-speaker" style="color:${color}">${escapeHtml(speaker)}<span class="msg-number">${msgNum}</span></div>`;
-  } else if (role === 'user') {
-    const rpPersonaName = (personasList.find(p => p.filename === rpPersonaFilename)?.name) || 'You';
-    speakerHtml = `<div class="rp-speaker" style="color:#7ec8e3">${escapeHtml(rpPersonaName)}<span class="msg-number">${msgNum}</span></div>`;
-  } else {
-    speakerHtml = `<div class="rp-speaker"><span class="msg-number">${msgNum}</span></div>`;
+  // Render
+  renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+
+  // Init observer if not yet set up
+  if (!rpObserver) {
+    initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
   }
-
-  div.innerHTML = speakerHtml + formatMessage(content);
-
-  if (messageId != null) {
-    div.dataset.messageId = messageId;
-  }
-  // Store client-generated id for matching user_message_stored
-  if (clientId != null) {
-    div.dataset.clientId = clientId;
-  }
-
-  // Delete link
-  if (role !== 'system') {
-    const delLink = document.createElement('a');
-    delLink.className = 'rp-delete-link';
-    delLink.textContent = 'delete';
-    delLink.href = '#';
-    delLink.onclick = (e) => {
-      e.preventDefault();
-      const msgId = parseInt(div.dataset.messageId);
-      if (!msgId || !(rpWS && rpWS.readyState === WebSocket.OPEN)) return;
-      rpWS.send(JSON.stringify({type: 'delete_message', message_id: msgId}));
-      const allMsgs = Array.from(container.querySelectorAll('.rp-msg'));
-      const myIdx = allMsgs.indexOf(div);
-      for (let i = allMsgs.length - 1; i >= myIdx; i--) {
-        allMsgs[i].remove();
-      }
-      // Re-number remaining messages
-      container.querySelectorAll('.rp-msg').forEach((msg, i) => {
-        const nb = msg.querySelector('.msg-number');
-        if (nb) nb.textContent = i;
-      });
-    };
-    div.appendChild(delLink);
-  }
-
-  container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
 }
 
 function showRPTyping(characterName) {
@@ -4238,6 +4141,195 @@ async function deletePresetFromManager(name) {
     alert('Failed to delete preset: ' + e.message);
   }
 }
+
+// ─── Virtual Scrolling ─────────────────────────
+const VIRTUAL_SCROLL_BATCH = 50; // default number of messages to render
+let schoolMessages = []; // full message array for School mode
+let rpMessages = []; // full message array for RP mode
+let schoolVisibleCount = { value: VIRTUAL_SCROLL_BATCH };
+let rpVisibleCount = { value: VIRTUAL_SCROLL_BATCH };
+let schoolObserver = null;
+let rpObserver = null;
+
+function initVirtualScroll(containerId, messagesArr, visibleCountObj, observerRef) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  // Clean up old observer
+  if (observerRef) observerRef.disconnect();
+  // Create sentinel
+  let sentinel = container.querySelector('.virtual-scroll-sentinel');
+  if (!sentinel) {
+    sentinel = document.createElement('div');
+    sentinel.className = 'virtual-scroll-sentinel';
+    sentinel.style.height = '1px';
+    sentinel.style.width = '100%';
+    container.prepend(sentinel);
+  }
+  const obs = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        // User scrolled to the top — load more
+        const oldCount = visibleCountObj.value;
+        visibleCountObj.value = Math.min(visibleCountObj.value + VIRTUAL_SCROLL_BATCH, messagesArr.length);
+        if (visibleCountObj.value > oldCount) {
+          const prevScrollHeight = container.scrollHeight;
+          renderVirtualMessages(containerId, messagesArr, visibleCountObj.value);
+          // Preserve scroll position so the view doesn't jump
+          requestAnimationFrame(() => {
+            container.scrollTop = container.scrollHeight - prevScrollHeight;
+          });
+        }
+      }
+    }
+  }, { root: container, threshold: 0 });
+  obs.observe(sentinel);
+  observerRef = obs;
+}
+
+function renderVirtualMessages(containerId, messagesArr, visibleCount) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const isSchool = containerId === 'chatMessages';
+  // Save sentinel if present
+  const sentinel = container.querySelector('.virtual-scroll-sentinel');
+  // Clear container
+  container.innerHTML = '';
+  // Re-add sentinel at top
+  if (sentinel) container.appendChild(sentinel);
+  // Calculate which messages to show
+  const total = messagesArr.length;
+  const start = Math.max(0, total - visibleCount);
+  // Render messages from start to end
+  for (let i = start; i < total; i++) {
+    const msg = messagesArr[i];
+    const div = isSchool
+      ? buildSchoolMessageDOM(msg, i)
+      : buildRPMessageDOM(msg, i);
+    container.appendChild(div);
+  }
+  // Scroll to bottom on new messages (only if already near bottom)
+  const wasNearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 100;
+  if (wasNearBottom || sentinel === null) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function buildSchoolMessageDOM(msg, index) {
+  const div = document.createElement('div');
+  div.className = 'message ' + msg.role;
+  if (msg.role === 'character' && msg.isFirst) div.classList.add('first-mes');
+  div.dataset.messageId = msg.messageId || '';
+  div.dataset.clientId = msg.clientId || '';
+  // Badge
+  const badge = document.createElement('span');
+  badge.className = 'msg-badge';
+  badge.textContent = index;
+  div.appendChild(badge);
+  // Label
+  const label = document.createElement('span');
+  label.className = 'msg-label';
+  label.textContent = msg.role === 'user' ? (currentPersona?.name || 'You') : (currentCard?.data?.name || 'Character');
+  div.appendChild(label);
+  // Content
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'msg-content';
+  contentDiv.innerHTML = formatMessage(msg.content);
+  div.appendChild(contentDiv);
+  // Analysis (School only)
+  if (msg.analysis) {
+    const analysisDiv = document.createElement('div');
+    analysisDiv.className = 'msg-analysis';
+    analysisDiv.textContent = msg.analysis;
+    div.appendChild(analysisDiv);
+  }
+  // Delete link
+  if (msg.role !== 'system') {
+    const delLink = document.createElement('a');
+    delLink.className = 'msg-delete-link';
+    delLink.textContent = 'delete';
+    delLink.onclick = () => deleteSchoolMessage(index);
+    div.appendChild(delLink);
+  }
+  return div;
+}
+
+function buildRPMessageDOM(msg, index) {
+  const div = document.createElement('div');
+  div.className = 'rp-msg ' + msg.role;
+  div.dataset.messageId = msg.messageId || '';
+  div.dataset.clientId = msg.clientId || '';
+  // Badge
+  const badge = document.createElement('span');
+  badge.className = 'rp-msg-badge';
+  badge.textContent = index;
+  div.appendChild(badge);
+  // Label
+  const label = document.createElement('span');
+  label.className = 'rp-msg-label';
+  if (msg.role === 'user') {
+    label.textContent = currentPersona?.name || 'You';
+  } else if (msg.role === 'system') {
+    label.textContent = 'System';
+  } else {
+    label.textContent = msg.speaker || 'Character';
+  }
+  div.appendChild(label);
+  // Content
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'rp-msg-content';
+  contentDiv.innerHTML = formatMessage(msg.content);
+  div.appendChild(contentDiv);
+  // Delete link
+  if (msg.role !== 'system') {
+    const delLink = document.createElement('a');
+    delLink.className = 'rp-delete-link';
+    delLink.textContent = 'delete';
+    delLink.onclick = () => deleteRPMessage(index);
+    div.appendChild(delLink);
+  }
+  return div;
+}
+
+function deleteSchoolMessage(index) {
+  if (index < 0 || index >= schoolMessages.length) return;
+  const msg = schoolMessages[index];
+  const msgId = msg.messageId;
+  if (msgId && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'delete_message', message_id: msgId }));
+  }
+  // Remove this message and all subsequent
+  schoolMessages.splice(index);
+  schoolVisibleCount.value = Math.min(schoolVisibleCount.value, schoolMessages.length);
+  renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
+}
+
+function deleteRPMessage(index) {
+  if (index < 0 || index >= rpMessages.length) return;
+  const msg = rpMessages[index];
+  const msgId = msg.messageId;
+  if (msgId && rpWS && rpWS.readyState === WebSocket.OPEN) {
+    rpWS.send(JSON.stringify({ type: 'delete_message', message_id: msgId }));
+  }
+  rpMessages.splice(index);
+  rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
+  renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+}
+
+function clearSchoolChat() {
+  schoolMessages = [];
+  schoolVisibleCount.value = VIRTUAL_SCROLL_BATCH;
+  const container = document.getElementById('chatMessages');
+  if (container) container.innerHTML = '';
+  if (schoolObserver) { schoolObserver.disconnect(); schoolObserver = null; }
+}
+
+function clearRPChat() {
+  rpMessages = [];
+  rpVisibleCount.value = VIRTUAL_SCROLL_BATCH;
+  const container = document.getElementById('rpChatMessages');
+  if (container) container.innerHTML = '';
+  if (rpObserver) { rpObserver.disconnect(); rpObserver = null; }
+}
+
+// ─── End Virtual Scrolling ──────────────────────
 </script>
-</body>
-</html>
