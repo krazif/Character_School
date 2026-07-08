@@ -65,6 +65,11 @@ header .status.connected { color:var(--green); }
 .msg-delete-link:hover { color:var(--red); opacity:1; }
 .msg-number { display:inline-block; font-size:10px; color:var(--text-dim); background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; margin-left:6px; font-weight:600; vertical-align:middle; }
 
+/* Virtual scroll message header */
+.msg-badge, .rp-msg-badge { display:inline-block; font-size:10px; color:var(--text-dim); background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-weight:600; vertical-align:middle; }
+.msg-label, .rp-msg-label { font-size:11px; color:var(--text-dim); vertical-align:middle; }
+.msg-content, .rp-msg-content { margin-top:4px; }
+
 /* Input */
 .chat-input { padding:12px 16px; border-top:1px solid var(--border); display:flex; gap:8px; }
 .chat-input textarea { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px 12px; font-size:14px; resize:none; height:44px; font-family:inherit; }
@@ -4223,11 +4228,12 @@ function buildSchoolMessageDOM(msg, index) {
   // Badge
   const badge = document.createElement('span');
   badge.className = 'msg-badge';
-  badge.textContent = index;
+  badge.textContent = '[' + index + ']';
   div.appendChild(badge);
   // Label
   const label = document.createElement('span');
   label.className = 'msg-label';
+  div.appendChild(document.createTextNode(' '));
   label.textContent = msg.role === 'user' ? (currentPersona?.name || 'You') : (currentCard?.data?.name || 'Character');
   div.appendChild(label);
   // Content
@@ -4261,11 +4267,12 @@ function buildRPMessageDOM(msg, index) {
   // Badge
   const badge = document.createElement('span');
   badge.className = 'rp-msg-badge';
-  badge.textContent = index;
+  badge.textContent = '[' + index + ']';
   div.appendChild(badge);
   // Label
   const label = document.createElement('span');
   label.className = 'rp-msg-label';
+  div.appendChild(document.createTextNode(' '));
   if (msg.role === 'user') {
     label.textContent = currentPersona?.name || 'You';
   } else if (msg.role === 'system') {
