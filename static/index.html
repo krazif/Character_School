@@ -2615,6 +2615,7 @@ function formatMessage(text) {
 
 // ─── Init ───────────────────────────────────────
 loadCardList();
+loadSchoolSessions();
 
 // ─── RP State & Logic ──────────────────────────
 let rpWS = null;
@@ -2787,7 +2788,8 @@ function handleRPMessage(data) {
     const oldSummaryBar = document.getElementById('rpSummaryBar');
     if (oldSummaryBar) oldSummaryBar.remove();
     renderRPSceneBar();
-    document.getElementById('rpChatMessages').innerHTML = '';
+    // Clear virtual scroll state
+    clearRPChat();
     document.getElementById('rpInputArea').style.display = 'flex';
     rpIsWaiting = false;
     updateRPInputState();
