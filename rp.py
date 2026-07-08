@@ -492,7 +492,7 @@ async def get_config():
         },
         "paths": _c.get("paths", {"characters_dir": None, "personas_dir": None}),
         "presets": {
-            name: {**p, "api_key": mask(p.get("api_key", ""))}
+            name: {k: (mask(v) if k == "api_key" else v) for k, v in p.items()}
             for name, p in _c.get("presets", {}).items()
         },
     }
@@ -522,20 +522,9 @@ async def update_config(req: Request):
             else:
                 current[section][k] = v
 
-    # Presets — replace entirely if provided, but preserve masked keys
+    # Presets — replace entirely if provided
     if "presets" in body:
-        existing_presets = current.get("presets", {})
-        new_presets = {}
-        for name, p in body["presets"].items():
-            new_p = dict(p)
-            if new_p.get("api_key") and "…" in new_p["api_key"]:
-                # Masked key from GET — keep existing
-                if name in existing_presets:
-                    new_p["api_key"] = existing_presets[name].get("api_key", "")
-                else:
-                    new_p["api_key"] = ""
-            new_presets[name] = new_p
-        current["presets"] = new_presets
+        current["presets"] = body["presets"]
 
     db.save_config(current)
     db.reload_config()
@@ -554,6 +543,13 @@ async def delete_preset(name: str):
     db.save_config(current)
     db.reload_config()
     return {"status": "ok", "message": f"Preset '{name}' deleted."}
+
+
+@router.get("/api/presets")
+async def get_presets():
+    """Return presets with full (unmasked) api keys for the preset manager."""
+    _c = db.load_config()
+    return _c.get("presets", {})
 
 
 @router.post("/api/database/reset")
