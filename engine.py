@@ -517,6 +517,11 @@ async def rp_summarize(session_id: int, messages_to_summarize: list[dict],
             kwargs["top_p"] = db.SUMMARY_TOP_P
         if db.SUMMARY_TOP_K is not None:
             kwargs["top_k"] = db.SUMMARY_TOP_K
+        if ws:
+            await ws.send_json({
+                "type": "console_event", "event": "request_kwargs", "llm": "summary",
+                "label": "Summarization", "kwargs": kwargs, "timestamp": _now_iso(),
+            })
         resp = await db.summary_client.chat.completions.create(**kwargs)
         summary = resp.choices[0].message.content.strip()
         usage = resp.usage
@@ -741,6 +746,11 @@ Return ONLY the JSON object."""
             kwargs["top_p"] = db.ANALYSIS_TOP_P
         if db.ANALYSIS_TOP_K is not None:
             kwargs["top_k"] = db.ANALYSIS_TOP_K
+        if ws:
+            await ws.send_json({
+                "type": "console_event", "event": "request_kwargs", "llm": "analysis",
+                "label": "Analysis", "kwargs": kwargs, "timestamp": _now_iso(),
+            })
         resp = await db.analysis_client.chat.completions.create(**kwargs)
         content = resp.choices[0].message.content.strip()
         usage = resp.usage
@@ -892,6 +902,11 @@ Return ONLY the JSON object."""},
             kwargs["top_p"] = db.ANALYSIS_TOP_P
         if db.ANALYSIS_TOP_K is not None:
             kwargs["top_k"] = db.ANALYSIS_TOP_K
+        if ws:
+            await ws.send_json({
+                "type": "console_event", "event": "request_kwargs", "llm": "analysis",
+                "label": "Session Report", "kwargs": kwargs, "timestamp": _now_iso(),
+            })
         resp = await db.analysis_client.chat.completions.create(**kwargs)
         content = resp.choices[0].message.content.strip()
         usage = resp.usage

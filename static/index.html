@@ -1269,8 +1269,9 @@ function addConsoleEntry(data) {
   const isReq = data.event === 'request';
   const isResp = data.event === 'response';
   const isErr = data.event === 'error';
-  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : 'console-tag-err';
-  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : '✕ ERR';
+  const isKwargs = data.event === 'request_kwargs';
+  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : isErr ? 'console-tag-err' : 'console-tag-req';
+  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : isErr ? '✕ ERR' : '→ KWARGS';
   const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';
   const llmLabel = data.llm === 'character' ? 'CHARACTER' : 'ANALYSIS';
 
@@ -1303,6 +1304,8 @@ function addConsoleEntry(data) {
     html += `<div class="msg-content assistant">${escapeHtml(content)}</div>`;
   } else if (isErr) {
     html += `<div class="msg-content" style="border-left-color:var(--red);color:var(--red)">${escapeHtml(data.message || data.content || '')}</div>`;
+  } else if (isKwargs && data.kwargs) {
+    html += `<pre style="margin:4px 0;font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all">${escapeHtml(JSON.stringify(data.kwargs, null, 2))}</pre>`;
   }
 
   if (isResp && data.usage) {
@@ -3188,8 +3191,9 @@ function addRPConsoleEntry(data) {
   const isReq = data.event === 'request';
   const isResp = data.event === 'response';
   const isErr = data.event === 'error';
-  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : 'console-tag-err';
-  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : '✕ ERR';
+  const isKwargs = data.event === 'request_kwargs';
+  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : isErr ? 'console-tag-err' : 'console-tag-req';
+  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : isErr ? '✕ ERR' : '→ KWARGS';
   const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';
   const llmLabel = data.llm === 'character' ? 'CHARACTER' : 'ANALYSIS';
 
@@ -3232,6 +3236,8 @@ function addRPConsoleEntry(data) {
     html += `<div class="msg-content assistant">${escapeHtml(data.content)}</div>`;
   } else if (isErr) {
     html += `<div class="msg-content" style="border-left-color:var(--red);color:var(--red)">${escapeHtml(data.message || data.content || '')}</div>`;
+  } else if (isKwargs && data.kwargs) {
+    html += `<pre style="margin:4px 0;font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all">${escapeHtml(JSON.stringify(data.kwargs, null, 2))}</pre>`;
   }
 
   if (isResp && data.usage) {

@@ -739,6 +739,10 @@ async def ws_chat(ws: WebSocket):
                             kwargs["top_p"] = db.CHAT_TOP_P
                         if db.CHAT_TOP_K is not None:
                             kwargs["top_k"] = db.CHAT_TOP_K
+                        await ws.send_json({
+                            "type": "console_event", "event": "request_kwargs", "llm": "character",
+                            "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
+                        })
                         resp = await db.chat_client.chat.completions.create(**kwargs)
                         char_content = resp.choices[0].message.content
                         usage = resp.usage
