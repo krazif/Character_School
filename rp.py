@@ -485,7 +485,10 @@ async def get_config():
             "top_k": _c.get("summary", {}).get("top_k", 40),
         },
         "paths": _c.get("paths", {"characters_dir": None, "personas_dir": None}),
-        "presets": _c.get("presets", {}),
+        "presets": {
+            name: {**p, "api_key": mask(p.get("api_key", ""))}
+            for name, p in _c.get("presets", {}).items()
+        },
     }
 
 
@@ -513,9 +516,20 @@ async def update_config(req: Request):
             else:
                 current[section][k] = v
 
-    # Presets — replace entirely if provided
+    # Presets — replace entirely if provided, but preserve masked keys
     if "presets" in body:
-        current["presets"] = body["presets"]
+        existing_presets = current.get("presets", {})
+        new_presets = {}
+        for name, p in body["presets"].items():
+            new_p = dict(p)
+            if new_p.get("api_key") and "…" in new_p["api_key"]:
+                # Masked key from GET — keep existing
+                if name in existing_presets:
+                    new_p["api_key"] = existing_presets[name].get("api_key", "")
+                else:
+                    new_p["api_key"] = ""
+            new_presets[name] = new_p
+        current["presets"] = new_presets
 
     db.save_config(current)
     db.reload_config()
