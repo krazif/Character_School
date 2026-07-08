@@ -4050,6 +4050,10 @@ async function savePreset(section) {
   const name = prompt('Preset name:');
   if (!name || !name.trim()) return;
   const fields = getEndpointFields(section);
+  // If api_key is masked, get the real key from the main config
+  if (fields.api_key && fields.api_key.includes('…')) {
+    fields.api_key = (window._cfg && window._cfg[section] && window._cfg[section].api_key) || '';
+  }
   if (section === 'chat') {
     fields.enable_thinking = document.getElementById('cfgChatEnableThinking').checked;
   }
