@@ -339,7 +339,7 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
                            directed_character: str = None) -> str:
     """Build system prompt for multi-character RP."""
     parts = []
-    parts.append("You are roleplaying as multiple characters in a shared scene. The user is a participant in the scene.")
+    parts.append("You are roleplaying as a character in a shared scene. The user is a participant in the scene.")
     parts.append("")
     parts.append("CHARACTERS IN THIS SCENE:")
     parts.append("")
@@ -406,11 +406,11 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
 
     # Turn routing
     parts.append("RESPONSE FORMAT:")
-    parts.append("- Start each character's response with [CharacterName]: followed by their dialogue and actions.")
+    parts.append("- Start your response with [CharacterName]: followed by the character's dialogue and actions.")
     parts.append("- Example: [Lisa]: *looks up from her book* What did you say?")
     if turn_routing == 'auto':
-        parts.append("- You choose which character(s) respond naturally. Multiple characters can respond in sequence, each with their own [Name]: prefix on a new line.")
-        parts.append("- Characters can react to the user AND to each other.")
+        parts.append("- You choose which single character responds. Respond as the one most appropriate for this moment.")
+        parts.append("- Do not write dialogue for other characters — only the one you choose.")
     else:  # directed
         if directed_character:
             parts.append(f"** CRITICAL: You must respond ONLY as {directed_character}. **")
@@ -424,11 +424,11 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
 
     # Response style
     if response_style == 'terse':
-        parts.append("RESPONSE STYLE: Keep each character's response to 1-2 short sentences. Pure dialogue with minimal action — like a quick text exchange. No internal thoughts, no narration.")
+        parts.append("RESPONSE STYLE: Keep your response to 1-2 short sentences. Pure dialogue with minimal action — like a quick text exchange. No internal thoughts, no narration.")
     elif response_style == 'brief':
-        parts.append("RESPONSE STYLE: Keep each character's response to 2-4 short sentences. Prioritize dialogue over description. Some action beats and body language, but still tight.")
+        parts.append("RESPONSE STYLE: Keep your response to 2-4 short sentences. Prioritize dialogue over description. Some action beats and body language, but still tight.")
     else:
-        parts.append("RESPONSE STYLE: Respond with a full paragraph per character. Include actions, internal thoughts, body language, and emotional detail.")
+        parts.append("RESPONSE STYLE: Respond with a full paragraph. Include actions, internal thoughts, body language, and emotional detail.")
     parts.append("")
 
     # Persona

@@ -254,25 +254,25 @@ async def ws_rp(ws: WebSocket):
 
                         parsed = engine.parse_rp_response(raw_content, character_names, character_order)
 
-                        # In directed mode, filter to only the directed character's response
                         if directed_to and directed_to in character_names:
+                            # Directed mode: force to the selected character
                             directed_name = character_names[directed_to]
                             if parsed:
-                                # Keep only the directed character's responses
+                                # Take only the directed character's response
                                 filtered = [p for p in parsed if p["filename"] == directed_to]
                                 if filtered:
-                                    parsed = filtered
+                                    parsed = filtered[:1]
                                 else:
-                                    # LLM responded as someone else despite instruction;
-                                    # strip any [Name]: prefix and attribute to the directed character
                                     import re as _re
                                     stripped = _re.sub(r'^\[[^\]]+\]:\s*', '', raw_content).strip()
                                     parsed = [{"filename": directed_to, "name": directed_name, "content": stripped}]
                             else:
-                                # No [Name]: prefix found — attribute to directed character
                                 parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
-                        elif not parsed:
-                            # Non-directed mode, no [Name]: prefix — send raw as first character
+                        elif parsed:
+                            # Auto mode: take only the first character the LLM chose
+                            parsed = parsed[:1]
+                        else:
+                            # No [Name]: prefix — attribute to first character
                             fn = character_order[0] if character_order else None
                             name = character_names.get(fn, "Unknown")
                             parsed = [{"filename": fn, "name": name, "content": raw_content.strip()}]
