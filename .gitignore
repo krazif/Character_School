@@ -17,6 +17,7 @@ personas/razif.json
 # Environment / secrets
 .env
 *.log
+config.jsonc
 
 # OS files
 .DS_Store
