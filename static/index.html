@@ -246,8 +246,8 @@ body.rp-mode .school-only { display:none; }
 .rp-session-item .meta { font-size:11px; color:var(--text-dim); margin-top:2px; }
 .rp-session-item .del-btn { font-size:11px; color:var(--text-dim); cursor:pointer; float:right; }
 .rp-session-item .del-btn:hover { color:var(--red); }
-.rp-session-item .branch-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
- .rp-session-item .branch-btn:hover { color:var(--green); }
+.rp-session-item .fork-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
+ .rp-session-item .fork-btn:hover { color:var(--green); }
 
 /* School Sessions */
 .school-session-item { padding:8px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.15s; }
@@ -257,8 +257,8 @@ body.rp-mode .school-only { display:none; }
 .school-session-item .meta { font-size:10px; color:var(--text-dim); margin-top:2px; }
 .school-session-item .del-btn { font-size:11px; color:var(--text-dim); cursor:pointer; float:right; }
 .school-session-item .del-btn:hover { color:var(--red); }
-.school-session-item .branch-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
-.school-session-item .branch-btn:hover { color:var(--green); }
+.school-session-item .fork-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
+.school-session-item .fork-btn:hover { color:var(--green); }
 .school-session-item .move-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
 .school-session-item .move-btn:hover { color:var(--blue); }
 
@@ -1723,9 +1723,14 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       updateInputState();
     } else if (data.type === 'user_message_stored') {
       // Server confirms the user message was stored and gives us the DB row id.
-      // Tag the last user DOM node so its delete link works.
-      if (_lastUserMsgDiv && data.message_id != null) {
-        _lastUserMsgDiv.dataset.messageId = data.message_id;
+      // Match by client_msg_id to tag the right DOM node.
+      if (data.message_id != null) {
+        const target = data.client_msg_id
+          ? document.querySelector(`[data-client-id="${data.client_msg_id}"]`)
+          : _lastUserMsgDiv;
+        if (target) {
+          target.dataset.messageId = data.message_id;
+        }
       }
     } else if (data.type === 'session_started') {
       // New session created
@@ -1926,7 +1931,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
 
 // ─── Chat ───────────────────────────────────────
 
-function addMessage(role, content, analysis, isFirst, messageId) {
+function addMessage(role, content, analysis, isFirst, messageId, clientId) {
   // Remove loading indicator if present
   const loading = document.getElementById('firstMesLoading');
   if (loading) loading.remove();
@@ -1948,6 +1953,10 @@ function addMessage(role, content, analysis, isFirst, messageId) {
   // Store the server-provided message ID (SQLite row id) on the DOM node
   if (messageId != null) {
     div.dataset.messageId = messageId;
+  }
+  // Store client-generated id for matching user_message_stored
+  if (clientId != null) {
+    div.dataset.clientId = clientId;
   }
 
   // Add delete link for non-system messages
@@ -2127,14 +2136,16 @@ function updateAnalysis(analysis, content) {
 
 // Track the last user DOM node so we can tag it with the DB message ID
 let _lastUserMsgDiv = null;
+let _clientMsgCounter = 0;
 
 function sendMessage() {
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-  _lastUserMsgDiv = addMessage('user', text, null, false);
-  ws.send(JSON.stringify({type: 'user_message', content: text}));
+  const clientId = 'um_' + (++_clientMsgCounter) + '_' + Date.now();
+  _lastUserMsgDiv = addMessage('user', text, null, false, null, clientId);
+  ws.send(JSON.stringify({type: 'user_message', content: text, client_msg_id: clientId}));
   input.value = '';
 
   isWaiting = true;
@@ -2851,7 +2862,15 @@ function handleRPMessage(data) {
     hideRPTyping();
     updateRPInputState();
   } else if (data.type === 'user_message_stored') {
-    // not needed for RP (we add DOM immediately)
+    // Tag the RP user message DOM node with the DB row id so delete works
+    if (data.message_id != null) {
+      const target = data.client_msg_id
+        ? document.querySelector(`[data-client-id="${data.client_msg_id}"]`)
+        : null;
+      if (target) {
+        target.dataset.messageId = data.message_id;
+      }
+    }
   } else if (data.type === 'summary_updated') {
     showRPSummaryBar(data.summary, data.summarized_count);
   } else if (data.type === 'settings_updated') {
@@ -2961,7 +2980,7 @@ function renderRPSceneBar() {
   }
 }
 
-function addRPMessage(role, content, speaker, messageId) {
+function addRPMessage(role, content, speaker, messageId, clientId) {
   // Remove empty placeholder
   const empty = document.getElementById('rpChatEmpty');
   if (empty) empty.remove();
@@ -2987,6 +3006,10 @@ function addRPMessage(role, content, speaker, messageId) {
 
   if (messageId != null) {
     div.dataset.messageId = messageId;
+  }
+  // Store client-generated id for matching user_message_stored
+  if (clientId != null) {
+    div.dataset.clientId = clientId;
   }
 
   // Delete link
@@ -3087,10 +3110,11 @@ function sendRPMessage() {
   const text = input.value.trim();
   if (!text || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
 
-  addRPMessage('user', text, null);
+  const clientId = 'rp_' + (++_clientMsgCounter) + '_' + Date.now();
+  addRPMessage('user', text, null, null, clientId);
 
   const directedTo = rpTurnRouting === 'directed' ? document.getElementById('rpDirectSelect').value : null;
-  rpWS.send(JSON.stringify({type: 'user_message', content: text, directed_to: directedTo || null}));
+  rpWS.send(JSON.stringify({type: 'user_message', content: text, directed_to: directedTo || null, client_msg_id: clientId}));
 
   input.value = '';
   rpIsWaiting = true;
@@ -3276,7 +3300,7 @@ async function loadRPSessions() {
       const style = rpStyleLabels[s.response_style] || 'Brief';
       return `<div class="rp-session-item${active}" data-session-id="${s.id}" onclick="resumeRPSession(${s.id})">
         <span class="del-btn" onclick="event.stopPropagation(); deleteRPSession(${s.id})">✕</span>
-        <span class="branch-btn" onclick="event.stopPropagation(); branchRPSession(${s.id})" title="Branch this session">🌿</span>
+        <span class="fork-btn" onclick="event.stopPropagation(); forkRPSession(${s.id})" title="Fork this session">🧬</span>
         <div class="title">${escapeHtml(s.title || 'Untitled')}</div>
         <div class="meta">${routing} · ${style} · ${date}</div>
       </div>`;
@@ -3309,19 +3333,19 @@ async function deleteRPSession(sessionId) {
   }
 }
 
-async function branchRPSession(sessionId) {
+async function forkRPSession(sessionId) {
   try {
-    const resp = await fetch('/api/rp/sessions/' + sessionId + '/branch', {method: 'POST'});
+    const resp = await fetch('/api/rp/sessions/' + sessionId + '/fork', {method: 'POST'});
     const result = await resp.json();
     if (result.error) { alert(result.error); return; }
-    // Reload session list to show the new branch
+    // Reload session list to show the new fork
     await loadRPSessions();
-    // Optionally auto-resume the branched session
+    // Optionally auto-resume the forked session
     if (result.new_session_id) {
       resumeRPSession(result.new_session_id);
     }
   } catch (e) {
-    alert('Failed to branch: ' + e.message);
+    alert('Failed to fork: ' + e.message);
   }
 }
 
@@ -3359,7 +3383,7 @@ async function loadSchoolSessions() {
       return `<div class="school-session-item${active}" data-session-id="${s.id}" onclick="resumeSchoolSession(${s.id})">
         <span class="del-btn" onclick="event.stopPropagation(); deleteSchoolSession(${s.id})">✕</span>
         <span class="move-btn" onclick="event.stopPropagation(); moveSchoolToRP(${s.id})" title="Move to RP">→</span>
-        <span class="branch-btn" onclick="event.stopPropagation(); branchSchoolSession(${s.id})" title="Branch this session">🌿</span>
+        <span class="fork-btn" onclick="event.stopPropagation(); forkSchoolSession(${s.id})" title="Fork this session">🧬</span>
         <div class="title">${escapeHtml(s.title || 'Untitled')}</div>
         <div class="meta">${date}${personaTag}${styleTag}</div>
       </div>`;
@@ -3436,9 +3460,9 @@ async function deleteSchoolSession(sessionId) {
   }
 }
 
-async function branchSchoolSession(sessionId) {
+async function forkSchoolSession(sessionId) {
   try {
-    const resp = await fetch('/api/school/sessions/' + sessionId + '/branch', {method: 'POST'});
+    const resp = await fetch('/api/school/sessions/' + sessionId + '/fork', {method: 'POST'});
     const result = await resp.json();
     if (result.error) { alert(result.error); return; }
     await loadSchoolSessions();
@@ -3446,7 +3470,7 @@ async function branchSchoolSession(sessionId) {
       resumeSchoolSession(result.new_session_id);
     }
   } catch (e) {
-    alert('Failed to branch: ' + e.message);
+    alert('Failed to fork: ' + e.message);
   }
 }
 

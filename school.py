@@ -432,9 +432,9 @@ async def api_school_delete_session(session_id: int):
     return JSONResponse({"deleted": deleted})
 
 
-@router.post("/api/school/sessions/{session_id}/branch")
-async def api_school_branch_session(session_id: int):
-    result = db.db_school_branch_session(session_id)
+@router.post("/api/school/sessions/{session_id}/fork")
+async def api_school_fork_session(session_id: int):
+    result = db.db_school_fork_session(session_id)
     if not result:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     return JSONResponse(result)
@@ -692,9 +692,10 @@ async def ws_chat(ws: WebSocket):
 
             elif data["type"] == "user_message":
                 user_content = data["content"]
+                client_msg_id = data.get("client_msg_id")
                 user_msg_id = db.db_school_add_message(session_id, "user", user_content)
 
-                await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id})
+                await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 
                 async def _school_gen():
                     try:

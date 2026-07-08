@@ -866,21 +866,21 @@ def db_rp_remove_character(session_id: int, filename: str) -> bool:
     return True
 
 
-def db_rp_branch_session(session_id: int) -> Optional[dict]:
+def db_rp_fork_session(session_id: int) -> Optional[dict]:
     """Duplicate an RP session with all its characters, messages, and settings.
     Returns {'new_session_id': N, 'title': '...'} or None on failure."""
     sess = db_rp_get_session(session_id)
     if not sess:
         return None
     conn = sqlite3.connect(str(DB_PATH))
-    # Copy session row with (branch) suffix
-    branch_title = sess['title'] + ' (branch)' if sess['title'] else 'Untitled (branch)'
+    # Copy session row with (fork) suffix
+    fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
     cur = conn.execute(
         """INSERT INTO rp_sessions
            (title, persona_filename, turn_routing, response_style,
              stack_config, console_events)
            VALUES (?, ?, ?, ?, ?, ?)""",
-        (branch_title, sess['persona_filename'], sess['turn_routing'], sess['response_style'],
+        (fork_title, sess['persona_filename'], sess['turn_routing'], sess['response_style'],
          sess.get('stack_config'), sess.get('console_events')),
     )
     new_sid = cur.lastrowid
@@ -906,7 +906,7 @@ def db_rp_branch_session(session_id: int) -> Optional[dict]:
         )
     conn.commit()
     conn.close()
-    return {'new_session_id': new_sid, 'title': branch_title}
+    return {'new_session_id': new_sid, 'title': fork_title}
 
 
 def db_rp_set_persona(session_id: int, persona_filename: str) -> None:
@@ -1079,16 +1079,16 @@ def db_school_get_assistant_messages(session_id: int) -> list[dict]:
     return result
 
 
-def db_school_branch_session(session_id: int) -> Optional[dict]:
+def db_school_fork_session(session_id: int) -> Optional[dict]:
     sess = db_school_get_session(session_id)
     if not sess:
         return None
     conn = sqlite3.connect(str(DB_PATH))
-    branch_title = sess['title'] + ' (branch)' if sess['title'] else 'Untitled (branch)'
+    fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
     cur = conn.execute(
         """INSERT INTO school_sessions (title, card_filename, persona_filename, stack_config, console_events)
            VALUES (?, ?, ?, ?, ?)""",
-        (branch_title, sess['card_filename'], sess['persona_filename'],
+        (fork_title, sess['card_filename'], sess['persona_filename'],
          sess.get('stack_config'), sess.get('console_events')),
     )
     new_sid = cur.lastrowid
@@ -1103,7 +1103,7 @@ def db_school_branch_session(session_id: int) -> Optional[dict]:
         )
     conn.commit()
     conn.close()
-    return {'new_session_id': new_sid, 'title': branch_title}
+    return {'new_session_id': new_sid, 'title': fork_title}
 
 
 def db_school_set_persona(session_id: int, persona_filename: str) -> None:

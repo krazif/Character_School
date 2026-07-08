@@ -35,9 +35,9 @@ async def api_rp_delete_session(session_id: int):
     return JSONResponse({"deleted": deleted})
 
 
-@router.post("/api/rp/sessions/{session_id}/branch")
-async def api_rp_branch_session(session_id: int):
-    result = db.db_rp_branch_session(session_id)
+@router.post("/api/rp/sessions/{session_id}/fork")
+async def api_rp_fork_session(session_id: int):
+    result = db.db_rp_fork_session(session_id)
     if not result:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     return JSONResponse(result)
@@ -186,8 +186,10 @@ async def ws_rp(ws: WebSocket):
             elif data["type"] == "user_message":
                 user_content = data["content"]
                 directed_to = data.get("directed_to")
+                client_msg_id = data.get("client_msg_id")
 
-                db.db_rp_add_message(session_id, "user", user_content)
+                user_msg_id = db.db_rp_add_message(session_id, "user", user_content)
+                await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 
                 async def _rp_gen():
                     try:
