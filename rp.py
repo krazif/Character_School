@@ -226,11 +226,16 @@ async def ws_rp(ws: WebSocket):
                             "timestamp": engine._now_iso(),
                         })
 
-                        resp = await db.chat_client.chat.completions.create(
+                        kwargs = dict(
                             model=db.CHAT_MODEL, messages=llm_messages,
                             temperature=db.CHAT_TEMPERATURE, max_tokens=db.CHAT_MAX_TOKENS,
                             extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
                         )
+                        if db.CHAT_TOP_P is not None:
+                            kwargs["top_p"] = db.CHAT_TOP_P
+                        if db.CHAT_TOP_K is not None:
+                            kwargs["top_k"] = db.CHAT_TOP_K
+                        resp = await db.chat_client.chat.completions.create(**kwargs)
                         raw_content = resp.choices[0].message.content
                         usage = resp.usage
 
@@ -457,6 +462,8 @@ async def get_config():
             "model": _c.get("chat", {}).get("model", ""),
             "temperature": _c.get("chat", {}).get("temperature", 0.8),
             "max_tokens": _c.get("chat", {}).get("max_tokens", 2000),
+            "top_p": _c.get("chat", {}).get("top_p", 1.0),
+            "top_k": _c.get("chat", {}).get("top_k", 40),
             "enable_thinking": _c.get("chat", {}).get("enable_thinking", False),
         },
         "analysis": {
@@ -465,6 +472,8 @@ async def get_config():
             "model": _c.get("analysis", {}).get("model", ""),
             "temperature": _c.get("analysis", {}).get("temperature", 0.1),
             "max_tokens": _c.get("analysis", {}).get("max_tokens", 1500),
+            "top_p": _c.get("analysis", {}).get("top_p", 1.0),
+            "top_k": _c.get("analysis", {}).get("top_k", 40),
         },
         "summary": {
             "base_url": _c.get("summary", {}).get("base_url", ""),
@@ -472,8 +481,11 @@ async def get_config():
             "model": _c.get("summary", {}).get("model", ""),
             "temperature": _c.get("summary", {}).get("temperature", 0.3),
             "max_tokens": _c.get("summary", {}).get("max_tokens", 1000),
+            "top_p": _c.get("summary", {}).get("top_p", 1.0),
+            "top_k": _c.get("summary", {}).get("top_k", 40),
         },
         "paths": _c.get("paths", {"characters_dir": None, "personas_dir": None}),
+        "presets": _c.get("presets", {}),
     }
 
 
@@ -496,12 +508,32 @@ async def update_config(req: Request):
                 continue
             if k in ("personas_dir", "characters_dir") and (v == "" or v is None):
                 current[section][k] = None
+            elif k in ("top_p", "top_k") and v == "":
+                current[section][k] = None
             else:
                 current[section][k] = v
+
+    # Presets — replace entirely if provided
+    if "presets" in body:
+        current["presets"] = body["presets"]
 
     db.save_config(current)
     db.reload_config()
     return {"status": "ok", "message": "Config saved and reloaded. Restart server if port/host changed."}
+
+
+@router.delete("/api/presets/{name}")
+async def delete_preset(name: str):
+    """Delete a named preset from config."""
+    current = db.load_config()
+    presets = current.get("presets", {})
+    if name not in presets:
+        return {"status": "error", "message": f"Preset '{name}' not found."}
+    del presets[name]
+    current["presets"] = presets
+    db.save_config(current)
+    db.reload_config()
+    return {"status": "ok", "message": f"Preset '{name}' deleted."}
 
 
 @router.post("/api/database/reset")

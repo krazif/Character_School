@@ -509,10 +509,15 @@ async def rp_summarize(session_id: int, messages_to_summarize: list[dict],
         })
 
     try:
-        resp = await db.summary_client.chat.completions.create(
+        kwargs = dict(
             model=db.SUMMARY_MODEL, messages=messages,
             temperature=db.SUMMARY_TEMPERATURE, max_tokens=db.SUMMARY_MAX_TOKENS,
         )
+        if db.SUMMARY_TOP_P is not None:
+            kwargs["top_p"] = db.SUMMARY_TOP_P
+        if db.SUMMARY_TOP_K is not None:
+            kwargs["top_k"] = db.SUMMARY_TOP_K
+        resp = await db.summary_client.chat.completions.create(**kwargs)
         summary = resp.choices[0].message.content.strip()
         usage = resp.usage
         if ws:
@@ -726,12 +731,17 @@ Return ONLY the JSON object."""
         })
 
     try:
-        resp = await db.analysis_client.chat.completions.create(
+        kwargs = dict(
             model=db.ANALYSIS_MODEL,
             messages=analysis_messages,
             temperature=db.ANALYSIS_TEMPERATURE,
             max_tokens=db.ANALYSIS_MAX_TOKENS,
         )
+        if db.ANALYSIS_TOP_P is not None:
+            kwargs["top_p"] = db.ANALYSIS_TOP_P
+        if db.ANALYSIS_TOP_K is not None:
+            kwargs["top_k"] = db.ANALYSIS_TOP_K
+        resp = await db.analysis_client.chat.completions.create(**kwargs)
         content = resp.choices[0].message.content.strip()
         usage = resp.usage
 
@@ -872,12 +882,17 @@ Return ONLY the JSON object."""},
         })
 
     try:
-        resp = await db.analysis_client.chat.completions.create(
+        kwargs = dict(
             model=db.ANALYSIS_MODEL,
             messages=report_messages,
             temperature=db.ANALYSIS_TEMPERATURE,
             max_tokens=db.ANALYSIS_MAX_TOKENS,
         )
+        if db.ANALYSIS_TOP_P is not None:
+            kwargs["top_p"] = db.ANALYSIS_TOP_P
+        if db.ANALYSIS_TOP_K is not None:
+            kwargs["top_k"] = db.ANALYSIS_TOP_K
+        resp = await db.analysis_client.chat.completions.create(**kwargs)
         content = resp.choices[0].message.content.strip()
         usage = resp.usage
 

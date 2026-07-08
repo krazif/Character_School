@@ -624,6 +624,14 @@ body.rp-mode .school-only { display:none; }
 
       <div class="settings-section">
         <div class="settings-section-title">Chat Endpoint (Character Responses)</div>
+        <div class="settings-field" style="flex-direction:row;align-items:center;gap:8px;">
+          <label style="margin:0;white-space:nowrap;">Preset</label>
+          <select id="cfgChatPreset" onchange="applyPreset('chat', this.value)" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px">
+            <option value="">— None (manual) —</option>
+          </select>
+          <button onclick="savePreset('chat')" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;white-space:nowrap">Save as Preset</button>
+          <button onclick="deletePreset('chat')" style="font-size:11px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:#e74c3c;cursor:pointer;white-space:nowrap">🗑</button>
+        </div>
         <div class="settings-field">
           <label>Base URL</label>
           <input type="text" id="cfgChatBaseUrl" placeholder="https://openrouter.ai/api/v1" />
@@ -646,6 +654,16 @@ body.rp-mode .school-only { display:none; }
             <input type="number" id="cfgChatMaxTok" value="2000" />
           </div>
         </div>
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label>Top P</label>
+            <input type="number" id="cfgChatTopP" step="0.05" min="0" max="1" value="1.0" />
+          </div>
+          <div class="settings-field">
+            <label>Top K</label>
+            <input type="number" id="cfgChatTopK" min="1" max="200" value="40" />
+          </div>
+        </div>
         <div class="settings-field" style="flex-direction:row;align-items:center;gap:8px;">
           <label style="margin:0;white-space:nowrap;">Enable Thinking</label>
           <input type="checkbox" id="cfgChatEnableThinking" />
@@ -655,6 +673,14 @@ body.rp-mode .school-only { display:none; }
 
       <div class="settings-section">
         <div class="settings-section-title">Analysis Endpoint (QA & Fix Suggestions)</div>
+        <div class="settings-field" style="flex-direction:row;align-items:center;gap:8px;">
+          <label style="margin:0;white-space:nowrap;">Preset</label>
+          <select id="cfgAnalysisPreset" onchange="applyPreset('analysis', this.value)" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px">
+            <option value="">— None (manual) —</option>
+          </select>
+          <button onclick="savePreset('analysis')" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;white-space:nowrap">Save as Preset</button>
+          <button onclick="deletePreset('analysis')" style="font-size:11px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:#e74c3c;cursor:pointer;white-space:nowrap">🗑</button>
+        </div>
         <div class="settings-field">
           <label>Base URL</label>
           <input type="text" id="cfgAnalysisBaseUrl" placeholder="https://openrouter.ai/api/v1" />
@@ -677,10 +703,28 @@ body.rp-mode .school-only { display:none; }
             <input type="number" id="cfgAnalysisMaxTok" value="1500" />
           </div>
         </div>
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label>Top P</label>
+            <input type="number" id="cfgAnalysisTopP" step="0.05" min="0" max="1" value="1.0" />
+          </div>
+          <div class="settings-field">
+            <label>Top K</label>
+            <input type="number" id="cfgAnalysisTopK" min="1" max="200" value="40" />
+          </div>
+        </div>
       </div>
 
       <div class="settings-section">
         <div class="settings-section-title">Summary Endpoint (RP Summarization)</div>
+        <div class="settings-field" style="flex-direction:row;align-items:center;gap:8px;">
+          <label style="margin:0;white-space:nowrap;">Preset</label>
+          <select id="cfgSummaryPreset" onchange="applyPreset('summary', this.value)" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px">
+            <option value="">— None (manual) —</option>
+          </select>
+          <button onclick="savePreset('summary')" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;white-space:nowrap">Save as Preset</button>
+          <button onclick="deletePreset('summary')" style="font-size:11px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:#e74c3c;cursor:pointer;white-space:nowrap">🗑</button>
+        </div>
         <div class="settings-field">
           <label>Base URL</label>
           <input type="text" id="cfgSummaryBaseUrl" placeholder="https://openrouter.ai/api/v1" />
@@ -701,6 +745,16 @@ body.rp-mode .school-only { display:none; }
           <div class="settings-field">
             <label>Max Tokens</label>
             <input type="number" id="cfgSummaryMaxTok" value="1000" />
+          </div>
+        </div>
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label>Top P</label>
+            <input type="number" id="cfgSummaryTopP" step="0.05" min="0" max="1" value="1.0" />
+          </div>
+          <div class="settings-field">
+            <label>Top K</label>
+            <input type="number" id="cfgSummaryTopK" min="1" max="200" value="40" />
           </div>
         </div>
       </div>
@@ -3776,22 +3830,31 @@ async function openSettings() {
     document.getElementById('cfgChatModel').value = cfg.chat.model || '';
     document.getElementById('cfgChatTemp').value = cfg.chat.temperature ?? 0.8;
     document.getElementById('cfgChatMaxTok').value = cfg.chat.max_tokens ?? 2000;
+    document.getElementById('cfgChatTopP').value = cfg.chat.top_p != null ? cfg.chat.top_p : '';
+    document.getElementById('cfgChatTopK').value = cfg.chat.top_k != null ? cfg.chat.top_k : '';
     document.getElementById('cfgChatEnableThinking').checked = cfg.chat.enable_thinking ?? false;
     document.getElementById('cfgAnalysisBaseUrl').value = cfg.analysis.base_url || '';
     document.getElementById('cfgAnalysisApiKey').value = cfg.analysis.api_key || '';
     document.getElementById('cfgAnalysisModel').value = cfg.analysis.model || '';
     document.getElementById('cfgAnalysisTemp').value = cfg.analysis.temperature ?? 0.1;
     document.getElementById('cfgAnalysisMaxTok').value = cfg.analysis.max_tokens ?? 1500;
+    document.getElementById('cfgAnalysisTopP').value = cfg.analysis.top_p != null ? cfg.analysis.top_p : '';
+    document.getElementById('cfgAnalysisTopK').value = cfg.analysis.top_k != null ? cfg.analysis.top_k : '';
     document.getElementById('cfgSummaryBaseUrl').value = cfg.summary?.base_url || '';
     document.getElementById('cfgSummaryApiKey').value = cfg.summary?.api_key || '';
     document.getElementById('cfgSummaryModel').value = cfg.summary?.model || '';
     document.getElementById('cfgSummaryTemp').value = cfg.summary?.temperature ?? 0.3;
     document.getElementById('cfgSummaryMaxTok').value = cfg.summary?.max_tokens ?? 1000;
+    document.getElementById('cfgSummaryTopP').value = cfg.summary?.top_p != null ? cfg.summary.top_p : '';
+    document.getElementById('cfgSummaryTopK').value = cfg.summary?.top_k != null ? cfg.summary.top_k : '';
     document.getElementById('cfgCharactersDir').value = cfg.paths.characters_dir || '';
     document.getElementById('cfgPersonasDir').value = cfg.paths.personas_dir || '';
     if (cfg.version) {
       document.getElementById('settingsFooter').textContent = `Character School v${cfg.version} © Krazif & Tunas`;
     }
+    // Populate preset dropdowns
+    window._presets = cfg.presets || {};
+    populatePresetDropdowns();
   } catch (e) {
     console.error('Failed to load config:', e);
     alert('Failed to load config: ' + e.message);
@@ -3819,6 +3882,8 @@ async function saveSettings() {
         model: document.getElementById('cfgChatModel').value.trim(),
         temperature: parseFloat(document.getElementById('cfgChatTemp').value) || 0.8,
         max_tokens: parseInt(document.getElementById('cfgChatMaxTok').value) || 2000,
+        top_p: (() => { const v = document.getElementById('cfgChatTopP').value.trim(); return v === '' ? null : (parseFloat(v) ?? 1.0); })(),
+        top_k: (() => { const v = document.getElementById('cfgChatTopK').value.trim(); return v === '' ? null : (parseInt(v) || 40); })(),
         enable_thinking: document.getElementById('cfgChatEnableThinking').checked,
       },
       analysis: {
@@ -3827,6 +3892,8 @@ async function saveSettings() {
         model: document.getElementById('cfgAnalysisModel').value.trim(),
         temperature: parseFloat(document.getElementById('cfgAnalysisTemp').value) || 0.1,
         max_tokens: parseInt(document.getElementById('cfgAnalysisMaxTok').value) || 1500,
+        top_p: (() => { const v = document.getElementById('cfgAnalysisTopP').value.trim(); return v === '' ? null : (parseFloat(v) ?? 1.0); })(),
+        top_k: (() => { const v = document.getElementById('cfgAnalysisTopK').value.trim(); return v === '' ? null : (parseInt(v) || 40); })(),
       },
       summary: {
         base_url: document.getElementById('cfgSummaryBaseUrl').value.trim(),
@@ -3834,6 +3901,8 @@ async function saveSettings() {
         model: document.getElementById('cfgSummaryModel').value.trim(),
         temperature: parseFloat(document.getElementById('cfgSummaryTemp').value) || 0.3,
         max_tokens: parseInt(document.getElementById('cfgSummaryMaxTok').value) || 1000,
+        top_p: (() => { const v = document.getElementById('cfgSummaryTopP').value.trim(); return v === '' ? null : (parseFloat(v) ?? 1.0); })(),
+        top_k: (() => { const v = document.getElementById('cfgSummaryTopK').value.trim(); return v === '' ? null : (parseInt(v) || 40); })(),
       },
       paths: {
         characters_dir: document.getElementById('cfgCharactersDir').value.trim() || null,
@@ -3892,6 +3961,110 @@ async function resetDatabase() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Reset Database';
+  }
+}
+
+// ── Preset helpers ────────────────────────────────────────────────
+
+function populatePresetDropdowns() {
+  const presets = window._presets || {};
+  const names = Object.keys(presets).sort();
+  for (const section of ['chat', 'analysis', 'summary']) {
+    const sel = document.getElementById(`cfg${section.charAt(0).toUpperCase() + section.slice(1)}Preset`);
+    if (!sel) continue;
+    sel.innerHTML = '<option value="">— None (manual) —</option>';
+    for (const name of names) {
+      sel.innerHTML += `<option value="${name}">${name}</option>`;
+    }
+  }
+}
+
+function getEndpointFields(section) {
+  const cap = section.charAt(0).toUpperCase() + section.slice(1);
+  const topP = document.getElementById(`cfg${cap}TopP`).value.trim();
+  const topK = document.getElementById(`cfg${cap}TopK`).value.trim();
+  return {
+    base_url: document.getElementById(`cfg${cap}BaseUrl`).value.trim(),
+    api_key: document.getElementById(`cfg${cap}ApiKey`).value.trim(),
+    model: document.getElementById(`cfg${cap}Model`).value.trim(),
+    temperature: parseFloat(document.getElementById(`cfg${cap}Temp`).value) || 0.8,
+    max_tokens: parseInt(document.getElementById(`cfg${cap}MaxTok`).value) || 2000,
+    top_p: topP === '' ? null : (parseFloat(topP) ?? 1.0),
+    top_k: topK === '' ? null : (parseInt(topK) || 40),
+  };
+}
+
+function setEndpointFields(section, preset) {
+  const cap = section.charAt(0).toUpperCase() + section.slice(1);
+  document.getElementById(`cfg${cap}BaseUrl`).value = preset.base_url || '';
+  document.getElementById(`cfg${cap}ApiKey`).value = preset.api_key || '';
+  document.getElementById(`cfg${cap}Model`).value = preset.model || '';
+  document.getElementById(`cfg${cap}Temp`).value = preset.temperature ?? 0.8;
+  document.getElementById(`cfg${cap}MaxTok`).value = preset.max_tokens ?? 2000;
+  document.getElementById(`cfg${cap}TopP`).value = preset.top_p != null ? preset.top_p : '';
+  document.getElementById(`cfg${cap}TopK`).value = preset.top_k != null ? preset.top_k : '';
+  if (section === 'chat') {
+    document.getElementById('cfgChatEnableThinking').checked = preset.enable_thinking ?? false;
+  }
+}
+
+function applyPreset(section, name) {
+  if (!name) return;
+  const presets = window._presets || {};
+  const preset = presets[name];
+  if (!preset) return;
+  setEndpointFields(section, preset);
+}
+
+async function savePreset(section) {
+  const name = prompt('Preset name:');
+  if (!name || !name.trim()) return;
+  const fields = getEndpointFields(section);
+  if (section === 'chat') {
+    fields.enable_thinking = document.getElementById('cfgChatEnableThinking').checked;
+  }
+  const presets = { ...(window._presets || {}) };
+  presets[name.trim()] = fields;
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ presets }),
+    });
+    if (res.ok) {
+      window._presets = presets;
+      populatePresetDropdowns();
+      // Select the newly saved preset
+      const cap = section.charAt(0).toUpperCase() + section.slice(1);
+      document.getElementById(`cfg${cap}Preset`).value = name.trim();
+    } else {
+      const data = await res.json();
+      alert('Failed to save preset: ' + (data.detail || data.message || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Failed to save preset: ' + e.message);
+  }
+}
+
+async function deletePreset(section) {
+  const cap = section.charAt(0).toUpperCase() + section.slice(1);
+  const sel = document.getElementById(`cfg${cap}Preset`);
+  const name = sel.value;
+  if (!name) return;
+  if (!confirm(`Delete preset "${name}"?`)) return;
+  try {
+    const res = await fetch(`/api/presets/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (res.ok) {
+      const presets = { ...(window._presets || {}) };
+      delete presets[name];
+      window._presets = presets;
+      populatePresetDropdowns();
+    } else {
+      const data = await res.json();
+      alert('Failed to delete preset: ' + (data.detail || data.message || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Failed to delete preset: ' + e.message);
   }
 }
 </script>

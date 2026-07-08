@@ -728,13 +728,18 @@ async def ws_chat(ws: WebSocket):
                             "timestamp": engine._now_iso(),
                         })
 
-                        resp = await db.chat_client.chat.completions.create(
+                        kwargs = dict(
                             model=db.CHAT_MODEL,
                             messages=llm_messages,
                             temperature=db.CHAT_TEMPERATURE,
                             max_tokens=db.CHAT_MAX_TOKENS,
                             extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
                         )
+                        if db.CHAT_TOP_P is not None:
+                            kwargs["top_p"] = db.CHAT_TOP_P
+                        if db.CHAT_TOP_K is not None:
+                            kwargs["top_k"] = db.CHAT_TOP_K
+                        resp = await db.chat_client.chat.completions.create(**kwargs)
                         char_content = resp.choices[0].message.content
                         usage = resp.usage
 

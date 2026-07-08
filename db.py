@@ -12,6 +12,38 @@ from openai import AsyncOpenAI
 
 APP_VERSION = "1.0.0"
 
+# ─── Helpers ──────────────────────────────────────────────────────
+def _normalize_float(val):
+    """Return float or None. Empty/None/NaN → None."""
+    if val is None or val == "" or val == "null":
+        return None
+    try:
+        f = float(val)
+        return f if f == f else None  # NaN check
+    except (ValueError, TypeError):
+        return None
+
+def _normalize_int(val):
+    """Return int or None. Empty/None/NaN → None."""
+    if val is None or val == "" or val == "null":
+        return None
+    try:
+        i = int(val)
+        return i
+    except (ValueError, TypeError):
+        return None
+
+def _json_val(val):
+    """Return JSON-safe representation: number, null, or string.
+    Empty strings are normalized to null."""
+    if val is None or val == "":
+        return "null"
+    if isinstance(val, bool):
+        return "true" if val else "false"
+    if isinstance(val, (int, float)):
+        return str(val)
+    return json.dumps(val)
+
 # ─── Config ───────────────────────────────────────────────────────
 # Load config from config.jsonc (supports comments)
 def load_config() -> dict:
@@ -87,6 +119,8 @@ def save_config(cfg: dict):
     lines.append('    "model": ' + json.dumps(str(chat.get("model", "deepseek/deepseek-v4-flash"))) + ',')
     lines.append(f'    "temperature": {float(chat.get("temperature", 0.8))},')
     lines.append(f'    "max_tokens": {int(chat.get("max_tokens", 2000))},')
+    lines.append(f'    "top_p": {_json_val(chat.get("top_p"))},')
+    lines.append(f'    "top_k": {_json_val(chat.get("top_k"))},')
     lines.append(f'    "enable_thinking": {"true" if chat.get("enable_thinking", False) else "false"}')
     lines.append('  },')
     ana = cfg.get("analysis", {})
@@ -98,7 +132,9 @@ def save_config(cfg: dict):
     lines.append('    "api_key": ' + (json.dumps(ana_key) if ana_key else 'null') + ',')
     lines.append('    "model": ' + json.dumps(str(ana.get("model", "deepseek/deepseek-v4-flash"))) + ',')
     lines.append(f'    "temperature": {float(ana.get("temperature", 0.1))},')
-    lines.append(f'    "max_tokens": {int(ana.get("max_tokens", 1500))}')
+    lines.append(f'    "max_tokens": {int(ana.get("max_tokens", 1500))},')
+    lines.append(f'    "top_p": {_json_val(ana.get("top_p"))},')
+    lines.append(f'    "top_k": {_json_val(ana.get("top_k"))}')
     lines.append('  },')
     summ = cfg.get("summary", {})
     lines.append('')
@@ -109,7 +145,9 @@ def save_config(cfg: dict):
     lines.append('    "api_key": ' + (json.dumps(summ_key) if summ_key else 'null') + ',')
     lines.append('    "model": ' + json.dumps(str(summ.get("model", "deepseek/deepseek-v4-flash"))) + ',')
     lines.append(f'    "temperature": {float(summ.get("temperature", 0.3))},')
-    lines.append(f'    "max_tokens": {int(summ.get("max_tokens", 1000))}')
+    lines.append(f'    "max_tokens": {int(summ.get("max_tokens", 1000))},')
+    lines.append(f'    "top_p": {_json_val(summ.get("top_p"))},')
+    lines.append(f'    "top_k": {_json_val(summ.get("top_k"))}')
     lines.append('  },')
     paths = cfg.get("paths", {})
     lines.append('')
@@ -119,7 +157,15 @@ def save_config(cfg: dict):
     lines.append('    "characters_dir": ' + (json.dumps(_cdir) if _cdir else 'null') + ', // null = defaults to ./characters inside app dir')
     pdir = paths.get("personas_dir")
     lines.append('    "personas_dir": ' + (json.dumps(pdir) if pdir else 'null') + '  // null = defaults to ./personas inside app dir')
-    lines.append('  }')
+    # ─── Presets ───
+    presets = cfg.get("presets", {})
+    if presets:
+        lines.append('  },')
+        lines.append('')
+        lines.append('  // ── Endpoint Presets ──')
+        lines.append('  "presets": ' + json.dumps(presets, indent=4).replace('\n', '\n  '))
+    else:
+        lines.append('  }')
     lines.append('}')
     config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -127,9 +173,9 @@ def save_config(cfg: dict):
 def reload_config():
     """Reload config from disk and update all globals + LLM clients."""
     global _cfg, CHAT_BASE_URL, CHAT_API_KEY, CHAT_MODEL, CHAT_TEMPERATURE, CHAT_MAX_TOKENS, CHAT_ENABLE_THINKING
-    global ANALYSIS_BASE_URL, ANALYSIS_API_KEY, ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS
-    global SUMMARY_BASE_URL, SUMMARY_API_KEY, SUMMARY_MODEL, SUMMARY_TEMPERATURE, SUMMARY_MAX_TOKENS
-    global chat_client, analysis_client, summary_client, CHARACTERS_DIR, PERSONAS_DIR
+    global ANALYSIS_BASE_URL, ANALYSIS_API_KEY, ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, ANALYSIS_TOP_P, ANALYSIS_TOP_K
+    global SUMMARY_BASE_URL, SUMMARY_API_KEY, SUMMARY_MODEL, SUMMARY_TEMPERATURE, SUMMARY_MAX_TOKENS, SUMMARY_TOP_P, SUMMARY_TOP_K
+    global chat_client, analysis_client, summary_client, CHARACTERS_DIR, PERSONAS_DIR, PRESETS
     _cfg = load_config()
     _chat_cfg = _cfg.get("chat", {})
     _analysis_cfg = _cfg.get("analysis", {})
@@ -143,16 +189,23 @@ def reload_config():
     CHAT_TEMPERATURE = _chat_cfg.get("temperature", 0.8)
     CHAT_MAX_TOKENS  = _chat_cfg.get("max_tokens", 2000)
     CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
+    CHAT_TOP_P = _normalize_float(_chat_cfg.get("top_p"))
+    CHAT_TOP_K = _normalize_int(_chat_cfg.get("top_k"))
     ANALYSIS_BASE_URL    = os.environ.get("CHARACTERSCHOOL_ANALYSIS_BASE_URL",    _analysis_cfg.get("base_url", "https://openrouter.ai/api/v1"))
     ANALYSIS_API_KEY     = os.environ.get("CHARACTERSCHOOL_ANALYSIS_API_KEY",     _analysis_key or os.environ.get("OPENROUTER_API_KEY", ""))
     ANALYSIS_MODEL       = os.environ.get("CHARACTERSCHOOL_ANALYSIS_MODEL",       _analysis_cfg.get("model", "deepseek/deepseek-v4-flash"))
     ANALYSIS_TEMPERATURE = _analysis_cfg.get("temperature", 0.1)
     ANALYSIS_MAX_TOKENS  = _analysis_cfg.get("max_tokens", 1500)
+    ANALYSIS_TOP_P = _normalize_float(_analysis_cfg.get("top_p"))
+    ANALYSIS_TOP_K = _normalize_int(_analysis_cfg.get("top_k"))
     SUMMARY_BASE_URL    = os.environ.get("CHARACTERSCHOOL_SUMMARY_BASE_URL",    _summary_cfg.get("base_url", "https://openrouter.ai/api/v1"))
     SUMMARY_API_KEY     = os.environ.get("CHARACTERSCHOOL_SUMMARY_API_KEY",     _summary_key or os.environ.get("OPENROUTER_API_KEY", ""))
     SUMMARY_MODEL       = os.environ.get("CHARACTERSCHOOL_SUMMARY_MODEL",       _summary_cfg.get("model", "deepseek/deepseek-v4-flash"))
     SUMMARY_TEMPERATURE = _summary_cfg.get("temperature", 0.3)
     SUMMARY_MAX_TOKENS  = _summary_cfg.get("max_tokens", 1000)
+    SUMMARY_TOP_P = _normalize_float(_summary_cfg.get("top_p"))
+    SUMMARY_TOP_K = _normalize_int(_summary_cfg.get("top_k"))
+    PRESETS = _cfg.get("presets", {})
     chat_client     = AsyncOpenAI(base_url=CHAT_BASE_URL,     api_key=CHAT_API_KEY or "not-configured")
     analysis_client = AsyncOpenAI(base_url=ANALYSIS_BASE_URL, api_key=ANALYSIS_API_KEY or "not-configured")
     summary_client  = AsyncOpenAI(base_url=SUMMARY_BASE_URL,  api_key=SUMMARY_API_KEY or "not-configured")
@@ -192,12 +245,16 @@ CHAT_MODEL       = os.environ.get("CHARACTERSCHOOL_CHAT_MODEL",       _chat_cfg.
 CHAT_TEMPERATURE = _chat_cfg.get("temperature", 0.8)
 CHAT_MAX_TOKENS  = _chat_cfg.get("max_tokens", 2000)
 CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
+CHAT_TOP_P = _normalize_float(_chat_cfg.get("top_p"))
+CHAT_TOP_K = _normalize_int(_chat_cfg.get("top_k"))
 
 ANALYSIS_BASE_URL    = os.environ.get("CHARACTERSCHOOL_ANALYSIS_BASE_URL",    _analysis_cfg.get("base_url", "https://openrouter.ai/api/v1"))
 ANALYSIS_API_KEY     = os.environ.get("CHARACTERSCHOOL_ANALYSIS_API_KEY",     _analysis_key or os.environ.get("OPENROUTER_API_KEY", ""))
 ANALYSIS_MODEL       = os.environ.get("CHARACTERSCHOOL_ANALYSIS_MODEL",       _analysis_cfg.get("model", "deepseek/deepseek-v4-flash"))
 ANALYSIS_TEMPERATURE = _analysis_cfg.get("temperature", 0.1)
 ANALYSIS_MAX_TOKENS  = _analysis_cfg.get("max_tokens", 1500)
+ANALYSIS_TOP_P = _normalize_float(_analysis_cfg.get("top_p"))
+ANALYSIS_TOP_K = _normalize_int(_analysis_cfg.get("top_k"))
 
 # ─── LLM Clients ──────────────────────────────────────────────────
 # Use a placeholder when no key is configured so the server still starts;
@@ -212,7 +269,12 @@ SUMMARY_API_KEY     = os.environ.get("CHARACTERSCHOOL_SUMMARY_API_KEY",     _sum
 SUMMARY_MODEL       = os.environ.get("CHARACTERSCHOOL_SUMMARY_MODEL",       _summary_cfg.get("model", "deepseek/deepseek-v4-flash"))
 SUMMARY_TEMPERATURE = _summary_cfg.get("temperature", 0.3)
 SUMMARY_MAX_TOKENS  = _summary_cfg.get("max_tokens", 1000)
+SUMMARY_TOP_P = _normalize_float(_summary_cfg.get("top_p"))
+SUMMARY_TOP_K = _normalize_int(_summary_cfg.get("top_k"))
 summary_client  = AsyncOpenAI(base_url=SUMMARY_BASE_URL,  api_key=SUMMARY_API_KEY or "not-configured")
+
+# ─── Presets ──────────────────────────────────────────────────────
+PRESETS = _cfg.get("presets", {})
 
 # ─── SQLite Database ─────────────────────────────────────────────
 DB_PATH = APP_DIR / "char_test.db"
