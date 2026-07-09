@@ -2855,7 +2855,7 @@ function handleRPMessage(data) {
     if (data.messages) {
       data.messages.forEach(m => {
         if (m.role === 'user') {
-          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null });
+          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null, personaName: currentPersona?.name || null });
         } else if (m.role === 'character') {
           rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: null });
         }
@@ -3014,8 +3014,9 @@ function addRPMessage(role, content, speaker, messageId, clientId) {
   const empty = document.getElementById('rpChatEmpty');
   if (empty) empty.remove();
 
-  // Push to array
-  const msg = { role, content, speaker, messageId, clientId };
+  // Push to array — stamp persona name per-message so old labels don't change when persona switches
+  const personaName = role === 'user' ? (currentPersona?.name || null) : null;
+  const msg = { role, content, speaker, messageId, clientId, personaName };
   rpMessages.push(msg);
 
   // Render
@@ -4328,7 +4329,7 @@ function buildRPMessageDOM(msg, index) {
   label.className = 'rp-msg-label';
   div.appendChild(document.createTextNode(' '));
   if (msg.role === 'user') {
-    label.textContent = currentPersona?.name || 'You';
+    label.textContent = msg.personaName || 'You';
   } else if (msg.role === 'system') {
     label.textContent = 'System';
   } else {
