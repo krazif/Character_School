@@ -1892,9 +1892,13 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.persona) {
         const p = personasList.find(p => p.filename === data.persona);
         if (p) {
+          currentPersona = p;
+          currentPersonaFilename = data.persona;
           document.getElementById('charName').innerHTML = escapeHtml(currentCard?.data?.name || '') + `<span class="persona-badge">vs ${escapeHtml(p.name)}</span>`;
         }
       } else {
+        currentPersona = null;
+        currentPersonaFilename = null;
         document.getElementById('charName').textContent = currentCard?.data?.name || currentFilename;
       }
       loadSchoolSessions();
@@ -2893,6 +2897,13 @@ function handleRPMessage(data) {
     }
   } else if (data.type === 'persona_changed') {
     rpPersonaFilename = data.persona;
+    // Update currentPersona so user message labels reflect the new persona
+    if (data.persona) {
+      const p = personasList.find(p => p.filename === data.persona);
+      if (p) currentPersona = p;
+    } else {
+      currentPersona = null;
+    }
     renderRPSceneBar();
   } else if (data.type === 'character_added') {
     rpCharacters = data.characters;
