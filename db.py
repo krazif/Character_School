@@ -346,6 +346,11 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rp_messages_session ON rp_messages(session_id, seq)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rp_characters_session ON rp_characters(session_id, display_order)")
+    # Migration: add persona_name column to rp_messages if not exists
+    try:
+        conn.execute("ALTER TABLE rp_messages ADD COLUMN persona_name TEXT")
+    except Exception:
+        pass  # Column already exists
     # Migration: add stack_config column if not exists
     try:
         conn.execute("ALTER TABLE rp_sessions ADD COLUMN stack_config TEXT")
@@ -664,13 +669,13 @@ def db_rp_create_session(characters: list[dict], persona_filename: str,
     return sid
 
 
-def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None) -> int:
+def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None, persona_name: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM rp_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
-        "INSERT INTO rp_messages (session_id, seq, role, speaker, content) VALUES (?, ?, ?, ?, ?)",
-        (session_id, next_seq, role, speaker, content),
+        "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name) VALUES (?, ?, ?, ?, ?, ?)",
+        (session_id, next_seq, role, speaker, content, persona_name),
     )
     msg_id = cur.lastrowid
     conn.execute("UPDATE rp_sessions SET updated_at = datetime('now') WHERE id = ?", (session_id,))
@@ -682,11 +687,11 @@ def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = N
 def db_rp_get_messages(session_id: int) -> list[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     rows = conn.execute(
-        "SELECT id, seq, role, speaker, content FROM rp_messages WHERE session_id = ? ORDER BY seq",
+        "SELECT id, seq, role, speaker, content, persona_name FROM rp_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
     ).fetchall()
     conn.close()
-    return [{"id": r[0], "seq": r[1], "role": r[2], "speaker": r[3], "content": r[4]} for r in rows]
+    return [{"id": r[0], "seq": r[1], "role": r[2], "speaker": r[3], "content": r[4], "persona_name": r[5]} for r in rows]
 
 
 def db_rp_get_session(session_id: int) -> Optional[dict]:
@@ -894,15 +899,15 @@ def db_rp_fork_session(session_id: int) -> Optional[dict]:
             "INSERT INTO rp_characters (session_id, card_filename, char_name, display_order) VALUES (?, ?, ?, ?)",
             (new_sid, c[0], c[1], c[2]),
         )
-    # Copy messages (preserving seq, role, speaker, content)
+    # Copy messages (preserving seq, role, speaker, content, persona_name)
     msgs = conn.execute(
-        "SELECT seq, role, speaker, content FROM rp_messages WHERE session_id = ? ORDER BY seq",
+        "SELECT seq, role, speaker, content, persona_name FROM rp_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
     ).fetchall()
     for m in msgs:
         conn.execute(
-            "INSERT INTO rp_messages (session_id, seq, role, speaker, content) VALUES (?, ?, ?, ?, ?)",
-            (new_sid, m[0], m[1], m[2], m[3]),
+            "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name) VALUES (?, ?, ?, ?, ?, ?)",
+            (new_sid, m[0], m[1], m[2], m[3], m[4]),
         )
     conn.commit()
     conn.close()
@@ -1171,8 +1176,8 @@ def db_school_to_rp(session_id: int) -> Optional[int]:
             role = 'character'
             speaker = char_name
         conn.execute(
-            "INSERT INTO rp_messages (session_id, seq, role, speaker, content) VALUES (?, ?, ?, ?, ?)",
-            (rp_sid, m['seq'], role, speaker, m['content']),
+            "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name) VALUES (?, ?, ?, ?, ?, ?)",
+            (rp_sid, m['seq'], role, speaker, m['content'], m.get('persona_name')),
         )
 
     conn.commit()

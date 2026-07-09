@@ -179,7 +179,7 @@ async def ws_rp(ws: WebSocket):
                     "persona": persona_filename,
                     "turn_routing": turn_routing, "response_style": response_style,
                     "stack_config": stack_cfg,
-                    "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"]} for m in messages],
+                    "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name")} for m in messages],
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
                 })
 
@@ -188,7 +188,8 @@ async def ws_rp(ws: WebSocket):
                 directed_to = data.get("directed_to")
                 client_msg_id = data.get("client_msg_id")
 
-                user_msg_id = db.db_rp_add_message(session_id, "user", user_content)
+                _pn = persona.get("name") if persona else None
+                user_msg_id = db.db_rp_add_message(session_id, "user", user_content, persona_name=_pn)
                 await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 
                 async def _rp_gen():

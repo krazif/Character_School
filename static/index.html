@@ -2855,7 +2855,7 @@ function handleRPMessage(data) {
     if (data.messages) {
       data.messages.forEach(m => {
         if (m.role === 'user') {
-          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null, personaName: currentPersona?.name || null });
+          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null, personaName: m.persona_name || null });
         } else if (m.role === 'character') {
           rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: null });
         }
