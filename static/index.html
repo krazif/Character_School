@@ -1692,12 +1692,10 @@ async function selectCard(filename) {
   const d = currentCard.data || currentCard;
   document.getElementById('charName').textContent = d.name || filename;
 
-  // Enable persona selector (no session yet — just load card data)
+  // Enable persona selector + editor (no session yet — just load card data)
   document.getElementById('personaSelect').disabled = false;
   document.getElementById('btnPersonaEditor').disabled = false;
-
-  // Show the "+ New" button so user can create a session
-  document.getElementById('btnNewSchoolSession').style.display = '';
+  document.getElementById('btnEditor').disabled = false;
 
   // If there's an active session from a different card, disconnect it
   if (schoolActiveSessionId && ws && ws.readyState === WebSocket.OPEN) {
