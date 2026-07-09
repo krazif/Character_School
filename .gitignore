@@ -8,8 +8,12 @@ __pycache__/
 *.pyo
 
 # Characters directory — keep the folder, ignore personal cards
+# (default cards shipped with repo are force-added with git add -f)
 characters/*.json
 characters/*.png
+# Ship p_ramlee as a default card
+!characters/p_ramlee.json
+!characters/p_ramlee.png
 
 # Personal persona
 personas/razif.json
