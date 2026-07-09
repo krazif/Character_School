@@ -1775,8 +1775,13 @@ function connectWS(filename, personaFilename, resumeSessionId) {
         // Show persona badge
         const p = personasList.find(p => p.filename === data.persona);
         if (p) {
+          currentPersona = p;
+          currentPersonaFilename = data.persona;
           document.getElementById('charName').innerHTML = escapeHtml(currentCard?.data?.name || '') + `<span class="persona-badge">vs ${escapeHtml(p.name)}</span>`;
         }
+      } else {
+        currentPersona = null;
+        currentPersonaFilename = null;
       }
       // Refresh sessions sidebar
       loadSchoolSessions();
@@ -1833,9 +1838,13 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.persona) {
         const p = personasList.find(p => p.filename === data.persona);
         if (p) {
+          currentPersona = p;
+          currentPersonaFilename = data.persona;
           document.getElementById('charName').innerHTML = escapeHtml(currentCard?.data?.name || '') + `<span class="persona-badge">vs ${escapeHtml(p.name)}</span>`;
         }
       } else {
+        currentPersona = null;
+        currentPersonaFilename = null;
         document.getElementById('charName').textContent = currentCard?.data?.name || currentFilename;
       }
       // Highlight in sidebar
@@ -2185,7 +2194,11 @@ function onPersonaChange() {
     return;
   }
 
-  // Fetch persona details
+  // Set from cached list immediately so the next message label is correct
+  const cached = personasList.find(p => p.filename === filename);
+  if (cached) currentPersona = cached;
+
+  // Fetch persona details for full data
   fetch('/api/personas/' + filename).then(r => r.json()).then(p => {
     currentPersona = p;
     // Only send to server if a session is already active
@@ -2782,6 +2795,13 @@ function handleRPMessage(data) {
     rpActiveSessionId = data.session_id;
     rpCharacters = data.characters;
     rpPersonaFilename = data.persona;
+    // Update currentPersona so user message labels show the persona name
+    if (data.persona) {
+      const p = personasList.find(p => p.filename === data.persona);
+      if (p) currentPersona = p;
+    } else {
+      currentPersona = null;
+    }
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
     rpStackConfig = data.stack_config || null;
@@ -2802,6 +2822,13 @@ function handleRPMessage(data) {
     rpActiveSessionId = data.session_id;
     rpCharacters = data.characters;
     rpPersonaFilename = data.persona;
+    // Update currentPersona so user message labels show the persona name
+    if (data.persona) {
+      const p = personasList.find(p => p.filename === data.persona);
+      if (p) currentPersona = p;
+    } else {
+      currentPersona = null;
+    }
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
     rpStackConfig = data.stack_config || null;
@@ -3102,6 +3129,13 @@ function stopRPGeneration() {
 function onRPPersonaChange() {
   const filename = document.getElementById('rpPersonaBar').value || null;
   rpPersonaFilename = filename;
+  // Update currentPersona immediately so the next user message label is correct
+  if (filename) {
+    const p = personasList.find(p => p.filename === filename);
+    if (p) currentPersona = p;
+  } else {
+    currentPersona = null;
+  }
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {
     rpWS.send(JSON.stringify({type: 'set_persona', persona_filename: filename}));
   }
