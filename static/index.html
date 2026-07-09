@@ -1697,6 +1697,9 @@ async function selectCard(filename) {
   document.getElementById('btnPersonaEditor').disabled = false;
   document.getElementById('btnEditor').disabled = false;
 
+  // Show the "+ New" button so user can create a session
+  document.getElementById('btnNewSchoolSession').style.display = '';
+
   // If there's an active session from a different card, disconnect it
   if (schoolActiveSessionId && ws && ws.readyState === WebSocket.OPEN) {
     if (schoolConsoleEvents.length > 0) {
