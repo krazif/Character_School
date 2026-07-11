@@ -4046,7 +4046,7 @@ function setEndpointFields(section, preset) {
 function applyPreset(section, name) {
   if (!name) return;
   // Use unmasked preset data if available, fall back to window._presets
-  const presets = _presetData || window._presets || {};
+  const presets = Object.keys(_presetData).length ? _presetData : (window._presets || {});
   const preset = presets[name];
   if (!preset) return;
   setEndpointFields(section, preset);
