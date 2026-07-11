@@ -33,4 +33,4 @@ if __name__ == "__main__":
     _srv = db._cfg.get("server", {})
     _host = os.environ.get("CHARACTERSCHOOL_HOST", _srv.get("host", "0.0.0.0"))
     _port = int(os.environ.get("CHARACTERSCHOOL_PORT", _srv.get("port", 7862)))
-    uvicorn.run(app, host=_host, port=_port)
+    uvicorn.run(app, host=_host, port=_port, ws_max_size=16 * 1024 * 1024)  # 16MB WS limit

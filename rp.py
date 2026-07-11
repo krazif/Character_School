@@ -57,16 +57,16 @@ async def ws_rp(ws: WebSocket):
     turn_routing = 'auto'
     response_style = 'brief'
     current_gen_task = None  # background generation task (for stop support)
-    _ws_alive = True  # track whether the websocket is still open
+    _ws_state = [True]  # [is_alive] — mutable container to avoid nonlocal issues
 
     async def _safe_send(payload):
         """Send JSON only if the websocket is still alive."""
-        if not _ws_alive:
+        if not _ws_state[0]:
             return
         try:
             await ws.send_json(payload)
         except Exception:
-            _ws_alive = False
+            _ws_state[0] = False
 
     try:
         while True:
@@ -205,7 +205,7 @@ async def ws_rp(ws: WebSocket):
                 async def _rp_gen():
                     try:
                         # ── Auto-summary check (after user message, before LLM) ──
-                        if _ws_alive:
+                        if _ws_state[0]:
                             await check_auto_summary(session_id, ws, send_fn=_safe_send)
 
                         # Get stack config
@@ -226,7 +226,7 @@ async def ws_rp(ws: WebSocket):
                         )
 
                         # Typing indicator
-                        if not _ws_alive: return
+                        if not _ws_state[0]: return
                         if directed_to and directed_to in character_names:
                             await _safe_send({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})
                         else:
@@ -254,12 +254,12 @@ async def ws_rp(ws: WebSocket):
                             "type": "console_event", "event": "request_kwargs", "llm": "character",
                             "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
                         })
-                        if not _ws_alive: return
+                        if not _ws_state[0]: return
                         resp = await db.chat_client.chat.completions.create(**kwargs)
                         raw_content = resp.choices[0].message.content
                         usage = resp.usage
 
-                        if not _ws_alive: return
+                        if not _ws_state[0]: return
                         await _safe_send({
                             "type": "console_event", "event": "response", "llm": "character",
                             "model": db.CHAT_MODEL, "content": raw_content,
@@ -304,7 +304,7 @@ async def ws_rp(ws: WebSocket):
                                 })
 
                         # ── Auto-summary check (after character messages added) ──
-                        if _ws_alive:
+                        if _ws_state[0]:
                             await check_auto_summary(session_id, ws, send_fn=_safe_send)
 
                     except asyncio.CancelledError:
@@ -459,14 +459,19 @@ async def ws_rp(ws: WebSocket):
                 await _safe_send({"type": "reload_sessions"})
 
     except WebSocketDisconnect:
+        print("[RP WS] WebSocketDisconnect", flush=True)
         pass
     except Exception as e:
+        import traceback
+        print(f"[RP WS] EXCEPTION: {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
         try:
             await _safe_send({"type": "error", "message": str(e)})
         except:
             pass
     finally:
-        _ws_alive = False
+        _ws_state[0] = False
+        print("[RP WS] finally block - cleaning up", flush=True)
         if current_gen_task and not current_gen_task.done():
             current_gen_task.cancel()
             try:
