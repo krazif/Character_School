@@ -57,6 +57,16 @@ async def ws_rp(ws: WebSocket):
     turn_routing = 'auto'
     response_style = 'brief'
     current_gen_task = None  # background generation task (for stop support)
+    _ws_alive = True  # track whether the websocket is still open
+
+    async def _safe_send(payload):
+        """Send JSON only if the websocket is still alive."""
+        if not _ws_alive:
+            return
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            _ws_alive = False
 
     try:
         while True:
@@ -70,8 +80,8 @@ async def ws_rp(ws: WebSocket):
                     except (asyncio.CancelledError, Exception):
                         pass
                     try:
-                        await ws.send_json({"type": "character_typing_stopped"})
-                        await ws.send_json({"type": "generation_stopped"})
+                        await _safe_send({"type": "character_typing_stopped"})
+                        await _safe_send({"type": "generation_stopped"})
                     except Exception:
                         pass
                 continue
@@ -97,10 +107,10 @@ async def ws_rp(ws: WebSocket):
                         character_order.append(fn)
                         char_list.append({"filename": fn, "name": name})
                     except Exception as e:
-                        await ws.send_json({"type": "error", "message": f"Failed to load {fn}: {e}"})
+                        await _safe_send({"type": "error", "message": f"Failed to load {fn}: {e}"})
 
                 if not cards:
-                    await ws.send_json({"type": "error", "message": "No valid characters loaded"})
+                    await _safe_send({"type": "error", "message": "No valid characters loaded"})
                     continue
 
                 if persona_filename:
@@ -116,7 +126,7 @@ async def ws_rp(ws: WebSocket):
 
                 session_id = db.db_rp_create_session(char_list, persona_filename, turn_routing, response_style, stack_config_str)
 
-                await ws.send_json({
+                await _safe_send({
                     "type": "session_started", "session_id": session_id,
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
@@ -131,7 +141,7 @@ async def ws_rp(ws: WebSocket):
                     first_mes = engine.get_first_mes(cards[fn], user_name=_rp_user_name)
                     if first_mes:
                         msg_id = db.db_rp_add_message(session_id, "character", first_mes, character_names[fn])
-                        await ws.send_json({
+                        await _safe_send({
                             "type": "character_message", "content": first_mes,
                             "character_filename": fn, "character_name": character_names[fn],
                             "is_first_mes": True, "message_id": msg_id,
@@ -141,7 +151,7 @@ async def ws_rp(ws: WebSocket):
                 resume_id = data.get("session_id")
                 sess = db.db_rp_get_session(resume_id)
                 if not sess:
-                    await ws.send_json({"type": "error", "message": "Session not found"})
+                    await _safe_send({"type": "error", "message": "Session not found"})
                     continue
 
                 session_id = resume_id
@@ -173,7 +183,7 @@ async def ws_rp(ws: WebSocket):
                 messages = db.db_rp_get_messages(session_id)
                 stack_cfg = db.get_stack_config(sess)
 
-                await ws.send_json({
+                await _safe_send({
                     "type": "session_resumed", "session_id": session_id,
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
@@ -190,12 +200,13 @@ async def ws_rp(ws: WebSocket):
 
                 _pn = persona.get("name") if persona else None
                 user_msg_id = db.db_rp_add_message(session_id, "user", user_content, persona_name=_pn)
-                await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
+                await _safe_send({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 
                 async def _rp_gen():
                     try:
                         # ── Auto-summary check (after user message, before LLM) ──
-                        await check_auto_summary(session_id, ws)
+                        if _ws_alive:
+                            await check_auto_summary(session_id, ws, send_fn=_safe_send)
 
                         # Get stack config
                         sess = db.db_rp_get_session(session_id)
@@ -215,13 +226,14 @@ async def ws_rp(ws: WebSocket):
                         )
 
                         # Typing indicator
+                        if not _ws_alive: return
                         if directed_to and directed_to in character_names:
-                            await ws.send_json({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})
+                            await _safe_send({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})
                         else:
-                            await ws.send_json({"type": "character_typing", "character_filename": None, "character_name": None})
+                            await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
 
                         # Console: log request
-                        await ws.send_json({
+                        await _safe_send({
                             "type": "console_event", "event": "request", "llm": "character",
                             "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": db.CHAT_MAX_TOKENS,
                             "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
@@ -238,15 +250,17 @@ async def ws_rp(ws: WebSocket):
                             kwargs["top_p"] = db.CHAT_TOP_P
                         if db.CHAT_TOP_K is not None:
                             kwargs["top_k"] = db.CHAT_TOP_K
-                        await ws.send_json({
+                        await _safe_send({
                             "type": "console_event", "event": "request_kwargs", "llm": "character",
                             "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
                         })
+                        if not _ws_alive: return
                         resp = await db.chat_client.chat.completions.create(**kwargs)
                         raw_content = resp.choices[0].message.content
                         usage = resp.usage
 
-                        await ws.send_json({
+                        if not _ws_alive: return
+                        await _safe_send({
                             "type": "console_event", "event": "response", "llm": "character",
                             "model": db.CHAT_MODEL, "content": raw_content,
                             "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
@@ -278,25 +292,26 @@ async def ws_rp(ws: WebSocket):
                             name = character_names.get(fn, "Unknown")
                             parsed = [{"filename": fn, "name": name, "content": raw_content.strip()}]
 
-                        await ws.send_json({"type": "character_typing_stopped"})
+                        await _safe_send({"type": "character_typing_stopped"})
 
                         if parsed:
                             for pr in parsed:
                                 msg_id = db.db_rp_add_message(session_id, "character", pr["content"], pr["name"])
-                                await ws.send_json({
+                                await _safe_send({
                                     "type": "character_message", "content": pr["content"],
                                     "character_filename": pr["filename"], "character_name": pr["name"],
                                     "is_first_mes": False, "message_id": msg_id,
                                 })
 
                         # ── Auto-summary check (after character messages added) ──
-                        await check_auto_summary(session_id, ws)
+                        if _ws_alive:
+                            await check_auto_summary(session_id, ws, send_fn=_safe_send)
 
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
-                        await ws.send_json({"type": "character_typing_stopped"})
-                        await ws.send_json({"type": "error", "message": f"LLM error: {e}"})
+                        await _safe_send({"type": "character_typing_stopped"})
+                        await _safe_send({"type": "error", "message": f"LLM error: {e}"})
 
                 current_gen_task = asyncio.create_task(_rp_gen())
                 continue  # back to main receive_json loop (handles stop)
@@ -305,14 +320,14 @@ async def ws_rp(ws: WebSocket):
                 target_id = data.get("message_id")
                 if target_id is not None and session_id is not None:
                     deleted = db.db_rp_delete_message(session_id, target_id)
-                    await ws.send_json({"type": "message_deleted", "message_id": target_id, "success": deleted})
+                    await _safe_send({"type": "message_deleted", "message_id": target_id, "success": deleted})
 
             elif data["type"] == "update_settings":
                 if session_id:
                     turn_routing = data.get("turn_routing", turn_routing)
                     response_style = data.get("response_style", response_style)
                     db.db_rp_update_settings(session_id, turn_routing, response_style)
-                    await ws.send_json({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style})
+                    await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style})
 
             elif data["type"] == "update_stack":
                 if session_id:
@@ -320,7 +335,7 @@ async def ws_rp(ws: WebSocket):
                     if stack_cfg_data:
                         stack_cfg_str = json.dumps(stack_cfg_data)
                         db.db_rp_update_settings(session_id, stack_config=stack_cfg_str)
-                        await ws.send_json({"type": "stack_updated", "stack_config": stack_cfg_data})
+                        await _safe_send({"type": "stack_updated", "stack_config": stack_cfg_data})
 
             elif data["type"] == "summarize_block":
                 if session_id:
@@ -340,28 +355,28 @@ async def ws_rp(ws: WebSocket):
                             to_summarize = all_msgs[start_idx:end_idx]
                             existing = block.get("text", "")
                             if to_summarize:
-                                await ws.send_json({"type": "block_summarizing", "block_index": block_index})
-                                new_summary = await engine.rp_summarize(session_id, to_summarize, existing, ws=ws)
+                                await _safe_send({"type": "block_summarizing", "block_index": block_index})
+                                new_summary = await engine.rp_summarize(session_id, to_summarize, existing, ws=ws, send_fn=_safe_send)
                                 block["text"] = new_summary
                                 # Normalize type
                                 if block.get("type") in ("early_summary", "late_summary", "summary"):
                                     block["type"] = "summary_chunk"
                                 stack_cfg["blocks"] = blocks
                                 db.db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
-                                await ws.send_json({
+                                await _safe_send({
                                     "type": "block_summary_updated",
                                     "block_index": block_index,
                                     "summary": new_summary,
                                     "stack_config": stack_cfg,
                                 })
                             else:
-                                await ws.send_json({"type": "error", "message": "No messages in range to summarize."})
+                                await _safe_send({"type": "error", "message": "No messages in range to summarize."})
 
             elif data["type"] == "save_console_events":
                 if session_id:
                     events = data.get("events", [])
                     db.db_rp_save_console_events(session_id, json.dumps(events))
-                    await ws.send_json({"type": "console_events_saved"})
+                    await _safe_send({"type": "console_events_saved"})
 
             elif data["type"] == "set_persona":
                 persona_filename = data.get("persona_filename")
@@ -375,21 +390,21 @@ async def ws_rp(ws: WebSocket):
                     persona_filename = None
                 if session_id:
                     db.db_rp_set_persona(session_id, persona_filename)
-                await ws.send_json({"type": "persona_changed", "persona": persona_filename})
+                await _safe_send({"type": "persona_changed", "persona": persona_filename})
 
             elif data["type"] == "add_character":
                 if not session_id:
-                    await ws.send_json({"type": "error", "message": "No active session"})
+                    await _safe_send({"type": "error", "message": "No active session"})
                     continue
                 fn = data.get("filename")
                 if not fn:
-                    await ws.send_json({"type": "error", "message": "No filename provided"})
+                    await _safe_send({"type": "error", "message": "No filename provided"})
                     continue
                 if fn in character_order:
-                    await ws.send_json({"type": "error", "message": "Character already in session"})
+                    await _safe_send({"type": "error", "message": "Character already in session"})
                     continue
                 if len(character_order) >= 4:
-                    await ws.send_json({"type": "error", "message": "Maximum 4 characters per session"})
+                    await _safe_send({"type": "error", "message": "Maximum 4 characters per session"})
                     continue
                 try:
                     card = engine.load_card(fn)
@@ -404,52 +419,60 @@ async def ws_rp(ws: WebSocket):
                     first_mes = engine.get_first_mes(cards[fn], user_name=_rp_user_name)
                     if first_mes:
                         msg_id = db.db_rp_add_message(session_id, "character", first_mes, name)
-                        await ws.send_json({
+                        await _safe_send({
                             "type": "character_message", "content": first_mes,
                             "character_filename": fn, "character_name": name,
                             "is_first_mes": True, "message_id": msg_id,
                         })
-                    await ws.send_json({
+                    await _safe_send({
                         "type": "character_added",
                         "filename": fn, "name": name,
                         "characters": [{"filename": f, "name": character_names[f]} for f in character_order],
                     })
                 except Exception as e:
-                    await ws.send_json({"type": "error", "message": f"Failed to add character: {e}"})
+                    await _safe_send({"type": "error", "message": f"Failed to add character: {e}"})
 
             elif data["type"] == "remove_character":
                 if not session_id:
-                    await ws.send_json({"type": "error", "message": "No active session"})
+                    await _safe_send({"type": "error", "message": "No active session"})
                     continue
                 fn = data.get("filename")
                 if not fn or fn not in character_order:
-                    await ws.send_json({"type": "error", "message": "Character not in session"})
+                    await _safe_send({"type": "error", "message": "Character not in session"})
                     continue
                 if len(character_order) <= 1:
-                    await ws.send_json({"type": "error", "message": "Cannot remove last character"})
+                    await _safe_send({"type": "error", "message": "Cannot remove last character"})
                     continue
                 removed = db.db_rp_remove_character(session_id, fn)
                 if not removed:
-                    await ws.send_json({"type": "error", "message": "Failed to remove character"})
+                    await _safe_send({"type": "error", "message": "Failed to remove character"})
                     continue
                 del cards[fn]
                 del character_names[fn]
                 character_order.remove(fn)
-                await ws.send_json({
+                await _safe_send({
                     "type": "character_removed",
                     "filename": fn,
                     "characters": [{"filename": f, "name": character_names[f]} for f in character_order],
                 })
                 # Reload session list to update title in sidebar
-                await ws.send_json({"type": "reload_sessions"})
+                await _safe_send({"type": "reload_sessions"})
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
         try:
-            await ws.send_json({"type": "error", "message": str(e)})
+            await _safe_send({"type": "error", "message": str(e)})
         except:
             pass
+    finally:
+        _ws_alive = False
+        if current_gen_task and not current_gen_task.done():
+            current_gen_task.cancel()
+            try:
+                await current_gen_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
 
 @router.get("/api/config")
@@ -575,13 +598,14 @@ async def reset_database():
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
-async def check_auto_summary(session_id, ws):
+async def check_auto_summary(session_id, ws, send_fn=None):
     """Auto-summarize by growing the anchor block.
     Finds the LAST summary_chunk with auto=true (the "anchor").
     When enough new messages accumulate past its end, summarizes ONLY
     the new batch (tail_n messages) and APPENDS the summary to the
     anchor's text. The anchor's end boundary expands — no new chunks.
     Returns updated stack_cfg if summarization happened, else None."""
+    _send = send_fn or (lambda payload: ws.send_json(payload))
     sess = db.db_rp_get_session(session_id)
     stack_cfg = db.get_stack_config(sess)
     blocks = stack_cfg.get("blocks", [])
@@ -621,8 +645,8 @@ async def check_auto_summary(session_id, ws):
     if not batch_msgs:
         return None
 
-    await ws.send_json({"type": "block_summarizing", "block_index": anchor_idx, "auto": True})
-    new_summary = await engine.rp_summarize(session_id, batch_msgs, "", ws=ws)
+    await _send({"type": "block_summarizing", "block_index": anchor_idx, "auto": True})
+    new_summary = await engine.rp_summarize(session_id, batch_msgs, "", ws=ws, send_fn=_send)
 
     # Grow the anchor: expand end boundary + append summary text
     anchor_block["end"] = batch_end
@@ -635,7 +659,7 @@ async def check_auto_summary(session_id, ws):
     stack_cfg["blocks"] = blocks
     db.db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
 
-    await ws.send_json({
+    await _send({
         "type": "block_summary_updated",
         "block_index": anchor_idx,
         "summary": new_summary,

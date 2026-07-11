@@ -482,7 +482,7 @@ def parse_rp_response(raw_content: str, character_names: dict, character_order: 
 
 
 async def rp_summarize(session_id: int, messages_to_summarize: list[dict],
-                       existing_summary: str, ws: Any = None) -> str:
+                       existing_summary: str, ws: Any = None, send_fn=None) -> str:
     """Summarize older messages using the analysis LLM."""
     convo = []
     for m in messages_to_summarize:
@@ -500,8 +500,9 @@ async def rp_summarize(session_id: int, messages_to_summarize: list[dict],
         {"role": "user", "content": prompt},
     ]
 
-    if ws:
-        await ws.send_json({
+    _send = send_fn or (lambda payload: ws.send_json(payload)) if ws else None
+    if _send:
+        await _send({
             "type": "console_event", "event": "request", "llm": "summary",
             "model": db.SUMMARY_MODEL, "label": "Summarization",
             "temperature": db.SUMMARY_TEMPERATURE, "max_tokens": db.SUMMARY_MAX_TOKENS,
@@ -517,16 +518,16 @@ async def rp_summarize(session_id: int, messages_to_summarize: list[dict],
             kwargs["top_p"] = db.SUMMARY_TOP_P
         if db.SUMMARY_TOP_K is not None:
             kwargs["top_k"] = db.SUMMARY_TOP_K
-        if ws:
-            await ws.send_json({
+        if _send:
+            await _send({
                 "type": "console_event", "event": "request_kwargs", "llm": "summary",
                 "label": "Summarization", "kwargs": kwargs, "timestamp": _now_iso(),
             })
         resp = await db.summary_client.chat.completions.create(**kwargs)
         summary = resp.choices[0].message.content.strip()
         usage = resp.usage
-        if ws:
-            await ws.send_json({
+        if _send:
+            await _send({
                 "type": "console_event", "event": "response", "llm": "summary",
                 "model": db.SUMMARY_MODEL, "label": "Summarization",
                 "content": summary,
@@ -535,8 +536,11 @@ async def rp_summarize(session_id: int, messages_to_summarize: list[dict],
             })
         return summary
     except Exception as e:
-        if ws:
-            await ws.send_json({"type": "error", "message": f"Summarization error: {e}"})
+        if _send:
+            try:
+                await _send({"type": "error", "message": f"Summarization error: {e}"})
+            except Exception:
+                pass
         return existing_summary
 
 
