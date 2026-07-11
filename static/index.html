@@ -4060,10 +4060,21 @@ function setEndpointFields(section, preset) {
   }
 }
 
-function applyPreset(section, name) {
+async function applyPreset(section, name) {
   if (!name) return;
-  // Use unmasked preset data if available, fall back to window._presets
-  const presets = Object.keys(_presetData).length ? _presetData : (window._presets || {});
+  // Always use unmasked preset data from /api/presets; fetch if not yet loaded
+  let presets = _presetData;
+  if (!Object.keys(presets).length) {
+    try {
+      const res = await fetch('/api/presets');
+      if (res.ok) {
+        _presetData = await res.json();
+        presets = _presetData;
+      }
+    } catch (e) { /* fall through to window._presets below */ }
+  }
+  // Last-resort fallback (masked keys — user will need to re-enter)
+  if (!Object.keys(presets).length) presets = window._presets || {};
   const preset = presets[name];
   if (!preset) return;
   setEndpointFields(section, preset);
