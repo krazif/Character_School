@@ -2851,14 +2851,31 @@ function handleRPMessage(data) {
     const rpConsoleInner = document.getElementById('rpConsoleInner');
     rpConsoleInner.innerHTML = '';
     rpConsoleEvents = 0;
-    const savedEvents = data.console_events || [];
-    if (savedEvents.length) {
-      savedEvents.forEach(evt => {
-        addRPConsoleEntry(evt);
-      });
+    // Always fetch console events via REST to keep the WS resume payload tiny
+    if (data.console_events_truncated) {
+      fetch(`/api/rp/sessions/${data.session_id}/console_events`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.events && d.events.length) {
+            d.events.forEach(evt => addRPConsoleEntry(evt));
+            trimConsoleEntries(rpConsoleInner);
+          } else {
+            rpConsoleInner.innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+            document.getElementById('rpConsoleCount').textContent = '0';
+          }
+        })
+        .catch(() => {
+          rpConsoleInner.innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+          document.getElementById('rpConsoleCount').textContent = '0';
+        });
     } else {
-      rpConsoleInner.innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
-      document.getElementById('rpConsoleCount').textContent = '0';
+      const savedEvents = data.console_events || [];
+      if (savedEvents.length) {
+        savedEvents.forEach(evt => addRPConsoleEntry(evt));
+      } else {
+        rpConsoleInner.innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
+        document.getElementById('rpConsoleCount').textContent = '0';
+      }
     }
     renderRPSceneBar();
     // Clear virtual scroll state and populate from server messages

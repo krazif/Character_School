@@ -13,6 +13,21 @@ import engine
 
 router = APIRouter()
 
+# Maximum number of console events to send in session_resumed (restored on demand via REST)
+RESUME_CONSOLE_LIMIT = 50
+
+
+def _resume_console_events(sess):
+    """Return the last N console events for session_resumed to keep the WS payload small."""
+    raw = sess.get("console_events", "[]") if sess else "[]"
+    try:
+        events = json.loads(raw) if raw else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if len(events) <= RESUME_CONSOLE_LIMIT:
+        return events
+    return events[-RESUME_CONSOLE_LIMIT:]
+
 # ─── RP REST API ──────────────────────────────────────────────────
 @router.get("/api/rp/sessions")
 async def api_rp_list_sessions():
@@ -27,6 +42,23 @@ async def api_rp_get_session(session_id: int):
     messages = db.db_rp_get_messages(session_id)
     sess["messages"] = [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"]} for m in messages]
     return JSONResponse(sess)
+
+
+@router.get("/api/rp/sessions/{session_id}/console_events")
+async def api_rp_console_events(session_id: int, limit: int = 0):
+    """Return all (or last N) console events for a session — used by frontend to fetch
+    full console history after session_resumed sends only the last 50."""
+    sess = db.db_rp_get_session(session_id)
+    if not sess:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    raw = sess.get("console_events", "[]") if sess else "[]"
+    try:
+        events = json.loads(raw) if raw else []
+    except (json.JSONDecodeError, TypeError):
+        events = []
+    if limit and limit > 0:
+        events = events[-limit:]
+    return JSONResponse({"events": events})
 
 
 @router.delete("/api/rp/sessions/{session_id}")
@@ -133,6 +165,7 @@ async def ws_rp(ws: WebSocket):
                     "turn_routing": turn_routing, "response_style": response_style,
                     "stack_config": stack_config_json or db.DEFAULT_STACK_CONFIG,
                     "console_events": [],
+                    "console_events_truncated": False,
                 })
 
                 # Send first_mes from all characters
@@ -190,7 +223,8 @@ async def ws_rp(ws: WebSocket):
                     "turn_routing": turn_routing, "response_style": response_style,
                     "stack_config": stack_cfg,
                     "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name")} for m in messages],
-                    "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
+                    "console_events": [],
+                    "console_events_truncated": len(json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else []) > 0,
                 })
 
             elif data["type"] == "user_message":
