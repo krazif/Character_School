@@ -686,8 +686,12 @@ body.rp-mode .school-only { display:none; }
         </div>
         <div class="settings-field-row" style="flex-wrap:wrap;gap:12px;margin-top:12px">
           <div class="settings-field" style="flex:1;min-width:280px">
-            <label>Chat Background Image URL</label>
-            <input type="text" id="cfgBgImage" placeholder="https://... or leave empty" style="width:100%" />
+            <label>Chat Background Image</label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="text" id="cfgBgImage" placeholder="https://... or leave empty" style="flex:1;min-width:180px" />
+              <label class="btn" style="cursor:pointer;white-space:nowrap;padding:6px 14px">Upload<input type="file" id="cfgBgFile" accept="image/*" style="display:none" /></label>
+              <button class="btn" id="cfgBgClear" style="padding:6px 14px">Clear</button>
+            </div>
           </div>
         </div>
         <div class="settings-field-row" style="flex-wrap:wrap;gap:12px;margin-top:12px">
@@ -4363,6 +4367,23 @@ async function openSettings() {
     }
     document.getElementById('cfgBgImage').addEventListener('input', liveApplyAppearance);
     document.getElementById('cfgBgOverlay').addEventListener('input', liveApplyAppearance);
+    document.getElementById('cfgBgFile').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 4 * 1024 * 1024) { alert('Image too large (max 4MB for localStorage). Use a URL instead.'); return; }
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const dataUrl = ev.target.result;
+        document.getElementById('cfgBgImage').value = dataUrl;
+        liveApplyAppearance();
+      };
+      reader.readAsDataURL(file);
+    });
+    document.getElementById('cfgBgClear').addEventListener('click', function() {
+      document.getElementById('cfgBgImage').value = '';
+      document.getElementById('cfgBgFile').value = '';
+      liveApplyAppearance();
+    });
     // Populate preset dropdowns
     window._presets = cfg.presets || {};
     populatePresetDropdowns();
