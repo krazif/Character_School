@@ -315,7 +315,7 @@ def init_db():
             title           TEXT,
             persona_filename TEXT,
             turn_routing    TEXT DEFAULT 'auto',
-            response_style  TEXT DEFAULT 'brief',
+            response_style  TEXT DEFAULT 'moderate',
             stack_config    TEXT,
             console_events  TEXT,
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
@@ -1164,7 +1164,7 @@ def db_school_to_rp(session_id: int) -> Optional[int]:
     row = conn.execute(
         "SELECT response_style FROM school_sessions WHERE id = ?", (session_id,)
     ).fetchone()
-    response_style = row[0] if row and row[0] else 'brief'
+    response_style = row[0] if row and row[0] else 'moderate'
 
     # Get messages
     msgs = db_school_get_messages(session_id)

@@ -217,13 +217,15 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
     val = get_card_field(d, "mes_example", version)
     if val:
         parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
-    # Response style directive
-    if response_style == 'terse':
-        parts.append("\n\nRESPONSE STYLE: Keep your response to 1-2 short sentences. Pure dialogue with minimal action — like a quick text exchange. No internal thoughts, no narration.")
-    elif response_style == 'brief':
-        parts.append("\n\nRESPONSE STYLE: Keep your response to 2-4 short sentences. Prioritize dialogue over description. Some action beats and body language, but still tight.")
-    elif response_style == 'full':
-        parts.append("\n\nRESPONSE STYLE: Respond with a full paragraph. Include actions, internal thoughts, body language, and emotional detail.")
+    # Response style directive (Marinara-style word-count targets)
+    if response_style == 'short':
+        parts.append("\n\nRESPONSE LENGTH: Keep your response short — below 150 words. Prioritize dialogue and action over description.")
+    elif response_style == 'moderate':
+        parts.append("\n\nRESPONSE LENGTH: Keep your response moderate — between 150 and 300 words. Balance dialogue, action beats, and some description.")
+    elif response_style == 'long':
+        parts.append("\n\nRESPONSE LENGTH: Write a long response — above 300 words. Include actions, internal thoughts, body language, and emotional detail.")
+    elif response_style == 'flexible':
+        parts.append("\n\nRESPONSE LENGTH: Choose your response length dynamically based on the scene — short for quick dialogue exchanges, longer when the plot progresses or emotions run high.")
     return "\n".join(parts)
 
 
@@ -335,7 +337,7 @@ def get_first_mes(card: dict, user_name: str = "User") -> Optional[str]:
 
 # ─── RP Prompt Building ───────────────────────────────────────────
 def build_rp_system_prompt(cards: list[dict], persona: dict = None,
-                           turn_routing: str = 'auto', response_style: str = 'brief',
+                           turn_routing: str = 'auto', response_style: str = 'moderate',
                            directed_character: str = None) -> str:
     """Build system prompt for multi-character RP."""
     parts = []
@@ -422,13 +424,15 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
             parts.append("- Only respond as the directed character. Do not write dialogue for other characters.")
     parts.append("")
 
-    # Response style
-    if response_style == 'terse':
-        parts.append("RESPONSE STYLE: Keep your response to 1-2 short sentences. Pure dialogue with minimal action — like a quick text exchange. No internal thoughts, no narration.")
-    elif response_style == 'brief':
-        parts.append("RESPONSE STYLE: Keep your response to 2-4 short sentences. Prioritize dialogue over description. Some action beats and body language, but still tight.")
-    else:
-        parts.append("RESPONSE STYLE: Respond with a full paragraph. Include actions, internal thoughts, body language, and emotional detail.")
+    # Response style (Marinara-style word-count targets)
+    if response_style == 'short':
+        parts.append("RESPONSE LENGTH: Keep your response short — below 150 words. Prioritize dialogue and action over description.")
+    elif response_style == 'moderate':
+        parts.append("RESPONSE LENGTH: Keep your response moderate — between 150 and 300 words. Balance dialogue, action beats, and some description.")
+    elif response_style == 'long':
+        parts.append("RESPONSE LENGTH: Write a long response — above 300 words. Include actions, internal thoughts, body language, and emotional detail.")
+    elif response_style == 'flexible':
+        parts.append("RESPONSE LENGTH: Choose your response length dynamically based on the scene — short for quick dialogue exchanges, longer when the plot progresses or emotions run high.")
     parts.append("")
 
     # Persona

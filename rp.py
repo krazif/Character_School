@@ -88,7 +88,7 @@ async def ws_rp(ws: WebSocket):
     persona = None
     persona_filename = None
     turn_routing = 'auto'
-    response_style = 'brief'
+    response_style = 'moderate'
     current_gen_task = None  # background generation task (for stop support)
     _ws_state = [True]  # [is_alive] — mutable container to avoid nonlocal issues
 
@@ -123,7 +123,7 @@ async def ws_rp(ws: WebSocket):
                 char_filenames = data.get("characters", [])
                 persona_filename = data.get("persona_filename")
                 turn_routing = data.get("turn_routing", "auto")
-                response_style = data.get("response_style", "brief")
+                response_style = data.get("response_style", "moderate")
 
                 cards = {}
                 character_names = {}

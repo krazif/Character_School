@@ -559,7 +559,7 @@ body.rp-mode .school-only { display:none; }
       <button class="btn-reset" id="btnSchoolStack" onclick="openSchoolStackBuilder()" disabled style="background:var(--surface2);border:1px solid var(--border)">📚 Stack</button>
       <button class="btn-reset" id="btnSchoolLore" onclick="openLorebookManager('school')" disabled style="background:var(--surface2);border:1px solid var(--border)">📖 Lorebooks</button>
       <div class="style-toggle-wrap" id="schoolStyleToggleWrap" style="display:none">
-        <div class="rp-toggle-btn" id="schoolStyleBtn" onclick="schoolCycleStyle()" title="Response style">Brief</div>
+        <div class="rp-toggle-btn" id="schoolStyleBtn" onclick="schoolCycleStyle()" title="Response length">Moderate</div>
       </div>
     </div>
     <div class="chat-messages" id="chatMessages">
@@ -875,9 +875,10 @@ body.rp-mode .school-only { display:none; }
         <div class="rp-setup-section">
           <label>Response Style</label>
           <div class="rp-toggle-group">
-            <div class="rp-toggle-btn active" id="rpToggleBrief" onclick="rpToggleSetting('style','brief')">Brief (2-4 sentences)</div>
-            <div class="rp-toggle-btn" id="rpToggleFull" onclick="rpToggleSetting('style','full')">Full (paragraph)</div>
-            <div class="rp-toggle-btn" id="rpToggleTerse" onclick="rpToggleSetting('style','terse')">Snappy (1-2 sentences)</div>
+            <div class="rp-toggle-btn active" id="rpToggleModerate" onclick="rpToggleSetting('style','moderate')">Moderate (150-300 words)</div>
+            <div class="rp-toggle-btn" id="rpToggleLong" onclick="rpToggleSetting('style','long')">Long (300+ words)</div>
+            <div class="rp-toggle-btn" id="rpToggleShort" onclick="rpToggleSetting('style','short')">Short (<150 words)</div>
+            <div class="rp-toggle-btn" id="rpToggleFlexible" onclick="rpToggleSetting('style','flexible')">Flexible (dynamic)</div>
           </div>
         </div>
       </div>
@@ -2659,20 +2660,20 @@ let rpActiveSessionId = null;
 let rpCharacters = [];      // [{filename, name}]
 let rpPersonaFilename = null;
 let rpTurnRouting = 'auto';
-let rpResponseStyle = 'brief';
+let rpResponseStyle = 'moderate';
 let rpLorebooks = []; // active lorebook filenames for RP session
 let schoolLorebooks = []; // active lorebook filenames for school session
-const rpStyleLabels = {terse:'Snappy', brief:'Brief', full:'Full'};
-const rpStyleOrder = ['terse','brief','full'];
-const rpStyleTokens = {terse:'~20-40', brief:'~40-80', full:'~80-150'};
-let schoolResponseStyle = 'brief';
+const rpStyleLabels = {short:'Short', moderate:'Moderate', long:'Long', flexible:'Flexible'};
+const rpStyleOrder = ['short','moderate','long','flexible'];
+const rpStyleTokens = {short:'<150 words', moderate:'150-300 words', long:'>300 words', flexible:'dynamic'};
+let schoolResponseStyle = 'moderate';
 let rpStackConfig = null;
 let stackDragSrc = null;
 let rpIsWaiting = false;
 let rpCardsList = [];       // cached card list for picker
 let rpSetupChars = [];      // selected filenames in setup
 let rpSetupTurn = 'auto';
-let rpSetupStyle = 'brief';
+let rpSetupStyle = 'moderate';
 let rpConsoleEvents = 0;
 let rpCurrentMode = 'school';
 
@@ -2718,7 +2719,7 @@ async function openRPSetup() {
   document.getElementById('rpStartBtn').disabled = true;
   // Reset toggles
   rpToggleSetting('turn', 'auto');
-  rpToggleSetting('style', 'brief');
+  rpToggleSetting('style', 'moderate');
   // Populate persona select
   populateRPPersonaSelect();
   document.getElementById('rpSetupOverlay').classList.add('show');
@@ -2762,9 +2763,10 @@ function rpToggleSetting(group, value) {
     document.getElementById('rpToggleDirected').classList.toggle('active', value === 'directed');
   } else if (group === 'style') {
     rpSetupStyle = value;
-    document.getElementById('rpToggleBrief').classList.toggle('active', value === 'brief');
-    document.getElementById('rpToggleFull').classList.toggle('active', value === 'full');
-    document.getElementById('rpToggleTerse').classList.toggle('active', value === 'terse');
+    document.getElementById('rpToggleModerate').classList.toggle('active', value === 'moderate');
+    document.getElementById('rpToggleLong').classList.toggle('active', value === 'long');
+    document.getElementById('rpToggleShort').classList.toggle('active', value === 'short');
+    document.getElementById('rpToggleFlexible').classList.toggle('active', value === 'flexible');
   }
 }
 
@@ -3019,7 +3021,7 @@ function renderRPSceneBar() {
   html += `<div class="rp-toggle-btn ${rpTurnRouting==='auto'?'active':''}" onclick="rpUpdateSetting('turn_routing','${rpTurnRouting==='auto'?'directed':'auto'}')">${rpTurnRouting === 'auto' ? 'Auto' : 'Directed'}</div>`;
   const _styleIdx = rpStyleOrder.indexOf(rpResponseStyle);
   const _nextStyle = rpStyleOrder[(_styleIdx + 1) % rpStyleOrder.length];
-  html += `<div class="rp-toggle-btn ${rpResponseStyle!=='full'?'active':''}" onclick="rpUpdateSetting('response_style','${_nextStyle}')" title="${rpStyleTokens[rpResponseStyle]} tokens/resp">${rpStyleLabels[rpResponseStyle]} (${rpStyleTokens[rpResponseStyle]} tok)</div>`;
+  html += `<div class="rp-toggle-btn ${rpResponseStyle!=='long'?'active':''}" onclick="rpUpdateSetting('response_style','${_nextStyle}')" title="${rpStyleTokens[rpResponseStyle]}">${rpStyleLabels[rpResponseStyle]} (${rpStyleTokens[rpResponseStyle]})</div>`;
 
   // Stack Builder button
   html += `<div class="rp-toggle-btn" onclick="openStackBuilder()" title="Customize prompt stack">🔗 Prompts Stack</div>`;
@@ -3240,8 +3242,8 @@ function updateSchoolStyleButton() {
   const btn = document.getElementById('schoolStyleBtn');
   if (!btn) return;
   btn.textContent = rpStyleLabels[schoolResponseStyle];
-  btn.title = `Response style: ${rpStyleLabels[schoolResponseStyle]} (${rpStyleTokens[schoolResponseStyle]} tokens/resp)`;
-  btn.classList.toggle('active', schoolResponseStyle !== 'full');
+  btn.title = `Response length: ${rpStyleLabels[schoolResponseStyle]} (${rpStyleTokens[schoolResponseStyle]})`;
+  btn.classList.toggle('active', schoolResponseStyle !== 'long');
 }
 
 // ─── RP Console ─────────────────────────────────
@@ -3338,7 +3340,7 @@ async function loadRPSessions() {
       const active = s.id === rpActiveSessionId ? ' active' : '';
       const date = s.updated_at ? new Date(s.updated_at + 'Z').toLocaleDateString() : '';
       const routing = s.turn_routing === 'auto' ? 'Auto' : 'Directed';
-      const style = rpStyleLabels[s.response_style] || 'Brief';
+      const style = rpStyleLabels[s.response_style] || 'Moderate';
       return `<div class="rp-session-item${active}" data-session-id="${s.id}" onclick="resumeRPSession(${s.id})">
         <span class="del-btn" onclick="event.stopPropagation(); deleteRPSession(${s.id})">✕</span>
         <span class="fork-btn" onclick="event.stopPropagation(); forkRPSession(${s.id})" title="Fork this session">🧬</span>
@@ -3420,7 +3422,7 @@ async function loadSchoolSessions() {
       const active = s.id === schoolActiveSessionId ? ' active' : '';
       const date = s.updated_at ? new Date(s.updated_at + 'Z').toLocaleDateString() : '';
       const personaTag = s.persona_filename ? ' · vs persona' : '';
-      const styleTag = s.response_style ? ' · ' + (rpStyleLabels[s.response_style] || 'Brief') : '';
+      const styleTag = s.response_style ? ' · ' + (rpStyleLabels[s.response_style] || 'Moderate') : '';
       return `<div class="school-session-item${active}" data-session-id="${s.id}" onclick="resumeSchoolSession(${s.id})">
         <span class="del-btn" onclick="event.stopPropagation(); deleteSchoolSession(${s.id})">✕</span>
         <span class="move-btn" onclick="event.stopPropagation(); moveSchoolToRP(${s.id})" title="Move to RP">→</span>
