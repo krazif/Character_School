@@ -393,7 +393,9 @@ body.rp-mode .school-only { display:none; }
 /* Stack Builder Dialog */
 .stack-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
 .stack-overlay.show { display:flex; }
-.stack-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:560px; max-height:85vh; display:flex; flex-direction:column; margin:auto; }
+ .stack-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:560px; max-height:85vh; display:flex; flex-direction:column; margin:auto; }
+.lb-list-item.active { background:var(--surface2); border-left:3px solid var(--accent); }
+.lb-list-item:hover { background:var(--surface2); }
 .stack-header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
 .stack-header h2 { font-size:16px; font-weight:600; }
 .stack-header .sub { font-size:11px; color:var(--text-dim); }
@@ -555,6 +557,7 @@ body.rp-mode .school-only { display:none; }
       <button class="btn-report" id="btnReport" onclick="getReport()" disabled>Report</button>
       <button class="btn-reset" id="btnEditor" onclick="openEditor()" disabled>Edit Card</button>
       <button class="btn-reset" id="btnSchoolStack" onclick="openSchoolStackBuilder()" disabled style="background:var(--surface2);border:1px solid var(--border)">📚 Stack</button>
+      <button class="btn-reset" id="btnSchoolLore" onclick="openLorebookManager('school')" disabled style="background:var(--surface2);border:1px solid var(--border)">📖 Lorebooks</button>
       <div class="style-toggle-wrap" id="schoolStyleToggleWrap" style="display:none">
         <div class="rp-toggle-btn" id="schoolStyleBtn" onclick="schoolCycleStyle()" title="Response style">Brief</div>
       </div>
@@ -1767,6 +1770,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
       }
+      schoolLorebooks = data.lorebooks || [];
       // Clear virtual scroll state
       clearSchoolChat();
       // Clear console for new session
@@ -1778,6 +1782,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('btnReport').disabled = false;
       document.getElementById('btnEditor').disabled = false;
       document.getElementById('btnSchoolStack').disabled = false;
+      document.getElementById('btnSchoolLore').disabled = false;
       // Show style toggle
       document.getElementById('schoolStyleToggleWrap').style.display = '';
       // Enable input — first_mes has no analysis, arrives instantly
@@ -1809,6 +1814,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
       }
+      schoolLorebooks = data.lorebooks || [];
       consoleEventCount = 0;
       schoolConsoleEvents = [];
       document.getElementById('consoleCount').textContent = '0';
@@ -1838,6 +1844,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('btnReport').disabled = false;
       document.getElementById('btnEditor').disabled = false;
       document.getElementById('btnSchoolStack').disabled = false;
+      document.getElementById('btnSchoolLore').disabled = false;
       // Show style toggle + restore response style
       document.getElementById('schoolStyleToggleWrap').style.display = '';
       if (data.response_style) {
@@ -2653,6 +2660,8 @@ let rpCharacters = [];      // [{filename, name}]
 let rpPersonaFilename = null;
 let rpTurnRouting = 'auto';
 let rpResponseStyle = 'brief';
+let rpLorebooks = []; // active lorebook filenames for RP session
+let schoolLorebooks = []; // active lorebook filenames for school session
 const rpStyleLabels = {terse:'Snappy', brief:'Brief', full:'Full'};
 const rpStyleOrder = ['terse','brief','full'];
 const rpStyleTokens = {terse:'~20-40', brief:'~40-80', full:'~80-150'};
@@ -2817,6 +2826,7 @@ function handleRPMessage(data) {
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
     rpStackConfig = data.stack_config || null;
+    rpLorebooks = data.lorebooks || [];
     rpConsoleEvents = 0;
     document.getElementById('rpConsoleCount').textContent = '0';
     document.getElementById('rpConsoleInner').innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
@@ -2844,6 +2854,7 @@ function handleRPMessage(data) {
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
     rpStackConfig = data.stack_config || null;
+    rpLorebooks = data.lorebooks || [];
     // Clear summary bar from any previous session
     const oldSummaryBar = document.getElementById('rpSummaryBar');
     if (oldSummaryBar) oldSummaryBar.remove();
@@ -3012,6 +3023,14 @@ function renderRPSceneBar() {
 
   // Stack Builder button
   html += `<div class="rp-toggle-btn" onclick="openStackBuilder()" title="Customize prompt stack">🔗 Prompts Stack</div>`;
+
+  // Lorebook button
+  html += `<div class="rp-toggle-btn" onclick="openLorebookManager()" title="Manage lorebooks">📚 Lorebooks</div>`;
+
+  // Active lorebook indicator
+  if (rpLorebooks && rpLorebooks.length > 0) {
+    html += `<span style="font-size:11px;color:var(--accent);margin-left:4px">${rpLorebooks.length} 📚</span>`;
+  }
 
   bar.innerHTML = html;
 
@@ -3474,6 +3493,7 @@ async function deleteSchoolSession(sessionId) {
       document.getElementById('btnReport').disabled = true;
       document.getElementById('btnEditor').disabled = true;
       document.getElementById('btnSchoolStack').disabled = true;
+      document.getElementById('btnSchoolLore').disabled = true;
       if (ws) ws.close();
     }
     loadSchoolSessions();
@@ -3868,6 +3888,258 @@ function deleteBlock(idx) {
   activeStackConfig.blocks.splice(idx, 1);
   normalizeStackTypes(activeStackConfig.blocks);
   renderStackBlocks();
+}
+
+// ─── Lorebook Manager ─────────────────────────────────────────────
+let _lorebookList = [];
+let _currentLorebook = null;     // {filename, name, description, entries:{}}
+let _lorebookCtx = 'rp';         // 'rp' or 'school'
+
+async function openLorebookManager(ctx) {
+  _lorebookCtx = ctx || 'rp';
+  const lbl = document.getElementById('lorebookCtxLabel');
+  if (lbl) lbl.textContent = _lorebookCtx === 'school' ? 'School Mode' : 'RP Mode';
+  document.getElementById('lorebookOverlay').style.display = 'flex';
+  await loadLorebookList();
+}
+
+function closeLorebookManager() {
+  document.getElementById('lorebookOverlay').style.display = 'none';
+  _currentLorebook = null;
+}
+
+async function loadLorebookList() {
+  try {
+    const res = await fetch('/api/lorebooks');
+    _lorebookList = await res.json();
+    renderLorebookList();
+  } catch (e) {
+    console.error('Failed to load lorebooks', e);
+  }
+}
+
+function renderLorebookList() {
+  const container = document.getElementById('lorebookList');
+  if (!_lorebookList || _lorebookList.length === 0) {
+    container.innerHTML = '<div style="color:var(--sub);text-align:center;padding:20px 10px;font-size:13px">No lorebooks yet.<br>Create one above.</div>';
+    return;
+  }
+  let html = '';
+  for (const lb of _lorebookList) {
+    const isActive = (_lorebookCtx === 'rp' ? rpLorebooks : schoolLorebooks).includes(lb.filename);
+    html += `<div class="lb-list-item ${_currentLorebook && _currentLorebook._filename === lb.filename ? 'active' : ''}" onclick="selectLorebook('${lb.filename}')" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;display:flex;align-items:center;gap:6px">`;
+    html += `<input type="checkbox" ${isActive ? 'checked' : ''} onclick="event.stopPropagation();toggleLorebookActive('${lb.filename}', this.checked)" style="accent-color:var(--accent)">`;
+    html += `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(lb.name)}</span>`;
+    if (lb.entry_count) html += `<span style="font-size:10px;color:var(--sub)">${lb.entry_count}</span>`;
+    html += `</div>`;
+  }
+  container.innerHTML = html;
+}
+
+async function selectLorebook(filename) {
+  try {
+    const res = await fetch('/api/lorebooks/' + encodeURIComponent(filename));
+    const data = await res.json();
+    _currentLorebook = data;
+    _currentLorebook._filename = filename;
+    renderLorebookDetail();
+    renderLorebookList(); // update active highlight
+  } catch (e) {
+    console.error('Failed to load lorebook', e);
+  }
+}
+
+async function createLorebook() {
+  const name = document.getElementById('lorebookNewName').value.trim();
+  if (!name) return;
+  try {
+    const res = await fetch('/api/lorebooks', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, description: ''}),
+    });
+    const result = await res.json();
+    document.getElementById('lorebookNewName').value = '';
+    await loadLorebookList();
+    await selectLorebook(result.filename);
+  } catch (e) {
+    console.error('Failed to create lorebook', e);
+  }
+}
+
+async function deleteCurrentLorebook() {
+  if (!_currentLorebook || !_currentLorebook._filename) return;
+  if (!confirm('Delete this lorebook? This cannot be undone.')) return;
+  const fn = _currentLorebook._filename;
+  try {
+    await fetch('/api/lorebooks/' + encodeURIComponent(fn), {method: 'DELETE'});
+    // Remove from active lists
+    rpLorebooks = rpLorebooks.filter(f => f !== fn);
+    schoolLorebooks = schoolLorebooks.filter(f => f !== fn);
+    if (rpActiveSessionId) {
+      await fetch('/api/rp/sessions/' + rpActiveSessionId + '/lorebooks', {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({lorebooks: rpLorebooks}),
+      });
+    }
+    if (schoolActiveSessionId) {
+      await fetch('/api/school/sessions/' + schoolActiveSessionId + '/lorebooks', {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({lorebooks: schoolLorebooks}),
+      });
+    }
+    _currentLorebook = null;
+    await loadLorebookList();
+    renderLorebookDetail();
+  } catch (e) {
+    console.error('Failed to delete lorebook', e);
+  }
+}
+
+function renderLorebookDetail() {
+  const container = document.getElementById('lorebookDetail');
+  if (!_currentLorebook) {
+    container.innerHTML = '<div style="color:var(--sub);text-align:center;padding:40px 20px">Select a lorebook from the left</div>';
+    return;
+  }
+  const lb = _currentLorebook;
+  const entries = lb.entries || {};
+  const entryList = Object.entries(entries).sort((a, b) => a[0] - b[0]);
+
+  let html = '';
+  // Header
+  html += '<div style="margin-bottom:12px">';
+  html += `<input type="text" value="${escHtml(lb.name || '')}" placeholder="Lorebook name" oninput="_currentLorebook.name=this.value;saveLorebookDebounced()" style="width:100%;font-size:15px;font-weight:bold;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text);margin-bottom:4px">`;
+  html += `<input type="text" value="${escHtml(lb.description || '')}" placeholder="Description (optional)" oninput="_currentLorebook.description=this.value;saveLorebookDebounced()" style="width:100%;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--sub)">`;
+  html += `<div style="margin-top:8px;display:flex;gap:6px">`;
+  html += `<button class="btn-send" style="padding:4px 12px;font-size:12px" onclick="addLorebookEntry()">+ Add Entry</button>`;
+  html += `<button class="btn-send" style="padding:4px 12px;font-size:12px" onclick="saveLorebook()">💾 Save</button>`;
+  html += `<button class="btn-reset" style="padding:4px 12px;font-size:12px;margin-left:auto" onclick="deleteCurrentLorebook()">🗑 Delete Lorebook</button>`;
+  html += `</div></div>`;
+
+  // Entries
+  if (entryList.length === 0) {
+    html += '<div style="color:var(--sub);text-align:center;padding:20px;font-size:13px">No entries yet. Click "Add Entry" to create one.</div>';
+  } else {
+    for (const [uid, entry] of entryList) {
+      html += renderLorebookEntry(uid, entry);
+    }
+  }
+
+  container.innerHTML = html;
+}
+
+function renderLorebookEntry(uid, entry) {
+  const e = entry;
+  let html = `<div class="lb-entry" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--surface2)">`;
+  // Row 1: comment + disable toggle
+  html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">`;
+  html += `<input type="text" value="${escHtml(e.comment || '')}" placeholder="Entry name/comment" oninput="updateLorebookEntryField(${uid},'comment',this.value)" style="flex:1;font-size:13px;font-weight:bold;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text)">`;
+  html += `<label style="font-size:11px;color:var(--sub);display:flex;align-items:center;gap:3px;white-space:nowrap"><input type="checkbox" ${e.disable ? 'checked' : ''} onclick="updateLorebookEntryField(${uid},'disable',this.checked)" style="accent-color:var(--accent)"> Disabled</label>`;
+  html += `<button class="btn-reset" style="padding:2px 8px;font-size:11px" onclick="deleteLorebookEntry(${uid})">🗑</button>`;
+  html += `</div>`;
+  // Row 2: keywords
+  html += `<div style="display:flex;gap:6px;margin-bottom:4px">`;
+  html += `<div style="flex:1"><label style="font-size:10px;color:var(--sub)">Primary keywords (comma-separated)</label><input type="text" value="${escHtml((e.key || []).join(', '))}" oninput="updateLorebookEntryField(${uid},'key',this.value.split(',').map(s=>s.trim()).filter(Boolean))" style="width:100%;font-size:12px;padding:3px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text)"></div>`;
+  html += `<div style="flex:1"><label style="font-size:10px;color:var(--sub)">Secondary keywords (AND-condition, optional)</label><input type="text" value="${escHtml((e.keysecondary || []).join(', '))}" oninput="updateLorebookEntryField(${uid},'keysecondary',this.value.split(',').map(s=>s.trim()).filter(Boolean))" style="width:100%;font-size:12px;padding:3px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text)"></div>`;
+  html += `</div>`;
+  // Row 3: content
+  html += `<div style="margin-bottom:4px"><label style="font-size:10px;color:var(--sub)">Content (lore text to inject when triggered)</label><textarea oninput="updateLorebookEntryField(${uid},'content',this.value)" style="width:100%;min-height:50px;font-size:12px;padding:6px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);resize:vertical">${escHtml(e.content || '')}</textarea></div>`;
+  // Row 4: toggles + order
+  html += `<div style="display:flex;gap:12px;align-items:center;font-size:11px;color:var(--sub);flex-wrap:wrap">`;
+  html += `<label style="display:flex;align-items:center;gap:3px"><input type="checkbox" ${e.constant ? 'checked' : ''} onclick="updateLorebookEntryField(${uid},'constant',this.checked)" style="accent-color:var(--accent)"> Constant</label>`;
+  html += `<label style="display:flex;align-items:center;gap:3px"><input type="checkbox" ${e.selective ? 'checked' : ''} onclick="updateLorebookEntryField(${uid},'selective',this.checked)" style="accent-color:var(--accent)"> Selective (AND)</label>`;
+  html += `<label>Order: <input type="number" value="${e.order ?? 100}" style="width:50px;font-size:11px;padding:1px 4px;border-radius:3px;border:1px solid var(--border);background:var(--surface);color:var(--text)" oninput="updateLorebookEntryField(${uid},'order',parseInt(this.value)||100)"></label>`;
+  html += `<label>Position: <select style="font-size:11px;padding:1px 4px;border-radius:3px;border:1px solid var(--border);background:var(--surface);color:var(--text)" onchange="updateLorebookEntryField(${uid},'position',parseInt(this.value))"><option value="0" ${e.position===0?'selected':''}>Before system</option><option value="1" ${e.position===1?'selected':''}>After system</option><option value="2" ${(e.position===2||e.position===undefined)?'selected':''}>Before chat</option></select></label>`;
+  html += `</div>`;
+  html += `</div>`;
+  return html;
+}
+
+function addLorebookEntry() {
+  if (!_currentLorebook) return;
+  if (!_currentLorebook.entries) _currentLorebook.entries = {};
+  const uids = Object.keys(_currentLorebook.entries).map(Number);
+  const nextUid = uids.length > 0 ? Math.max(...uids) + 1 : 0;
+  _currentLorebook.entries[String(nextUid)] = {
+    uid: nextUid,
+    key: [],
+    keysecondary: [],
+    comment: '',
+    content: '',
+    constant: false,
+    selective: false,
+    order: 100,
+    position: 0,
+    disable: false,
+    extensions: {},
+  };
+  saveLorebook();
+  renderLorebookDetail();
+}
+
+function deleteLorebookEntry(uid) {
+  if (!_currentLorebook || !_currentLorebook.entries) return;
+  delete _currentLorebook.entries[String(uid)];
+  saveLorebook();
+  renderLorebookDetail();
+}
+
+function updateLorebookEntryField(uid, field, value) {
+  if (!_currentLorebook || !_currentLorebook.entries) return;
+  const entry = _currentLorebook.entries[String(uid)];
+  if (entry) entry[field] = value;
+  saveLorebookDebounced();
+}
+
+let _lorebookSaveTimer = null;
+function saveLorebookDebounced() {
+  if (_lorebookSaveTimer) clearTimeout(_lorebookSaveTimer);
+  _lorebookSaveTimer = setTimeout(() => saveLorebook(), 1000);
+}
+
+async function saveLorebook() {
+  if (!_currentLorebook || !_currentLorebook._filename) return;
+  const fn = _currentLorebook._filename;
+  // Strip internal _filename key before saving
+  const data = JSON.parse(JSON.stringify(_currentLorebook));
+  delete data._filename;
+  try {
+    await fetch('/api/lorebooks/' + encodeURIComponent(fn), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+  } catch (e) {
+    console.error('Failed to save lorebook', e);
+  }
+}
+
+async function toggleLorebookActive(filename, checked) {
+  const arr = _lorebookCtx === 'rp' ? rpLorebooks : schoolLorebooks;
+  if (checked) {
+    if (!arr.includes(filename)) arr.push(filename);
+  } else {
+    const idx = arr.indexOf(filename);
+    if (idx >= 0) arr.splice(idx, 1);
+  }
+  // Persist to session
+  const sessionId = _lorebookCtx === 'rp' ? rpActiveSessionId : schoolActiveSessionId;
+  if (!sessionId) return;
+  const endpoint = _lorebookCtx === 'rp'
+    ? '/api/rp/sessions/' + sessionId + '/lorebooks'
+    : '/api/school/sessions/' + sessionId + '/lorebooks';
+  try {
+    await fetch(endpoint, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({lorebooks: arr}),
+    });
+  } catch (e) {
+    console.error('Failed to update session lorebooks', e);
+  }
+  renderLorebookList();
+  if (_lorebookCtx === 'rp') renderRPSceneBar();
 }
 
 // ─── Settings Modal ──────────────────────────────────────────────
@@ -4434,3 +4706,31 @@ function clearRPChat() {
 
 // ─── End Virtual Scrolling ──────────────────────
 </script>
+<!-- Lorebook Manager Overlay -->
+<div class="gen-overlay show" id="lorebookOverlay" style="display:none">
+  <div class="gen-modal">
+    <div class="gen-header">
+      <h2>📖 Lorebook Manager</h2>
+      <span class="sub" id="lorebookCtxLabel">RP Mode</span>
+      <span style="flex:1"></span>
+      <button class="btn-reset" onclick="closeLorebookManager()">Close</button>
+    </div>
+    <div class="gen-body" style="flex-direction:row;gap:0">
+      <!-- Left: Lorebook list -->
+      <div style="width:220px;border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:400px">
+        <div style="padding:8px;display:flex;gap:4px">
+          <input type="text" id="lorebookNewName" placeholder="New lorebook name" style="flex:1;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+          <button class="btn-send" style="padding:4px 10px" onclick="createLorebook()">+</button>
+        </div>
+        <div id="lorebookList" style="overflow-y:auto;flex:1"></div>
+      </div>
+      <!-- Right: Entry editor -->
+      <div style="flex:1;display:flex;flex-direction:column;min-height:400px">
+        <div id="lorebookDetail" style="flex:1;overflow-y:auto;padding:8px">
+          <div style="color:var(--sub);text-align:center;padding:40px 20px">Select a lorebook from the left</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+

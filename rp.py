@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 import db
 import engine
+import lorebook
 
 router = APIRouter()
 
@@ -164,6 +165,7 @@ async def ws_rp(ws: WebSocket):
                     "persona": persona_filename,
                     "turn_routing": turn_routing, "response_style": response_style,
                     "stack_config": stack_config_json or db.DEFAULT_STACK_CONFIG,
+                    "lorebooks": [],
                     "console_events": [],
                     "console_events_truncated": False,
                 })
@@ -216,12 +218,19 @@ async def ws_rp(ws: WebSocket):
                 messages = db.db_rp_get_messages(session_id)
                 stack_cfg = db.get_stack_config(sess)
 
+                # Parse lorebooks
+                session_lorebooks = []
+                if sess.get("lorebooks"):
+                    try: session_lorebooks = json.loads(sess["lorebooks"])
+                    except: pass
+
                 await _safe_send({
                     "type": "session_resumed", "session_id": session_id,
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
                     "turn_routing": turn_routing, "response_style": response_style,
                     "stack_config": stack_cfg,
+                    "lorebooks": session_lorebooks,
                     "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name")} for m in messages],
                     "console_events": [],
                     "console_events_truncated": len(json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else []) > 0,
@@ -258,6 +267,25 @@ async def ws_rp(ws: WebSocket):
                         llm_messages, block_markers = db.build_llm_messages_from_stack(
                             stack_cfg, system_prompt, all_msgs,
                         )
+
+                        # ── Lorebook injection (after stack build, into system message) ──
+                        lb_filenames = []
+                        if sess.get("lorebooks"):
+                            try: lb_filenames = json.loads(sess["lorebooks"])
+                            except: pass
+                        if lb_filenames:
+                            lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
+                            lb_injection = lorebook.build_lorebook_injection(
+                                lorebooks_data, all_msgs, scan_depth=10
+                            )
+                            if lb_injection:
+                                # Inject into the first system message
+                                if llm_messages and llm_messages[0]["role"] == "system":
+                                    llm_messages[0]["content"] += "\n\n" + lb_injection
+                                await _safe_send({
+                                    "type": "console_event", "event": "lorebook_injection",
+                                    "content": lb_injection, "timestamp": engine._now_iso(),
+                                })
 
                         # Typing indicator
                         if not _ws_state[0]: return
@@ -707,3 +735,59 @@ async def check_auto_summary(session_id, ws, send_fn=None):
     })
 
     return stack_cfg
+
+
+# ─── Lorebook REST API ────────────────────────────────────────────
+
+@router.get("/api/lorebooks")
+async def api_list_lorebooks():
+    """List all lorebooks."""
+    return JSONResponse(lorebook.list_lorebooks())
+
+@router.post("/api/lorebooks")
+async def api_create_lorebook(req: Request):
+    """Create a new lorebook."""
+    body = await req.json()
+    name = body.get("name", "Untitled")
+    description = body.get("description", "")
+    result = lorebook.create_lorebook(name, description)
+    return JSONResponse(result)
+
+@router.get("/api/lorebooks/{filename}")
+async def api_get_lorebook(filename: str):
+    """Get a single lorebook with all entries."""
+    try:
+        return JSONResponse(lorebook.load_lorebook(filename))
+    except FileNotFoundError:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+@router.put("/api/lorebooks/{filename}")
+async def api_save_lorebook(filename: str, req: Request):
+    """Save a lorebook (full data including entries)."""
+    body = await req.json()
+    lorebook.save_lorebook(filename, body)
+    return JSONResponse({"status": "ok"})
+
+@router.delete("/api/lorebooks/{filename}")
+async def api_delete_lorebook(filename: str):
+    """Delete a lorebook."""
+    deleted = lorebook.delete_lorebook(filename)
+    if not deleted:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return JSONResponse({"status": "ok"})
+
+@router.put("/api/rp/sessions/{session_id}/lorebooks")
+async def api_set_session_lorebooks(session_id: int, req: Request):
+    """Set which lorebooks are active for an RP session."""
+    body = await req.json()
+    filenames = body.get("lorebooks", [])
+    db.db_rp_update_settings(session_id, lorebooks=json.dumps(filenames))
+    return JSONResponse({"status": "ok"})
+
+@router.put("/api/school/sessions/{session_id}/lorebooks")
+async def api_set_school_session_lorebooks(session_id: int, req: Request):
+    """Set which lorebooks are active for a school session."""
+    body = await req.json()
+    filenames = body.get("lorebooks", [])
+    db.db_school_update_settings(session_id, lorebooks=json.dumps(filenames))
+    return JSONResponse({"status": "ok"})

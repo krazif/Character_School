@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, Response
 from json_repair import repair_json
 import db
 import engine
+import lorebook
 
 router = APIRouter()
 
@@ -623,6 +624,7 @@ async def ws_chat(ws: WebSocket):
                         "card": card_filename,
                         "persona": persona_filename,
                         "stack_config": stack_cfg,
+                        "lorebooks": [],
                     })
 
                     # Send first_mes
@@ -676,12 +678,19 @@ async def ws_chat(ws: WebSocket):
                 messages = db.db_school_get_messages(session_id)
                 stack_cfg = db.get_stack_config(sess)
 
+                # Parse lorebooks
+                school_lb = []
+                if sess.get("lorebooks"):
+                    try: school_lb = json.loads(sess["lorebooks"])
+                    except: pass
+
                 await ws.send_json({
                     "type": "session_resumed",
                     "session_id": session_id,
                     "card": card_filename,
                     "persona": persona_filename,
                     "stack_config": stack_cfg,
+                    "lorebooks": school_lb,
                     "messages": [{"id": m["id"], "seq": m["seq"], "role": m["role"],
                                   "content": m["content"], "is_first_mes": m["is_first_mes"],
                                   "analysis": json.loads(m["analysis_json"]) if m["analysis_json"] else None}
@@ -712,6 +721,25 @@ async def ws_chat(ws: WebSocket):
                         llm_messages, block_markers = db.build_llm_messages_from_stack(
                             stack_cfg, system_prompt, all_msgs,
                         )
+
+                        # ── Lorebook injection ──
+                        lb_filenames = []
+                        if sess.get("lorebooks"):
+                            try: lb_filenames = json.loads(sess["lorebooks"])
+                            except: pass
+                        if lb_filenames:
+                            lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
+                            lb_injection = lorebook.build_lorebook_injection(
+                                lorebooks_data, all_msgs, scan_depth=10
+                            )
+                            if lb_injection:
+                                # Inject into the system message (first in llm_messages)
+                                if llm_messages and llm_messages[0]["role"] == "system":
+                                    llm_messages[0]["content"] += "\n\n" + lb_injection
+                                await ws.send_json({
+                                    "type": "console_event", "event": "lorebook_injection",
+                                    "content": lb_injection, "timestamp": engine._now_iso(),
+                                })
 
                         # ── Notify frontend: character is responding ──
                         await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
