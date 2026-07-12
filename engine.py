@@ -219,9 +219,9 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
         parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
     # Response style directive (Marinara-style word-count targets)
     if response_style == 'short':
-        parts.append("\n\nRESPONSE LENGTH: SHORT. Reply in 3-6 sentences — a brief exchange of dialogue with a light action beat. Be concise but complete. No long paragraphs or internal monologue.")
+        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: SHORT] Write a maximum of 150 words. This is a hard limit. Finish your response within 150 words — do NOT start a sentence you cannot finish. End naturally with a complete sentence. Prefer dialogue and action. No internal monologue. No long descriptions.")
     elif response_style == 'moderate':
-        parts.append("\n\nRESPONSE LENGTH: MODERATE. Reply in 4-8 sentences — a few exchanges of dialogue with action beats and brief description. No long paragraphs.")
+        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: MODERATE] Write between 150-300 words. Finish your response within 300 words — do NOT start a sentence you cannot finish. Balance dialogue, action beats, and description.")
     elif response_style == 'long':
         parts.append("\n\nRESPONSE LENGTH: LONG. Write a full paragraph response — include dialogue, actions, internal thoughts, body language, and emotional detail.")
     elif response_style == 'flexible':
@@ -426,9 +426,9 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
 
     # Response style (Marinara-style word-count targets)
     if response_style == 'short':
-        parts.append("RESPONSE LENGTH: SHORT. Reply in 3-6 sentences — a brief exchange of dialogue with a light action beat. Be concise but complete. No long paragraphs or internal monologue.")
+        parts.append("[IMPORTANT — RESPONSE LENGTH: SHORT] Write a maximum of 150 words. This is a hard limit. Finish your response within 150 words — do NOT start a sentence you cannot finish. End naturally with a complete sentence. Prefer dialogue and action. No internal monologue. No long descriptions.")
     elif response_style == 'moderate':
-        parts.append("RESPONSE LENGTH: MODERATE. Reply in 4-8 sentences — a few exchanges of dialogue with action beats and brief description. No long paragraphs.")
+        parts.append("[IMPORTANT — RESPONSE LENGTH: MODERATE] Write between 150-300 words. Finish your response within 300 words — do NOT start a sentence you cannot finish. Balance dialogue, action beats, and description.")
     elif response_style == 'long':
         parts.append("RESPONSE LENGTH: LONG. Write a full paragraph response — include dialogue, actions, internal thoughts, body language, and emotional detail.")
     elif response_style == 'flexible':
@@ -978,5 +978,5 @@ Return ONLY the JSON object."""},
 def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
     """Map response_style to a max_tokens cap that matches the word-count target.
     Roughly 1.5 tokens per word + small buffer."""
-    caps = {'short': 600, 'moderate': 1000}
+    caps = {'short': 700, 'moderate': 1200}
     return caps.get(response_style, default)
