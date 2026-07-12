@@ -255,7 +255,7 @@ body.rp-mode .school-only { display:none; }
 .rp-sessions-header button { padding:3px 10px; font-size:12px; border:1px solid var(--border); border-radius:4px; background:var(--surface2); color:var(--text); cursor:pointer; }
 .rp-sessions-header button:hover { border-color:var(--accent); color:var(--accent); }
 .rp-sessions-list { flex:1; overflow-y:auto; }
-.rp-session-item { padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.15s; }
+.rp-session-item { padding:10px 14px; cursor:pointer; transition:background 0.15s; }
 .rp-session-item:hover { background:var(--surface2); }
 .rp-session-item.active { background:var(--surface2); border-left:3px solid var(--purple); }
 .rp-session-item .title { font-weight:500; font-size:13px; }
@@ -266,7 +266,7 @@ body.rp-mode .school-only { display:none; }
  .rp-session-item .fork-btn:hover { color:var(--green); }
 
 /* School Sessions */
-.school-session-item { padding:8px 14px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.15s; }
+.school-session-item { padding:8px 14px; cursor:pointer; transition:background 0.15s; }
 .school-session-item:hover { background:var(--surface2); }
 .school-session-item.active { background:var(--surface2); border-left:3px solid var(--blue); }
 .school-session-item .title { font-weight:500; font-size:12px; }
@@ -2690,9 +2690,9 @@ function formatMessage(text) {
 // ── Theme & Background ───────────────────────────────────────────
 const THEMES = {
   midnight: { name:'Midnight', colors:['#0d1117','#58a6ff','#3fb950','#f85149'] },
-  dusk:     { name:'Dusk',     colors:['#1a1428','#c084fc','#4ade80','#fb7185'] },
-  forest:   { name:'Forest',   colors:['#0f1a14','#34d399','#4ade80','#f87171'] },
-  ember:    { name:'Ember',    colors:['#1a110d','#f97316','#84cc16','#ef4444'] },
+  dusk:     { name:'Dusk',     colors:['#0d0b10','#c084fc','#7c3aed','#fb7185'] },
+  forest:   { name:'Forest',   colors:['#0a0d0b','#34d399','#166534','#f87171'] },
+  ember:    { name:'Ember',    colors:['#0d0a08','#f97316','#9a3412','#ef4444'] },
   velvet:   { name:'Velvet',   colors:['#1c0e1e','#a855f7','#f472b6','#fb7185'] },
   abyss:    { name:'Abyss',    colors:['#06121f','#06b6d4','#3b82f6','#22d3ee'] },
   moca:     { name:'Moca',     colors:['#1a120c','#a16207','#d4a574','#e8a87c'] },
@@ -4992,29 +4992,29 @@ function clearRPChat() {
   --char-bubble: var(--surface2); --char-bubble-border: var(--border);
   --bg-image: none; --bg-overlay: 0.55;
 }
-/* Theme: Dusk (purple) */
+/* Theme: Dusk (dark base, purple frames/borders) */
 [data-theme="dusk"] {
-  --bg: #1a1428; --surface: #221a33; --surface2: #2d2342; --border: #3d3055;
-  --text: #d4c8e8; --text-dim: #9a8ab5; --accent: #c084fc; --green: #4ade80;
+  --bg: #0d0b10; --surface: #141218; --surface2: #1c1a22; --border: #7c3aed;
+  --text: #d4c8e8; --text-dim: #8b7da0; --accent: #c084fc; --green: #4ade80;
   --red: #fb7185; --yellow: #fbbf24; --purple: #d8b4fe; --orange: #fb923c;
-  --user-bubble: #5b21b6; --user-bubble-text: #f3e8ff; --user-bubble-border: #7c3aed;
-  --char-bubble: var(--surface2); --char-bubble-border: var(--border);
+  --user-bubble: #2a1a3a; --user-bubble-text: #f3e8ff; --user-bubble-border: #7c3aed;
+  --char-bubble: var(--surface2); --char-bubble-border: #5b21b6;
 }
-/* Theme: Forest (green) */
+/* Theme: Forest (dark base, green frames/borders) */
 [data-theme="forest"] {
-  --bg: #0f1a14; --surface: #16241c; --surface2: #1e3328; --border: #2a4a38;
-  --text: #c8e6d2; --text-dim: #7aa890; --accent: #34d399; --green: #4ade80;
+  --bg: #0a0d0b; --surface: #101410; --surface2: #161c16; --border: #166534;
+  --text: #c8e6d2; --text-dim: #7a8a7e; --accent: #34d399; --green: #4ade80;
   --red: #f87171; --yellow: #fcd34d; --purple: #a78bfa; --orange: #f97316;
-  --user-bubble: #14532d; --user-bubble-text: #dcfce7; --user-bubble-border: #166534;
-  --char-bubble: var(--surface2); --char-bubble-border: var(--border);
+  --user-bubble: #0e2a1a; --user-bubble-text: #dcfce7; --user-bubble-border: #166534;
+  --char-bubble: var(--surface2); --char-bubble-border: #14532d;
 }
-/* Theme: Ember (warm) */
+/* Theme: Ember (dark base, warm orange frames/borders) */
 [data-theme="ember"] {
-  --bg: #1a110d; --surface: #251a15; --surface2: #33251e; --border: #4a382e;
-  --text: #f0d9cc; --text-dim: #b08e7e; --accent: #f97316; --green: #84cc16;
+  --bg: #0d0a08; --surface: #14100d; --surface2: #1c1814; --border: #9a3412;
+  --text: #f0d9cc; --text-dim: #9a8068; --accent: #f97316; --green: #84cc16;
   --red: #ef4444; --yellow: #eab308; --purple: #c084fc; --orange: #fb923c;
-  --user-bubble: #7c2d12; --user-bubble-text: #fed7aa; --user-bubble-border: #9a3412;
-  --char-bubble: var(--surface2); --char-bubble-border: var(--border);
+  --user-bubble: #2a1a10; --user-bubble-text: #fed7aa; --user-bubble-border: #9a3412;
+  --char-bubble: var(--surface2); --char-bubble-border: #7c2d12;
 }
 /* Theme: Velvet (dark base, purple frames/borders) */
 [data-theme="velvet"] {
