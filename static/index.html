@@ -61,7 +61,11 @@ header .status.connected { color:var(--green); }
 .badge-pass { background:rgba(63,185,80,0.2); color:var(--green); }
 .badge-fail { background:rgba(248,81,73,0.2); color:var(--red); }
 .badge-partial { background:rgba(210,153,34,0.2); color:var(--yellow); }
-.msg-delete-link { display:block; text-align:right; font-size:11px; color:var(--text-dim); margin-top:6px; text-decoration:none; cursor:pointer; opacity:0.6; }
+.msg-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; font-size:11px; }
+.msg-actions a { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0.6; }
+.msg-actions a:hover { color:var(--red); opacity:1; }
+.msg-actions a.regenerate-link:hover { color:var(--accent); opacity:1; }
+.msg-delete-link { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0.6; }
 .msg-delete-link:hover { color:var(--red); opacity:1; }
 .msg-number { display:inline-block; font-size:10px; color:var(--text-dim); background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; margin-left:6px; font-weight:600; vertical-align:middle; }
 
@@ -300,7 +304,12 @@ body.rp-mode .school-only { display:none; }
 .rp-msg .rp-speaker { font-size:12px; font-weight:700; margin-bottom:6px; letter-spacing:0.3px; }
 .rp-msg.user .rp-speaker { color:#b0d4f0; }
 .rp-msg.character .rp-speaker { color:var(--accent); }
-.rp-msg .rp-delete-link { display:block; text-align:right; font-size:11px; color:var(--text-dim); margin-top:8px; text-decoration:none; cursor:pointer; opacity:0; transition:opacity 0.2s; }
+.rp-msg .rp-msg-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; font-size:11px; }
+.rp-msg .rp-msg-actions a { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0; transition:opacity 0.2s; }
+.rp-msg:hover .rp-msg-actions a { opacity:0.6; }
+.rp-msg .rp-msg-actions a:hover { color:var(--red); opacity:1; }
+.rp-msg .rp-msg-actions a.rp-regenerate-link:hover { color:var(--accent); opacity:1; }
+.rp-msg .rp-delete-link { color:var(--text-dim); text-decoration:none; cursor:pointer; }
 .rp-msg:hover .rp-delete-link { opacity:0.6; }
 .rp-msg .rp-delete-link:hover { color:var(--red); opacity:1; }
 
@@ -4671,13 +4680,23 @@ function buildSchoolMessageDOM(msg, index) {
     analysisDiv.textContent = msg.analysis;
     div.appendChild(analysisDiv);
   }
-  // Delete link
+  // Actions (delete + regenerate for character)
   if (msg.role !== 'system') {
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'msg-actions';
+    if (msg.role === 'character') {
+      const regenLink = document.createElement('a');
+      regenLink.className = 'regenerate-link';
+      regenLink.textContent = 'regenerate';
+      regenLink.onclick = () => regenerateSchoolMessage(index);
+      actionsDiv.appendChild(regenLink);
+    }
     const delLink = document.createElement('a');
     delLink.className = 'msg-delete-link';
     delLink.textContent = 'delete';
     delLink.onclick = () => deleteSchoolMessage(index);
-    div.appendChild(delLink);
+    actionsDiv.appendChild(delLink);
+    div.appendChild(actionsDiv);
   }
   return div;
 }
@@ -4709,13 +4728,23 @@ function buildRPMessageDOM(msg, index) {
   contentDiv.className = 'rp-msg-content';
   contentDiv.innerHTML = formatMessage(msg.content);
   div.appendChild(contentDiv);
-  // Delete link
+  // Actions (delete + regenerate for character)
   if (msg.role !== 'system') {
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'rp-msg-actions';
+    if (msg.role === 'character') {
+      const regenLink = document.createElement('a');
+      regenLink.className = 'rp-regenerate-link';
+      regenLink.textContent = 'regenerate';
+      regenLink.onclick = () => regenerateRPMessage(index);
+      actionsDiv.appendChild(regenLink);
+    }
     const delLink = document.createElement('a');
     delLink.className = 'rp-delete-link';
     delLink.textContent = 'delete';
     delLink.onclick = () => deleteRPMessage(index);
-    div.appendChild(delLink);
+    actionsDiv.appendChild(delLink);
+    div.appendChild(actionsDiv);
   }
   return div;
 }
@@ -4733,6 +4762,20 @@ function deleteSchoolMessage(index) {
   renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
 }
 
+function regenerateSchoolMessage(index) {
+  if (index < 0 || index >= schoolMessages.length) return;
+  const msg = schoolMessages[index];
+  if (msg.role !== 'character') return;
+  const msgId = msg.messageId;
+  if (!msgId || !ws || ws.readyState !== WebSocket.OPEN) return;
+  // Remove this message and all subsequent from UI
+  schoolMessages.splice(index);
+  schoolVisibleCount.value = Math.min(schoolVisibleCount.value, schoolMessages.length);
+  renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
+  // Tell server to delete target+subsequent and regenerate
+  ws.send(JSON.stringify({ type: 'regenerate_message', message_id: msgId }));
+}
+
 function deleteRPMessage(index) {
   if (index < 0 || index >= rpMessages.length) return;
   const msg = rpMessages[index];
@@ -4743,6 +4786,20 @@ function deleteRPMessage(index) {
   rpMessages.splice(index);
   rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
   renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+}
+
+function regenerateRPMessage(index) {
+  if (index < 0 || index >= rpMessages.length) return;
+  const msg = rpMessages[index];
+  if (msg.role !== 'character') return;
+  const msgId = msg.messageId;
+  if (!msgId || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
+  // Remove this message and all subsequent from UI
+  rpMessages.splice(index);
+  rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
+  renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+  // Tell server to delete target+subsequent and regenerate
+  rpWS.send(JSON.stringify({ type: 'regenerate_message', message_id: msgId }));
 }
 
 function clearSchoolChat() {

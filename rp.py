@@ -384,6 +384,146 @@ async def ws_rp(ws: WebSocket):
                     deleted = db.db_rp_delete_message(session_id, target_id)
                     await _safe_send({"type": "message_deleted", "message_id": target_id, "success": deleted})
 
+            elif data["type"] == "regenerate_message":
+                target_id = data.get("message_id")
+                if target_id is not None and session_id is not None:
+                    # Find the character filename from the deleted message before deleting
+                    conn_msg = db.db_rp_get_messages(session_id)
+                    deleted_msg = None
+                    for m in conn_msg:
+                        if m["id"] == target_id:
+                            deleted_msg = m
+                            break
+                    directed_to = None
+                    if deleted_msg and deleted_msg.get("role") == "character":
+                        # Find the filename matching the character name
+                        char_name = deleted_msg.get("speaker")
+                        for fn, name in character_names.items():
+                            if name == char_name:
+                                directed_to = fn
+                                break
+                    db.db_rp_delete_message(session_id, target_id)
+
+                    async def _rp_regen():
+                        try:
+                            if _ws_state[0]:
+                                await check_auto_summary(session_id, ws, send_fn=_safe_send)
+
+                            sess = db.db_rp_get_session(session_id)
+                            stack_cfg = db.get_stack_config(sess)
+
+                            system_prompt = engine.build_rp_system_prompt(
+                                [cards[fn] for fn in character_order],
+                                persona, turn_routing, response_style,
+                                directed_character=character_names.get(directed_to) if directed_to else None,
+                            )
+
+                            all_msgs = db.db_rp_get_messages(session_id)
+                            llm_messages, block_markers = db.build_llm_messages_from_stack(
+                                stack_cfg, system_prompt, all_msgs,
+                            )
+
+                            lb_filenames = []
+                            if sess.get("lorebooks"):
+                                try: lb_filenames = json.loads(sess["lorebooks"])
+                                except: pass
+                            if lb_filenames:
+                                lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
+                                lb_injection = lorebook.build_lorebook_injection(
+                                    lorebooks_data, all_msgs, scan_depth=10
+                                )
+                                if lb_injection:
+                                    if llm_messages and llm_messages[0]["role"] == "system":
+                                        llm_messages[0]["content"] += "\n\n" + lb_injection
+                                    await _safe_send({
+                                        "type": "console_event", "event": "lorebook_injection",
+                                        "content": lb_injection, "timestamp": engine._now_iso(),
+                                    })
+
+                            if not _ws_state[0]: return
+                            if directed_to and directed_to in character_names:
+                                await _safe_send({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})
+                            else:
+                                await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
+
+                            await _safe_send({
+                                "type": "console_event", "event": "request", "llm": "character",
+                                "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": db.CHAT_MAX_TOKENS,
+                                "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
+                                "block_markers": block_markers,
+                                "timestamp": engine._now_iso(),
+                            })
+
+                            kwargs = dict(
+                                model=db.CHAT_MODEL, messages=llm_messages,
+                                temperature=db.CHAT_TEMPERATURE, max_tokens=db.CHAT_MAX_TOKENS,
+                                extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+                            )
+                            if db.CHAT_TOP_P is not None:
+                                kwargs["top_p"] = db.CHAT_TOP_P
+                            if db.CHAT_TOP_K is not None:
+                                kwargs["top_k"] = db.CHAT_TOP_K
+                            await _safe_send({
+                                "type": "console_event", "event": "request_kwargs", "llm": "character",
+                                "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
+                            })
+                            if not _ws_state[0]: return
+                            resp = await db.chat_client.chat.completions.create(**kwargs)
+                            raw_content = resp.choices[0].message.content
+                            usage = resp.usage
+
+                            if not _ws_state[0]: return
+                            await _safe_send({
+                                "type": "console_event", "event": "response", "llm": "character",
+                                "model": db.CHAT_MODEL, "content": raw_content,
+                                "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
+                                "finish_reason": resp.choices[0].finish_reason, "timestamp": engine._now_iso(),
+                            })
+
+                            parsed = engine.parse_rp_response(raw_content, character_names, character_order)
+
+                            if directed_to and directed_to in character_names:
+                                directed_name = character_names[directed_to]
+                                if parsed:
+                                    filtered = [p for p in parsed if p["filename"] == directed_to]
+                                    if filtered:
+                                        parsed = filtered[:1]
+                                    else:
+                                        import re as _re
+                                        stripped = _re.sub(r'^\[[^\]]+\]:\s*', '', raw_content).strip()
+                                        parsed = [{"filename": directed_to, "name": directed_name, "content": stripped}]
+                                else:
+                                    parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
+                            elif parsed:
+                                parsed = parsed[:1]
+                            else:
+                                fn = character_order[0] if character_order else None
+                                name = character_names.get(fn, "Unknown")
+                                parsed = [{"filename": fn, "name": name, "content": raw_content.strip()}]
+
+                            await _safe_send({"type": "character_typing_stopped"})
+
+                            if parsed:
+                                for pr in parsed:
+                                    msg_id = db.db_rp_add_message(session_id, "character", pr["content"], pr["name"])
+                                    await _safe_send({
+                                        "type": "character_message", "content": pr["content"],
+                                        "character_filename": pr["filename"], "character_name": pr["name"],
+                                        "is_first_mes": False, "message_id": msg_id,
+                                    })
+
+                            if _ws_state[0]:
+                                await check_auto_summary(session_id, ws, send_fn=_safe_send)
+
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            await _safe_send({"type": "character_typing_stopped"})
+                            await _safe_send({"type": "error", "message": f"Regenerate error: {e}"})
+
+                    current_gen_task = asyncio.create_task(_rp_regen())
+                    continue
+
             elif data["type"] == "update_settings":
                 if session_id:
                     turn_routing = data.get("turn_routing", turn_routing)
