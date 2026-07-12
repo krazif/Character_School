@@ -978,5 +978,5 @@ Return ONLY the JSON object."""},
 def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
     """Map response_style to a max_tokens cap that matches the word-count target.
     Roughly 1.5 tokens per word + small buffer."""
-    caps = {'short': 400, 'moderate': 700}
+    caps = {'short': 600, 'moderate': 1000}
     return caps.get(response_style, default)
