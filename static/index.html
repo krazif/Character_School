@@ -64,6 +64,7 @@ header .status.connected { color:var(--green); }
 .msg-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; font-size:11px; }
 .msg-actions a { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0.6; }
 .msg-actions a:hover { color:var(--red); opacity:1; }
+.msg-actions .msg-word-count { color:var(--text-dim); opacity:0.5; font-size:11px; }
 .msg-actions a.regenerate-link:hover { color:var(--accent); opacity:1; }
 .msg-delete-link { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0.6; }
 .msg-delete-link:hover { color:var(--red); opacity:1; }
@@ -308,6 +309,7 @@ body.rp-mode .school-only { display:none; }
 .rp-msg .rp-msg-actions a { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0; transition:opacity 0.2s; }
 .rp-msg:hover .rp-msg-actions a { opacity:0.6; }
 .rp-msg .rp-msg-actions a:hover { color:var(--red); opacity:1; }
+.rp-msg .rp-msg-actions .msg-word-count { color:var(--text-dim); opacity:0.5; font-size:11px; }
 .rp-msg .rp-msg-actions a.rp-regenerate-link:hover { color:var(--accent); opacity:1; }
 .rp-msg .rp-delete-link { color:var(--text-dim); text-decoration:none; cursor:pointer; }
 .rp-msg:hover .rp-delete-link { opacity:0.6; }
@@ -4685,6 +4687,11 @@ function buildSchoolMessageDOM(msg, index) {
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'msg-actions';
     if (msg.role === 'character') {
+      const wordCount = (msg.content || '').trim().split(/\s+/).filter(w => w.length > 0).length;
+      const wcSpan = document.createElement('span');
+      wcSpan.className = 'msg-word-count';
+      wcSpan.textContent = wordCount + ' words';
+      actionsDiv.appendChild(wcSpan);
       const regenLink = document.createElement('a');
       regenLink.className = 'regenerate-link';
       regenLink.textContent = 'regenerate';
@@ -4733,6 +4740,11 @@ function buildRPMessageDOM(msg, index) {
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'rp-msg-actions';
     if (msg.role === 'character') {
+      const wordCount = (msg.content || '').trim().split(/\s+/).filter(w => w.length > 0).length;
+      const wcSpan = document.createElement('span');
+      wcSpan.className = 'msg-word-count';
+      wcSpan.textContent = wordCount + ' words';
+      actionsDiv.appendChild(wcSpan);
       const regenLink = document.createElement('a');
       regenLink.className = 'rp-regenerate-link';
       regenLink.textContent = 'regenerate';
