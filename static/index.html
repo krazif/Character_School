@@ -2693,6 +2693,9 @@ const THEMES = {
   dusk:     { name:'Dusk',     colors:['#1a1428','#c084fc','#4ade80','#fb7185'] },
   forest:   { name:'Forest',   colors:['#0f1a14','#34d399','#4ade80','#f87171'] },
   ember:    { name:'Ember',    colors:['#1a110d','#f97316','#84cc16','#ef4444'] },
+  velvet:   { name:'Velvet',   colors:['#1c0e1e','#a855f7','#f472b6','#fb7185'] },
+  abyss:    { name:'Abyss',    colors:['#06121f','#06b6d4','#3b82f6','#22d3ee'] },
+  moca:     { name:'Moca',     colors:['#1a120c','#a16207','#d4a574','#e8a87c'] },
   light:    { name:'Light',    colors:['#f5f7fa','#0969da','#1a7f37','#cf222e'] },
 };
 function applyTheme(name) {
@@ -5011,6 +5014,30 @@ function clearRPChat() {
   --text: #f0d9cc; --text-dim: #b08e7e; --accent: #f97316; --green: #84cc16;
   --red: #ef4444; --yellow: #eab308; --purple: #c084fc; --orange: #fb923c;
   --user-bubble: #7c2d12; --user-bubble-text: #fed7aa; --user-bubble-border: #9a3412;
+  --char-bubble: var(--surface2); --char-bubble-border: var(--border);
+}
+/* Theme: Velvet (deep purple/berry) */
+[data-theme="velvet"] {
+  --bg: #1c0e1e; --surface: #271530; --surface2: #331c3e; --border: #45274f;
+  --text: #e3cfe8; --text-dim: #b88fc0; --accent: #a855f7; --green: #4ade80;
+  --red: #fb7185; --yellow: #fbbf24; --purple: #c084fc; --orange: #fb923c;
+  --user-bubble: #6b21a8; --user-bubble-text: #f3e8ff; --user-bubble-border: #7e22ce;
+  --char-bubble: var(--surface2); --char-bubble-border: var(--border);
+}
+/* Theme: Abyss (deep teal/blue) */
+[data-theme="abyss"] {
+  --bg: #06121f; --surface: #0c1c2e; --surface2: #122638; --border: #1d3a52;
+  --text: #c1dceb; --text-dim: #6f93a8; --accent: #06b6d4; --green: #34d399;
+  --red: #f87171; --yellow: #fcd34d; --purple: #a78bfa; --orange: #f97316;
+  --user-bubble: #0e7490; --user-bubble-text: #cffafe; --user-bubble-border: #0891b2;
+  --char-bubble: var(--surface2); --char-bubble-border: var(--border);
+}
+/* Theme: Moca (deep coffee/warm brown) */
+[data-theme="moca"] {
+  --bg: #1a120c; --surface: #241a12; --surface2: #322519; --border: #423220;
+  --text: #e8d5c0; --text-dim: #b08e6e; --accent: #d4a574; --green: #84cc16;
+  --red: #ef4444; --yellow: #eab308; --purple: #c084fc; --orange: #f97316;
+  --user-bubble: #6b4423; --user-bubble-text: #f5e6d3; --user-bubble-border: #8b5a2b;
   --char-bubble: var(--surface2); --char-bubble-border: var(--border);
 }
 /* Theme: Light */
