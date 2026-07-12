@@ -6,8 +6,8 @@ import asyncio
 import json
 import os
 import sqlite3
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi.responses import JSONResponse, PlainTextResponse
 import db
 import engine
 import lorebook
@@ -791,3 +791,36 @@ async def api_set_school_session_lorebooks(session_id: int, req: Request):
     filenames = body.get("lorebooks", [])
     db.db_school_update_settings(session_id, lorebooks=json.dumps(filenames))
     return JSONResponse({"status": "ok"})
+
+
+# ─── Lorebook Import / Export ─────────────────────────────────────
+
+@router.post("/api/lorebooks/import")
+async def api_import_lorebook(req: Request):
+    """Import a lorebook from SillyTavern World Info JSON (raw JSON body)."""
+    try:
+        data = await req.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "Expected a JSON object"}, status_code=400)
+    if "entries" not in data:
+        return JSONResponse({"error": "Not a valid lorebook: missing 'entries' key"}, status_code=400)
+    result = lorebook.import_lorebook(data)
+    return JSONResponse(result)
+
+
+@router.get("/api/lorebooks/{filename}/export")
+async def api_export_lorebook(filename: str):
+    """Export a lorebook as downloadable JSON."""
+    try:
+        data = lorebook.load_lorebook(filename)
+    except FileNotFoundError:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    json_str = json.dumps(data, indent=2, ensure_ascii=False)
+    safe_name = filename.replace(".json", "")
+    return PlainTextResponse(
+        json_str,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.json"'},
+    )

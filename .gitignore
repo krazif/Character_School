@@ -23,6 +23,9 @@ personas/razif.json
 *.log
 config.jsonc
 
+# Lorebooks — keep the folder, ignore user-created ones
+lorebooks/*.json
+
 # OS files
 .DS_Store
 Thumbs.db

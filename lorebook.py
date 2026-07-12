@@ -228,3 +228,79 @@ def load_lorebooks_for_session(lorebook_filenames: list[str]) -> list[dict]:
         except FileNotFoundError:
             pass
     return result
+    data = {
+        "name": name,
+        "description": description,
+        "entries": {},
+    }
+    save_lorebook(filename, data)
+    return {"filename": filename, "name": name, "description": description, "entry_count": 0}
+
+
+def _unique_filename(safe_name: str) -> str:
+    """Generate a unique .json filename, appending _N if needed."""
+    filename = f"{safe_name}.json"
+    d = _lorebooks_dir()
+    counter = 1
+    while (d / filename).exists():
+        filename = f"{safe_name}_{counter}.json"
+        counter += 1
+    return filename
+
+
+def _normalize_entry(uid, entry: dict) -> dict:
+    """Normalize a single lorebook entry to have all required fields."""
+    try:
+        uid_int = int(uid)
+    except (ValueError, TypeError):
+        uid_int = uid
+    return {
+        "uid": entry.get("uid", uid_int),
+        "key": entry.get("key", []) or [],
+        "keysecondary": entry.get("keysecondary", []) or [],
+        "comment": entry.get("comment", ""),
+        "content": entry.get("content", ""),
+        "constant": entry.get("constant", False),
+        "selective": entry.get("selective", False),
+        "order": entry.get("order", 100),
+        "position": entry.get("position", 0),
+        "disable": entry.get("disable", False),
+        "extensions": entry.get("extensions", {}) or {},
+    }
+
+
+def import_lorebook(data: dict, override_name: str = "") -> dict:
+    """Import a lorebook from SillyTavern World Info JSON or our own format.
+
+    Accepts both SillyTavern format (entries dict at top level) and our
+    extended format (name, description, entries). All entries are normalized
+    to have every required field. A unique filename is generated to avoid
+    overwriting existing lorebooks.
+
+    Returns the new lorebook's summary info.
+    """
+    lb_name = override_name or data.get("name", "")
+    description = data.get("description", "")
+    entries = data.get("entries", {})
+
+    if not lb_name:
+        lb_name = "Imported Lorebook"
+
+    # Normalize all entries
+    normalized = {}
+    for uid_str, entry in entries.items():
+        normalized[str(uid_str)] = _normalize_entry(uid_str, entry)
+
+    out_data = {
+        "name": lb_name,
+        "description": description,
+        "entries": normalized,
+    }
+
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in lb_name.lower()).strip("_")
+    if not safe_name:
+        safe_name = "lorebook"
+    filename = _unique_filename(safe_name)
+
+    save_lorebook(filename, out_data)
+    return {"filename": filename, "name": lb_name, "description": description, "entry_count": len(normalized)}

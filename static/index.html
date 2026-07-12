@@ -4014,6 +4014,7 @@ function renderLorebookDetail() {
   html += `<div style="margin-top:8px;display:flex;gap:6px">`;
   html += `<button class="btn-send" style="padding:4px 12px;font-size:12px" onclick="addLorebookEntry()">+ Add Entry</button>`;
   html += `<button class="btn-send" style="padding:4px 12px;font-size:12px" onclick="saveLorebook()">💾 Save</button>`;
+  html += `<button class="btn-send" style="padding:4px 12px;font-size:12px" onclick="exportLorebook()">⬇ Export</button>`;
   html += `<button class="btn-reset" style="padding:4px 12px;font-size:12px;margin-left:auto" onclick="deleteCurrentLorebook()">🗑 Delete Lorebook</button>`;
   html += `</div></div>`;
 
@@ -4112,6 +4113,60 @@ async function saveLorebook() {
     });
   } catch (e) {
     console.error('Failed to save lorebook', e);
+  }
+}
+
+// ─── Lorebook Import / Export ──────────────────────────────────────
+
+async function importLorebookFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data.entries || typeof data.entries !== 'object') {
+      alert('Invalid lorebook file: missing or invalid "entries" object');
+      input.value = '';
+      return;
+    }
+    const res = await fetch('/api/lorebooks/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (result.error) {
+      alert('Import failed: ' + result.error);
+    } else {
+      await loadLorebookList();
+      await selectLorebook(result.filename);
+    }
+  } catch (e) {
+    alert('Import failed: ' + e.message);
+  }
+  input.value = '';
+}
+
+async function exportLorebook() {
+  if (!_currentLorebook || !_currentLorebook._filename) return;
+  const fn = _currentLorebook._filename;
+  try {
+    const res = await fetch('/api/lorebooks/' + encodeURIComponent(fn) + '/export');
+    if (!res.ok) {
+      alert('Export failed: ' + (await res.text()));
+      return;
+    }
+    const blob = await res.blob();
+    const safeName = fn.replace(/\.json$/, '');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = safeName + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  }  catch (e) {
+    alert('Export failed: ' + e.message);
   }
 }
 
@@ -4721,6 +4776,10 @@ function clearRPChat() {
         <div style="padding:8px;display:flex;gap:4px">
           <input type="text" id="lorebookNewName" placeholder="New lorebook name" style="flex:1;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
           <button class="btn-send" style="padding:4px 10px" onclick="createLorebook()">+</button>
+        </div>
+        <div style="padding:0 8px 8px;display:flex;gap:4px">
+          <button class="btn-reset" style="flex:1;font-size:11px;padding:4px 8px" onclick="document.getElementById('lorebookImportInput').click()">⬆ Import</button>
+          <input type="file" id="lorebookImportInput" accept=".json,application/json" style="display:none" onchange="importLorebookFile(this)">
         </div>
         <div id="lorebookList" style="overflow-y:auto;flex:1"></div>
       </div>
