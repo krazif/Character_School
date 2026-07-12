@@ -327,6 +327,20 @@ body.rp-mode .school-only { display:none; }
 
 /* Settings Modal */
 .settings-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; z-index:100; }
+/* Background Panel (RP right sidebar) */
+.bg-panel { position:fixed; top:0; right:0; bottom:0; width:280px; background:var(--surface); border-left:1px solid var(--border); z-index:90; display:none; flex-direction:column; }
+.bg-panel.show { display:flex; }
+.bg-panel-header { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+.bg-panel-grid { flex:1; overflow-y:auto; padding:12px; display:flex; flex-wrap:wrap; gap:10px; align-content:flex-start; }
+.bg-thumb { width:100px; height:100px; border-radius:8px; border:2px solid var(--border); cursor:pointer; background-size:cover; background-position:center; position:relative; transition:border-color 0.15s; flex-shrink:0; }
+.bg-thumb:hover { border-color:var(--accent); }
+.bg-thumb.active { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent); }
+.bg-thumb .bg-thumb-remove { position:absolute; top:2px; right:2px; width:20px; height:20px; border-radius:50%; background:rgba(0,0,0,0.6); color:#fff; border:none; font-size:12px; cursor:pointer; display:none; align-items:center; justify-content:center; line-height:1; }
+.bg-thumb:hover .bg-thumb-remove { display:flex; }
+.bg-thumb-none { width:100px; height:100px; border-radius:8px; border:2px dashed var(--border); cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--text-dim); font-size:11px; flex-shrink:0; }
+.bg-thumb-none:hover { border-color:var(--accent); color:var(--accent); }
+.bg-thumb-none.active { border-color:var(--accent); color:var(--accent); }
+.bg-panel-footer { padding:10px 14px; border-top:1px solid var(--border); display:flex; gap:6px; align-items:center; }
 .settings-overlay.show { display:flex; }
 .settings-modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:90%; max-width:680px; max-height:85vh; display:flex; flex-direction:column; margin:auto; }
 /* Preset Manager Modal */
@@ -514,6 +528,7 @@ body.rp-mode .school-only { display:none; }
     <div class="mode-tab" id="tabRP" onclick="switchMode('rp')">🎭 RP</div>
   </div>
   <span class="spacer"></span>
+    <button class="btn-reset" style="padding:4px 10px;font-size:14px" onclick="toggleBgPanel()" title="Chat Backgrounds">🖼️</button>
     <button class="btn-reset" style="padding:4px 10px;font-size:14px" onclick="openSettings()" title="Settings">⚙️</button>
    <span id="status" class="status">Disconnected</span>
 </header>
@@ -664,6 +679,22 @@ body.rp-mode .school-only { display:none; }
   </div>
 </div>
 
+<!-- Background Panel (right sidebar, RP only) -->
+<div class="bg-panel" id="bgPanel">
+  <div class="bg-panel-header">
+    <span style="font-size:13px;font-weight:600">Backgrounds</span>
+    <div style="display:flex;gap:6px;align-items:center">
+      <label class="btn" style="cursor:pointer;white-space:nowrap;padding:4px 10px;font-size:12px">Upload<input type="file" id="bgPanelFile" accept="image/*" style="display:none" /></label>
+      <button class="btn-reset" style="padding:4px 8px;font-size:14px" onclick="toggleBgPanel()" title="Close">✕</button>
+    </div>
+  </div>
+  <div class="bg-panel-grid" id="bgPanelGrid"></div>
+  <div class="bg-panel-footer">
+    <input type="text" id="bgPanelUrl" placeholder="https://..." style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:4px 8px;font-size:12px" />
+    <button class="btn" style="padding:4px 10px;font-size:12px" onclick="addBgFromUrl()">Add</button>
+  </div>
+</div>
+
 <!-- Settings Overlay -->
 <div class="settings-overlay" id="settingsOverlay">
   <div class="settings-modal">
@@ -680,16 +711,6 @@ body.rp-mode .school-only { display:none; }
           <div class="settings-field" style="flex:1;min-width:280px">
             <label>Theme</label>
             <div id="themeSwatches" style="display:flex;gap:10px;flex-wrap:wrap;padding:4px 0"></div>
-          </div>
-        </div>
-        <div class="settings-field-row" style="flex-wrap:wrap;gap:12px;margin-top:12px">
-          <div class="settings-field" style="flex:1;min-width:280px">
-            <label>Chat Background Image</label>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <input type="text" id="cfgBgImage" placeholder="https://... or leave empty" style="flex:1;min-width:180px" />
-              <label class="btn" style="cursor:pointer;white-space:nowrap;padding:6px 14px">Upload<input type="file" id="cfgBgFile" accept="image/*" style="display:none" /></label>
-              <button class="btn" id="cfgBgClear" style="padding:6px 14px">Clear</button>
-            </div>
           </div>
         </div>
         <div class="settings-field-row" style="flex-wrap:wrap;gap:12px;margin-top:12px">
@@ -2747,6 +2768,88 @@ function applyBgImage(url, overlay) {
   localStorage.setItem('cs_bg_image', url || '');
   localStorage.setItem('cs_bg_overlay', String(overlay ?? 0.85));
 }
+
+// ── Background Panel (RP only) ───────────────────────────────────
+function getBgList() {
+  try { return JSON.parse(localStorage.getItem('cs_bg_list') || '[]'); } catch { return []; }
+}
+function setBgList(list) {
+  localStorage.setItem('cs_bg_list', JSON.stringify(list));
+}
+function toggleBgPanel() {
+  const panel = document.getElementById('bgPanel');
+  if (panel) panel.classList.toggle('show');
+}
+function renderBgPanel() {
+  const grid = document.getElementById('bgPanelGrid');
+  if (!grid) return;
+  const list = getBgList();
+  const activeBg = localStorage.getItem('cs_bg_image') || '';
+  grid.innerHTML = '';
+  // "None" option
+  const noneEl = document.createElement('div');
+  noneEl.className = 'bg-thumb-none' + (!activeBg ? ' active' : '');
+  noneEl.textContent = 'None';
+  noneEl.title = 'No background';
+  noneEl.onclick = () => {
+    applyBgImage('', null);
+    renderBgPanel();
+  };
+  grid.appendChild(noneEl);
+  // Thumbnails
+  list.forEach((url, i) => {
+    const el = document.createElement('div');
+    el.className = 'bg-thumb' + (activeBg === url ? ' active' : '');
+    el.style.backgroundImage = `url("${url}")`;
+    el.title = 'Click to apply';
+    el.onclick = () => {
+      applyBgImage(url, null);
+      renderBgPanel();
+    };
+    const rm = document.createElement('button');
+    rm.className = 'bg-thumb-remove';
+    rm.textContent = '✕';
+    rm.title = 'Remove';
+    rm.onclick = (e) => { e.stopPropagation(); removeBgImage(i); };
+    el.appendChild(rm);
+    grid.appendChild(el);
+  });
+}
+function addBgFromUpload(file) {
+  if (!file) return;
+  if (file.size > 4 * 1024 * 1024) { alert('Image too large (max 4MB for localStorage).'); return; }
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const dataUrl = ev.target.result;
+    const list = getBgList();
+    list.push(dataUrl);
+    setBgList(list);
+    applyBgImage(dataUrl, null);
+    renderBgPanel();
+  };
+  reader.readAsDataURL(file);
+}
+function addBgFromUrl() {
+  const input = document.getElementById('bgPanelUrl');
+  if (!input || !input.value.trim()) return;
+  const url = input.value.trim();
+  const list = getBgList();
+  list.push(url);
+  setBgList(list);
+  applyBgImage(url, null);
+  input.value = '';
+  renderBgPanel();
+}
+function removeBgImage(index) {
+  const list = getBgList();
+  const removed = list.splice(index, 1)[0];
+  setBgList(list);
+  // If active bg was removed, clear it
+  if (localStorage.getItem('cs_bg_image') === removed) {
+    applyBgImage('', null);
+  }
+  renderBgPanel();
+}
 function buildThemeSwatches() {
   const container = document.getElementById('themeSwatches');
   if (!container) return;
@@ -2783,22 +2886,23 @@ function buildThemeSwatches() {
   const savedOverlay = parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85;
   // apply immediately (before DOM is fully ready, CSS vars on :root work)
   applyTheme(savedTheme);
-  applyBgImage(savedBg, savedOverlay);
+   applyBgImage(savedBg, savedOverlay);
   // populate settings when DOM is ready
   document.addEventListener('DOMContentLoaded', () => {
     buildThemeSwatches();
     applyTheme(savedTheme); // update swatch selection
-    const bgInput = document.getElementById('cfgBgImage');
+    renderBgPanel();
+    const bgInput = null;
     const ovInput = document.getElementById('cfgBgOverlay');
     const ovVal = document.getElementById('bgOverlayVal');
-    if (bgInput) bgInput.value = savedBg;
+    if (ovInput) ovInput.value = savedOverlay;
     if (ovInput) ovInput.value = savedOverlay;
     if (ovVal) ovVal.textContent = savedOverlay;
   });
 })();
 // Live-apply appearance settings from Settings modal (called on input change)
 function liveApplyAppearance() {
-  const url = document.getElementById('cfgBgImage')?.value || '';
+  const url = localStorage.getItem('cs_bg_image') || '';
   const overlay = parseFloat(document.getElementById('cfgBgOverlay')?.value) ?? 0.55;
   applyBgImage(url, overlay);
 }
@@ -4423,24 +4527,15 @@ async function openSettings() {
     if (cfg.version) {
       document.getElementById('settingsFooter').textContent = `Character School v${cfg.version} © Krazif & Tunas`;
     }
-    document.getElementById('cfgBgImage').addEventListener('input', liveApplyAppearance);
     document.getElementById('cfgBgOverlay').addEventListener('input', liveApplyAppearance);
-    document.getElementById('cfgBgFile').addEventListener('change', function(e) {
+    // BG panel upload + URL listeners
+    document.getElementById('bgPanelFile').addEventListener('change', function(e) {
       const file = e.target.files[0];
-      if (!file) return;
-      if (file.size > 4 * 1024 * 1024) { alert('Image too large (max 4MB for localStorage). Use a URL instead.'); return; }
-      const reader = new FileReader();
-      reader.onload = function(ev) {
-        const dataUrl = ev.target.result;
-        document.getElementById('cfgBgImage').value = dataUrl;
-        liveApplyAppearance();
-      };
-      reader.readAsDataURL(file);
+      if (file) addBgFromUpload(file);
+      e.target.value = '';
     });
-    document.getElementById('cfgBgClear').addEventListener('click', function() {
-      document.getElementById('cfgBgImage').value = '';
-      document.getElementById('cfgBgFile').value = '';
-      liveApplyAppearance();
+    document.getElementById('bgPanelUrl').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); addBgFromUrl(); }
     });
     // Populate preset dropdowns
     window._presets = cfg.presets || {};
