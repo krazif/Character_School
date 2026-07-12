@@ -294,10 +294,13 @@ async def ws_rp(ws: WebSocket):
                         else:
                             await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
 
+                        style_cap = engine.response_style_max_tokens(response_style, db.CHAT_MAX_TOKENS)
+                        effective_max_tokens = min(db.CHAT_MAX_TOKENS, style_cap)
+
                         # Console: log request
                         await _safe_send({
                             "type": "console_event", "event": "request", "llm": "character",
-                            "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": db.CHAT_MAX_TOKENS,
+                            "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": effective_max_tokens,
                             "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
                             "block_markers": block_markers,
                             "timestamp": engine._now_iso(),
@@ -305,7 +308,7 @@ async def ws_rp(ws: WebSocket):
 
                         kwargs = dict(
                             model=db.CHAT_MODEL, messages=llm_messages,
-                            temperature=db.CHAT_TEMPERATURE, max_tokens=db.CHAT_MAX_TOKENS,
+                            temperature=db.CHAT_TEMPERATURE, max_tokens=effective_max_tokens,
                             extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
                         )
                         if db.CHAT_TOP_P is not None:
@@ -446,9 +449,12 @@ async def ws_rp(ws: WebSocket):
                             else:
                                 await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
 
+                            style_cap = engine.response_style_max_tokens(response_style, db.CHAT_MAX_TOKENS)
+                            effective_max_tokens = min(db.CHAT_MAX_TOKENS, style_cap)
+
                             await _safe_send({
                                 "type": "console_event", "event": "request", "llm": "character",
-                                "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": db.CHAT_MAX_TOKENS,
+                                "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": effective_max_tokens,
                                 "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
                                 "block_markers": block_markers,
                                 "timestamp": engine._now_iso(),
@@ -456,7 +462,7 @@ async def ws_rp(ws: WebSocket):
 
                             kwargs = dict(
                                 model=db.CHAT_MODEL, messages=llm_messages,
-                                temperature=db.CHAT_TEMPERATURE, max_tokens=db.CHAT_MAX_TOKENS,
+                                temperature=db.CHAT_TEMPERATURE, max_tokens=effective_max_tokens,
                                 extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
                             )
                             if db.CHAT_TOP_P is not None:

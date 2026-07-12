@@ -219,11 +219,11 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
         parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
     # Response style directive (Marinara-style word-count targets)
     if response_style == 'short':
-        parts.append("\n\nRESPONSE LENGTH: Keep your response short — below 150 words. Prioritize dialogue and action over description.")
+        parts.append("\n\nRESPONSE LENGTH: Keep your response SHORT — STRICTLY under 150 words. Count your words and STOP when you reach 150. Prioritize dialogue and action. Do NOT over-describe.")
     elif response_style == 'moderate':
-        parts.append("\n\nRESPONSE LENGTH: Keep your response moderate — between 150 and 300 words. Balance dialogue, action beats, and some description.")
+        parts.append("\n\nRESPONSE LENGTH: Keep your response MODERATE — between 150 and 300 words. Count your words. Balance dialogue, action beats, and some description. Do NOT exceed 300 words.")
     elif response_style == 'long':
-        parts.append("\n\nRESPONSE LENGTH: Write a long response — above 300 words. Include actions, internal thoughts, body language, and emotional detail.")
+        parts.append("\n\nRESPONSE LENGTH: Write a LONG response — above 300 words. Include actions, internal thoughts, body language, and emotional detail.")
     elif response_style == 'flexible':
         parts.append("\n\nRESPONSE LENGTH: Choose your response length dynamically based on the scene — short for quick dialogue exchanges, longer when the plot progresses or emotions run high.")
     return "\n".join(parts)
@@ -426,11 +426,11 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
 
     # Response style (Marinara-style word-count targets)
     if response_style == 'short':
-        parts.append("RESPONSE LENGTH: Keep your response short — below 150 words. Prioritize dialogue and action over description.")
+        parts.append("RESPONSE LENGTH: Keep your response SHORT — STRICTLY under 150 words. Count your words and STOP when you reach 150. Prioritize dialogue and action. Do NOT over-describe.")
     elif response_style == 'moderate':
-        parts.append("RESPONSE LENGTH: Keep your response moderate — between 150 and 300 words. Balance dialogue, action beats, and some description.")
+        parts.append("RESPONSE LENGTH: Keep your response MODERATE — between 150 and 300 words. Count your words. Do NOT exceed 300 words. Balance dialogue, action beats, and some description.")
     elif response_style == 'long':
-        parts.append("RESPONSE LENGTH: Write a long response — above 300 words. Include actions, internal thoughts, body language, and emotional detail.")
+        parts.append("RESPONSE LENGTH: Write a LONG response — above 300 words. Include actions, internal thoughts, body language, and emotional detail.")
     elif response_style == 'flexible':
         parts.append("RESPONSE LENGTH: Choose your response length dynamically based on the scene — short for quick dialogue exchanges, longer when the plot progresses or emotions run high.")
     parts.append("")
@@ -975,3 +975,8 @@ Return ONLY the JSON object."""},
     return report
 
 
+def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
+    """Map response_style to a max_tokens cap that matches the word-count target.
+    Roughly 1.5 tokens per word + small buffer."""
+    caps = {'short': 220, 'moderate': 450}
+    return caps.get(response_style, default)
