@@ -159,6 +159,15 @@ async def ws_rp(ws: WebSocket):
 
                 session_id = db.db_rp_create_session(char_list, persona_filename, turn_routing, response_style, stack_config_str)
 
+                # Build system prompt for token estimation in stack builder
+                try:
+                    _sys_prompt = engine.build_rp_system_prompt(
+                        [cards[fn] for fn in character_order],
+                        persona, turn_routing, response_style,
+                    )
+                except Exception:
+                    _sys_prompt = ""
+
                 await _safe_send({
                     "type": "session_started", "session_id": session_id,
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
@@ -168,6 +177,7 @@ async def ws_rp(ws: WebSocket):
                     "lorebooks": [],
                     "console_events": [],
                     "console_events_truncated": False,
+                    "system_prompt": _sys_prompt,
                 })
 
                 # Send first_mes from all characters
@@ -218,6 +228,15 @@ async def ws_rp(ws: WebSocket):
                 messages = db.db_rp_get_messages(session_id)
                 stack_cfg = db.get_stack_config(sess)
 
+                # Build system prompt for token estimation in stack builder
+                try:
+                    _sys_prompt = engine.build_rp_system_prompt(
+                        [cards[fn] for fn in character_order],
+                        persona, turn_routing, response_style,
+                    )
+                except Exception:
+                    _sys_prompt = ""
+
                 # Parse lorebooks
                 session_lorebooks = []
                 if sess.get("lorebooks"):
@@ -234,6 +253,7 @@ async def ws_rp(ws: WebSocket):
                     "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name")} for m in messages],
                     "console_events": [],
                     "console_events_truncated": len(json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else []) > 0,
+                    "system_prompt": _sys_prompt,
                 })
 
             elif data["type"] == "user_message":
@@ -535,7 +555,7 @@ async def ws_rp(ws: WebSocket):
                     turn_routing = data.get("turn_routing", turn_routing)
                     response_style = data.get("response_style", response_style)
                     db.db_rp_update_settings(session_id, turn_routing, response_style)
-                    await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style})
+                    await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, turn_routing, response_style) if character_order else ""})
 
             elif data["type"] == "update_stack":
                 if session_id:

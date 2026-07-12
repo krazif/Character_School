@@ -413,7 +413,8 @@ body.rp-mode .school-only { display:none; }
 .stack-header h2 { font-size:16px; font-weight:600; }
 .stack-header .sub { font-size:11px; color:var(--text-dim); }
 .stack-body { flex:1; overflow-y:auto; padding:16px 20px; }
-.stack-footer { padding:10px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+.stack-footer { padding:10px 20px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.stack-total-tokens { font-size:12px; color:var(--text-dim); font-weight:500; }
 .stack-list { display:flex; flex-direction:column; gap:8px; }
 .stack-block { display:flex; align-items:center; gap:10px; padding:10px 14px; border:1px solid var(--border); border-radius:8px; background:var(--surface2); cursor:grab; transition:border-color 0.15s, opacity 0.15s; user-select:none; }
 .stack-block.dragging { opacity:0.5; border-color:var(--accent); }
@@ -513,8 +514,7 @@ body.rp-mode .school-only { display:none; }
     <div class="mode-tab" id="tabRP" onclick="switchMode('rp')">🎭 RP</div>
   </div>
   <span class="spacer"></span>
-   <span id="tokenCounter" class="status" style="color:var(--yellow);font-size:11px;font-weight:600">~0 tok</span>
-   <button class="btn-reset" style="padding:4px 10px;font-size:14px" onclick="openSettings()" title="Settings">⚙️</button>
+    <button class="btn-reset" style="padding:4px 10px;font-size:14px" onclick="openSettings()" title="Settings">⚙️</button>
    <span id="status" class="status">Disconnected</span>
 </header>
 
@@ -999,6 +999,7 @@ body.rp-mode .school-only { display:none; }
       <div class="stack-list" id="stackBlockList"></div>
     </div>
     <div class="stack-footer">
+      <span class="stack-total-tokens" id="stackTotalTokens">Total: 0 tokens</span>
       <button class="btn-reset" onclick="resetStackConfig()">Reset to Default</button>
     </div>
   </div>
@@ -1143,6 +1144,7 @@ let editorOriginal = null;
 let schoolActiveSessionId = null;
 let schoolStackConfig = null;
 let schoolConsoleEvents = [];
+let schoolSystemPrompt = '';  // system prompt text from server for token estimation
 // Active stack builder context (shared between School and RP modes)
 let activeStackConfig = null;
 let activeStackWS = null;
@@ -1288,7 +1290,13 @@ function getSessionMessages() {
 
 function estimateBlockTokens(block, allMsgs) {
   const btype = block.type;
-  if (btype === 'system' || btype === 'custom') {
+  if (btype === 'system') {
+    // System prompt is built server-side; use the stored text from session payload
+    const cfg = (activeStackMode === 'school') ? schoolStackConfig : rpStackConfig;
+    const text = (cfg && cfg._systemPromptText) ? cfg._systemPromptText : '';
+    return { summary: text ? Math.ceil(text.length / 4) + 4 : 0, raw: 0 };
+  }
+  if (btype === 'custom') {
     const text = block.text || '';
     return { summary: text ? Math.ceil(text.length / 4) + 4 : 0, raw: 0 };
   }
@@ -1357,11 +1365,9 @@ function addConsoleEntry(data) {
 
   if (isReq && data.messages) {
     const estTokens = estimateTokens(data.messages);
-    // Update the live token counter in the header
-    const tc = document.getElementById('tokenCounter');
-    if (tc) tc.textContent = `~${estTokens.toLocaleString()} tok`;
-    html += `<div style="margin:4px 0">`;
-    data.messages.forEach(m => {
+     // (live token counter moved to prompt stack builder footer)
+     html += `<div style="margin:4px 0">`;
+     data.messages.forEach(m => {
       const role = m.role || '?';
       let content = m.content || '';
       html += `<div class="msg-content ${role}"><span class="msg-role">${escapeHtml(role)}</span>: ${escapeHtml(content)}</div>`;
@@ -1806,8 +1812,10 @@ function connectWS(filename, personaFilename, resumeSessionId) {
     } else if (data.type === 'session_started') {
       // New session created
       schoolActiveSessionId = data.session_id;
+      schoolSystemPrompt = data.system_prompt || '';
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
+        schoolStackConfig._systemPromptText = schoolSystemPrompt;
       }
       schoolLorebooks = data.lorebooks || [];
       // Clear virtual scroll state
@@ -1850,8 +1858,10 @@ function connectWS(filename, personaFilename, resumeSessionId) {
     } else if (data.type === 'session_resumed') {
       // Existing session loaded
       schoolActiveSessionId = data.session_id;
+      schoolSystemPrompt = data.system_prompt || '';
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
+        schoolStackConfig._systemPromptText = schoolSystemPrompt;
       }
       schoolLorebooks = data.lorebooks || [];
       consoleEventCount = 0;
@@ -1913,11 +1923,13 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       // Stack config updated (e.g., auto-summary ran)
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
+        schoolStackConfig._systemPromptText = schoolSystemPrompt;
         if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
       }
     } else if (data.type === 'block_summarized') {
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
+        schoolStackConfig._systemPromptText = schoolSystemPrompt;
         if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
       }
       summarizingBlockIdx = null;
@@ -1933,6 +1945,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       // Legacy: auto-summary created a new chunk (school mode) — kept for old sessions
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
+        if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
         if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
       }
       const overlay = document.getElementById('stackOverlay');
@@ -1943,6 +1956,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       // Auto-summary grew the anchor block (school mode)
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
+        if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
         if (activeStackMode === 'school') activeStackConfig = schoolStackConfig;
       }
       summarizingBlockIdx = null;
@@ -1956,6 +1970,10 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       }
     } else if (data.type === 'persona_updated') {
       // Persona changed on current session (no new session created)
+      if (data.system_prompt !== undefined) {
+        schoolSystemPrompt = data.system_prompt;
+        if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
+      }
       if (data.persona) {
         const p = personasList.find(p => p.filename === data.persona);
         if (p) {
@@ -1978,8 +1996,12 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       }
     } else if (data.type === 'reset_complete') {
       schoolActiveSessionId = data.session_id;
+      if (data.system_prompt !== undefined) {
+        schoolSystemPrompt = data.system_prompt;
+      }
       if (data.stack_config) {
         schoolStackConfig = data.stack_config;
+        schoolStackConfig._systemPromptText = schoolSystemPrompt;
       }
       consoleEventCount = 0;
       schoolConsoleEvents = [];
@@ -2798,6 +2820,7 @@ const rpStyleOrder = ['short','moderate','long','flexible'];
 const rpStyleTokens = {short:'<150 words', moderate:'150-300 words', long:'>300 words', flexible:'dynamic'};
 let schoolResponseStyle = 'moderate';
 let rpStackConfig = null;
+let rpSystemPrompt = '';  // system prompt text from server for token estimation
 let stackDragSrc = null;
 let rpIsWaiting = false;
 let rpCardsList = [];       // cached card list for picker
@@ -2815,10 +2838,9 @@ function switchMode(mode) {
   document.body.classList.toggle('rp-mode', mode === 'rp');
   document.getElementById('tabSchool').classList.toggle('active', mode === 'school');
   document.getElementById('tabRP').classList.toggle('active', mode === 'rp');
-  // Reset token counter when switching modes
-  const tc = document.getElementById('tokenCounter');
-  if (tc) tc.textContent = '~0 tok';
-  if (mode === 'rp') {
+   // Reset token counter when switching modes
+   // (token counter moved to prompt stack builder footer)
+   if (mode === 'rp') {
     loadRPSessions();
     // Populate persona select in setup
     populateRPPersonaSelect();
@@ -2944,11 +2966,12 @@ function connectRPWS(startData, resumeSessionId) {
 }
 
 function handleRPMessage(data) {
-  if (data.type === 'session_started') {
-    rpActiveSessionId = data.session_id;
-    rpCharacters = data.characters;
-    rpPersonaFilename = data.persona;
-    // Update currentPersona so user message labels show the persona name
+   if (data.type === 'session_started') {
+     rpActiveSessionId = data.session_id;
+     rpCharacters = data.characters;
+     rpPersonaFilename = data.persona;
+     rpSystemPrompt = data.system_prompt || '';
+     // Update currentPersona so user message labels show the persona name
     if (data.persona) {
       const p = personasList.find(p => p.filename === data.persona);
       if (p) currentPersona = p;
@@ -2958,6 +2981,7 @@ function handleRPMessage(data) {
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
     rpStackConfig = data.stack_config || null;
+    if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     rpLorebooks = data.lorebooks || [];
     rpConsoleEvents = 0;
     document.getElementById('rpConsoleCount').textContent = '0';
@@ -2972,11 +2996,12 @@ function handleRPMessage(data) {
     rpIsWaiting = false;
     updateRPInputState();
     loadRPSessions();
-  } else if (data.type === 'session_resumed') {
-    rpActiveSessionId = data.session_id;
-    rpCharacters = data.characters;
-    rpPersonaFilename = data.persona;
-    // Update currentPersona so user message labels show the persona name
+   } else if (data.type === 'session_resumed') {
+     rpActiveSessionId = data.session_id;
+     rpCharacters = data.characters;
+     rpPersonaFilename = data.persona;
+     rpSystemPrompt = data.system_prompt || '';
+     // Update currentPersona so user message labels show the persona name
     if (data.persona) {
       const p = personasList.find(p => p.filename === data.persona);
       if (p) currentPersona = p;
@@ -2985,10 +3010,11 @@ function handleRPMessage(data) {
     }
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
-    rpStackConfig = data.stack_config || null;
-    rpLorebooks = data.lorebooks || [];
-    // Clear summary bar from any previous session
-    const oldSummaryBar = document.getElementById('rpSummaryBar');
+     rpStackConfig = data.stack_config || null;
+     if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
+     rpLorebooks = data.lorebooks || [];
+     // Clear summary bar from any previous session
+     const oldSummaryBar = document.getElementById('rpSummaryBar');
     if (oldSummaryBar) oldSummaryBar.remove();
     // Restore saved console events for this session
     const rpConsoleInner = document.getElementById('rpConsoleInner');
@@ -3069,15 +3095,21 @@ function handleRPMessage(data) {
   } else if (data.type === 'settings_updated') {
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
+    if (data.system_prompt !== undefined) {
+      rpSystemPrompt = data.system_prompt;
+      if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
+    }
     renderRPSceneBar();
   } else if (data.type === 'stack_updated') {
     rpStackConfig = data.stack_config;
+    if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
   } else if (data.type === 'block_summarizing') {
     // Button already shows "Summarizing…" from JS; auto triggers also send this
   } else if (data.type === 'block_summary_updated') {
     if (data.stack_config) rpStackConfig = data.stack_config;
     if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
+    if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     summarizingBlockIdx = null;
     renderStackBlocks();
     // Show brief toast
@@ -3089,6 +3121,7 @@ function handleRPMessage(data) {
     // Auto-summary created a new summary_chunk
     if (data.stack_config) rpStackConfig = data.stack_config;
     if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
+    if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     summarizingBlockIdx = null;
     renderStackBlocks();
     if (data.summary) {
@@ -3408,10 +3441,8 @@ function addRPConsoleEntry(data) {
 
   if (isReq && data.messages) {
     const estTokens = estimateTokens(data.messages);
-    // Update the live token counter in the header
-    const tc = document.getElementById('tokenCounter');
-    if (tc) tc.textContent = `~${estTokens.toLocaleString()} tok`;
-    html += `<div style="margin:4px 0">`;
+     // (live token counter moved to prompt stack builder footer)
+     html += `<div style="margin:4px 0">`;
     // Block markers for RP stack visualization
     const blockMarkers = data.block_markers || [];
     const blockColors = { system: '#58a6ff', head: '#f0883e', summary: '#bc8cff', custom: '#3fb950', tail: '#f85149' };
@@ -3927,6 +3958,22 @@ function renderStackBlocks() {
 
     list.appendChild(div);
   });
+
+  // Update total token counter in footer
+  updateStackTotalTokens();
+}
+
+function updateStackTotalTokens() {
+  const blocks = activeStackConfig.blocks || [];
+  const msgs = getSessionMessages();
+  let total = 0;
+  blocks.forEach(block => {
+    if (block.enabled === false) return;
+    const tok = estimateBlockTokens(block, msgs);
+    total += (tok.summary || 0) + (tok.raw || 0);
+  });
+  const el = document.getElementById('stackTotalTokens');
+  if (el) el.textContent = `Total: ${formatTokens(total)} tokens`;
 }
 
 function toggleBlock(idx) {
@@ -3989,7 +4036,9 @@ function saveStackConfig() {
 }
 
 function resetStackConfig() {
+  const sysText = activeStackConfig ? activeStackConfig._systemPromptText : '';
   activeStackConfig = getDefaultStackConfig();
+  activeStackConfig._systemPromptText = sysText;
   if (activeStackMode === 'rp') {
     rpStackConfig = activeStackConfig;
   } else {

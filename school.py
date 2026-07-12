@@ -625,6 +625,7 @@ async def ws_chat(ws: WebSocket):
                         "persona": persona_filename,
                         "stack_config": stack_cfg,
                         "lorebooks": [],
+                        "system_prompt": system_prompt,
                     })
 
                     # Send first_mes
@@ -697,6 +698,7 @@ async def ws_chat(ws: WebSocket):
                                  for m in messages],
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
                     "response_style": school_response_style,
+                    "system_prompt": system_prompt,
                 })
 
             elif data["type"] == "user_message":
@@ -849,6 +851,7 @@ async def ws_chat(ws: WebSocket):
                         "persona": persona_filename,
                         "persona_name": persona.get("name") if persona else None,
                         "session_id": session_id,
+                        "system_prompt": system_prompt,
                     })
                 else:
                     await ws.send_json({"type": "error", "message": "No card loaded"})
@@ -870,6 +873,7 @@ async def ws_chat(ws: WebSocket):
                         "type": "reset_complete",
                         "session_id": session_id,
                         "stack_config": stack_cfg,
+                        "system_prompt": system_prompt,
                     })
 
                     _user_name = persona.get("name", "User") if persona else "User"
@@ -1059,7 +1063,7 @@ async def ws_chat(ws: WebSocket):
                     _rebuild_prompts()
                 if session_id:
                     db.db_school_update_settings(session_id, response_style=school_response_style)
-                await ws.send_json({"type": "response_style_updated", "style": school_response_style})
+                await ws.send_json({"type": "response_style_updated", "style": school_response_style, "system_prompt": system_prompt})
 
             elif data["type"] == "get_report":
                 assistant_msgs = db.db_school_get_assistant_messages(session_id)
