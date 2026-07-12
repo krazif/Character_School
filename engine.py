@@ -219,13 +219,13 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
         parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
     # Response style directive (Marinara-style word-count targets)
     if response_style == 'short':
-        parts.append("\n\nRESPONSE LENGTH: Keep your response SHORT — STRICTLY under 150 words. Count your words and STOP when you reach 150. Prioritize dialogue and action. Do NOT over-describe.")
+        parts.append("\n\nRESPONSE LENGTH: SHORT. Reply in 1-3 sentences — one exchange of dialogue with a brief action beat. No paragraphs. No internal monologue. Be concise and direct.")
     elif response_style == 'moderate':
-        parts.append("\n\nRESPONSE LENGTH: Keep your response MODERATE — between 150 and 300 words. Count your words. Balance dialogue, action beats, and some description. Do NOT exceed 300 words.")
+        parts.append("\n\nRESPONSE LENGTH: MODERATE. Reply in 4-8 sentences — a few exchanges of dialogue with action beats and brief description. No long paragraphs.")
     elif response_style == 'long':
-        parts.append("\n\nRESPONSE LENGTH: Write a LONG response — above 300 words. Include actions, internal thoughts, body language, and emotional detail.")
+        parts.append("\n\nRESPONSE LENGTH: LONG. Write a full paragraph response — include dialogue, actions, internal thoughts, body language, and emotional detail.")
     elif response_style == 'flexible':
-        parts.append("\n\nRESPONSE LENGTH: Choose your response length dynamically based on the scene — short for quick dialogue exchanges, longer when the plot progresses or emotions run high.")
+        parts.append("\n\nRESPONSE LENGTH: FLEXIBLE. Choose your response length based on the scene — a brief reply for quick dialogue exchanges, or a longer paragraph when the plot progresses or emotions run high.")
     return "\n".join(parts)
 
 
@@ -426,13 +426,13 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
 
     # Response style (Marinara-style word-count targets)
     if response_style == 'short':
-        parts.append("RESPONSE LENGTH: Keep your response SHORT — STRICTLY under 150 words. Count your words and STOP when you reach 150. Prioritize dialogue and action. Do NOT over-describe.")
+        parts.append("RESPONSE LENGTH: SHORT. Reply in 1-3 sentences — one exchange of dialogue with a brief action beat. No paragraphs. No internal monologue. Be concise and direct.")
     elif response_style == 'moderate':
-        parts.append("RESPONSE LENGTH: Keep your response MODERATE — between 150 and 300 words. Count your words. Do NOT exceed 300 words. Balance dialogue, action beats, and some description.")
+        parts.append("RESPONSE LENGTH: MODERATE. Reply in 4-8 sentences — a few exchanges of dialogue with action beats and brief description. No long paragraphs.")
     elif response_style == 'long':
-        parts.append("RESPONSE LENGTH: Write a LONG response — above 300 words. Include actions, internal thoughts, body language, and emotional detail.")
+        parts.append("RESPONSE LENGTH: LONG. Write a full paragraph response — include dialogue, actions, internal thoughts, body language, and emotional detail.")
     elif response_style == 'flexible':
-        parts.append("RESPONSE LENGTH: Choose your response length dynamically based on the scene — short for quick dialogue exchanges, longer when the plot progresses or emotions run high.")
+        parts.append("RESPONSE LENGTH: FLEXIBLE. Choose your response length based on the scene — a brief reply for quick dialogue exchanges, or a longer paragraph when the plot progresses or emotions run high.")
     parts.append("")
 
     # Persona
