@@ -999,7 +999,7 @@ body.rp-mode .school-only { display:none; }
       <div class="stack-list" id="stackBlockList"></div>
     </div>
     <div class="stack-footer">
-      <span class="stack-total-tokens" id="stackTotalTokens">Total: 0 tokens</span>
+      <span class="stack-total-tokens" id="stackTotalTokens">Raw: 0 · Summarized: 0 tokens</span>
       <button class="btn-reset" onclick="resetStackConfig()">Reset to Default</button>
     </div>
   </div>
@@ -3966,14 +3966,23 @@ function renderStackBlocks() {
 function updateStackTotalTokens() {
   const blocks = activeStackConfig.blocks || [];
   const msgs = getSessionMessages();
-  let total = 0;
+  let rawTotal = 0;    // everything except summary chunks (raw messages instead)
+  let summarTotal = 0; // everything including summary chunks
   blocks.forEach(block => {
     if (block.enabled === false) return;
     const tok = estimateBlockTokens(block, msgs);
-    total += (tok.summary || 0) + (tok.raw || 0);
+    const btype = block.type;
+    if (btype === 'summary_chunk') {
+      // only in summarized total
+      summarTotal += (tok.summary || 0);
+    } else {
+      // all other blocks shared across both totals
+      rawTotal += (tok.summary || 0) + (tok.raw || 0);
+      summarTotal += (tok.summary || 0) + (tok.raw || 0);
+    }
   });
   const el = document.getElementById('stackTotalTokens');
-  if (el) el.textContent = `Total: ${formatTokens(total)} tokens`;
+  if (el) el.textContent = `Raw: ${formatTokens(rawTotal)} · Summarized: ${formatTokens(summarTotal)} tokens`;
 }
 
 function toggleBlock(idx) {
