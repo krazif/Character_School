@@ -3973,7 +3973,9 @@ function updateStackTotalTokens() {
     const tok = estimateBlockTokens(block, msgs);
     const btype = block.type;
     if (btype === 'summary_chunk') {
-      // only in summarized total
+      // Raw: the raw messages it covers (sent if no summarization)
+      // Summarized: just the summary text (replaces those raw messages)
+      rawTotal += (tok.raw || 0);
       summarTotal += (tok.summary || 0);
     } else {
       // all other blocks shared across both totals
