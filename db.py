@@ -228,6 +228,8 @@ PERSONAS_DIR = Path(os.environ.get(
 ))
 APP_DIR = Path(__file__).parent
 STATIC_DIR = APP_DIR / "static"
+UPLOAD_DIR = APP_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 # ─── Dual LLM endpoints ────────────────────────────────────────────
 # Chat endpoint drives character responses; analysis endpoint checks
@@ -340,6 +342,7 @@ def init_db():
             role            TEXT NOT NULL,
             speaker         TEXT,
             content         TEXT NOT NULL,
+            image_path      TEXT,
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (session_id) REFERENCES rp_sessions(id) ON DELETE CASCADE
         )
@@ -383,6 +386,7 @@ def init_db():
             content     TEXT NOT NULL,
             is_first_mes INTEGER DEFAULT 0,
             analysis_json TEXT,
+            image_path  TEXT,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (session_id) REFERENCES school_sessions(id) ON DELETE CASCADE
         )
@@ -404,6 +408,24 @@ def init_db():
         pass
     conn.commit()
     conn.close()
+
+    # Migrations
+    _migrate_add_image_path()
+
+
+def _migrate_add_image_path():
+    """Add image_path columns to message tables if they don't exist."""
+    conn = sqlite3.connect(str(DB_PATH))
+    cur = conn.cursor()
+    try:
+        for table in ("rp_messages", "school_messages"):
+            cur.execute(f"PRAGMA table_info({table})")
+            cols = [row[1] for row in cur.fetchall()]
+            if "image_path" not in cols:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN image_path TEXT")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 init_db()
@@ -678,13 +700,13 @@ def db_rp_create_session(characters: list[dict], persona_filename: str,
     return sid
 
 
-def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None, persona_name: str = None) -> int:
+def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None, persona_name: str = None, image_path: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM rp_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
-        "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name) VALUES (?, ?, ?, ?, ?, ?)",
-        (session_id, next_seq, role, speaker, content, persona_name),
+        "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (session_id, next_seq, role, speaker, content, persona_name, image_path),
     )
     msg_id = cur.lastrowid
     conn.execute("UPDATE rp_sessions SET updated_at = datetime('now') WHERE id = ?", (session_id,))
@@ -696,11 +718,11 @@ def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = N
 def db_rp_get_messages(session_id: int) -> list[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     rows = conn.execute(
-        "SELECT id, seq, role, speaker, content, persona_name FROM rp_messages WHERE session_id = ? ORDER BY seq",
+        "SELECT id, seq, role, speaker, content, persona_name, image_path FROM rp_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
     ).fetchall()
     conn.close()
-    return [{"id": r[0], "seq": r[1], "role": r[2], "speaker": r[3], "content": r[4], "persona_name": r[5]} for r in rows]
+    return [{"id": r[0], "seq": r[1], "role": r[2], "speaker": r[3], "content": r[4], "persona_name": r[5], "image_path": r[6]} for r in rows]
 
 
 def db_rp_get_session(session_id: int) -> Optional[dict]:
@@ -962,13 +984,13 @@ def db_school_update_message_analysis(message_id: int, analysis_json: str) -> No
 
 
 def db_school_add_message(session_id: int, role: str, content: str,
-                          is_first_mes: bool = False, analysis_json: str = None) -> int:
+                          is_first_mes: bool = False, analysis_json: str = None, image_path: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM school_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
-        "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json) VALUES (?, ?, ?, ?, ?, ?)",
-        (session_id, next_seq, role, content, 1 if is_first_mes else 0, analysis_json),
+        "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json, image_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (session_id, next_seq, role, content, 1 if is_first_mes else 0, analysis_json, image_path),
     )
     msg_id = cur.lastrowid
     conn.execute("UPDATE school_sessions SET updated_at = datetime('now') WHERE id = ?", (session_id,))
@@ -980,12 +1002,12 @@ def db_school_add_message(session_id: int, role: str, content: str,
 def db_school_get_messages(session_id: int) -> list[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     rows = conn.execute(
-        "SELECT id, seq, role, content, is_first_mes, analysis_json FROM school_messages WHERE session_id = ? ORDER BY seq",
+        "SELECT id, seq, role, content, is_first_mes, analysis_json, image_path FROM school_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
     ).fetchall()
     conn.close()
     return [{"id": r[0], "seq": r[1], "role": r[2], "content": r[3],
-             "is_first_mes": bool(r[4]), "analysis_json": r[5]} for r in rows]
+             "is_first_mes": bool(r[4]), "analysis_json": r[5], "image_path": r[6]} for r in rows]
 
 
 def db_school_get_session(session_id: int) -> Optional[dict]:

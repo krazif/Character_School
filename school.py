@@ -7,15 +7,41 @@ import re
 import asyncio
 import base64
 import io
+import uuid
 from pathlib import Path
-from fastapi import APIRouter, Request, UploadFile, File, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Request, UploadFile, File as FastAPIFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, Response, FileResponse
 from json_repair import repair_json
 import db
 import engine
 import lorebook
 
 router = APIRouter()
+
+MAX_UPLOAD_SIZE = 8 * 1024 * 1024
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+@router.post("/api/school/upload")
+async def api_school_upload(file: UploadFile = FastAPIFile(...)):
+    """Upload an image for School mode and return a safe relative path token."""
+    if not file.content_type or file.content_type.lower() not in ALLOWED_IMAGE_TYPES:
+        return JSONResponse({"error": "Unsupported file type"}, status_code=400)
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_SIZE:
+        return JSONResponse({"error": "File too large"}, status_code=400)
+    ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}.get(file.content_type.lower(), ".bin")
+    filename = f"{uuid.uuid4().hex}{ext}"
+    dest = db.UPLOAD_DIR / filename
+    dest.write_bytes(contents)
+    return JSONResponse({"image_path": filename})
+
+@router.get("/api/school/images/{filename}")
+async def api_school_image(filename: str):
+    """Serve a School-mode uploaded image safely from outside static/."""
+    file = db.UPLOAD_DIR / filename
+    if not file.exists():
+        return JSONResponse({"error": "Image not found"}, status_code=404)
+    return FileResponse(file)
 
 @router.get("/api/cards")
 async def api_list_cards():
@@ -194,7 +220,7 @@ def create_chara_png(card_data: dict, avatar_bytes: bytes | None = None) -> byte
 
 
 @router.post("/api/cards/upload")
-async def api_upload_card(file: UploadFile = File(...)):
+async def api_upload_card(file: UploadFile = FastAPIFile(...)):
     """Upload a character card JSON or PNG file."""
     try:
         content = await file.read()
@@ -366,7 +392,7 @@ async def api_save_persona(filename: str, data: dict):
 
 
 @router.post("/api/personas/upload")
-async def api_upload_persona(file: UploadFile = File(...)):
+async def api_upload_persona(file: UploadFile = FastAPIFile(...)):
     """Upload a persona JSON file."""
     try:
         content = await file.read()
@@ -694,7 +720,8 @@ async def ws_chat(ws: WebSocket):
                     "lorebooks": school_lb,
                     "messages": [{"id": m["id"], "seq": m["seq"], "role": m["role"],
                                   "content": m["content"], "is_first_mes": m["is_first_mes"],
-                                  "analysis": json.loads(m["analysis_json"]) if m["analysis_json"] else None}
+                                  "analysis": json.loads(m["analysis_json"]) if m["analysis_json"] else None,
+                                  "image_path": m.get("image_path")}
                                  for m in messages],
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
                     "response_style": school_response_style,
@@ -704,7 +731,8 @@ async def ws_chat(ws: WebSocket):
             elif data["type"] == "user_message":
                 user_content = data["content"]
                 client_msg_id = data.get("client_msg_id")
-                user_msg_id = db.db_school_add_message(session_id, "user", user_content)
+                image_path = data.get("image_path")
+                user_msg_id = db.db_school_add_message(session_id, "user", user_content, image_path=image_path)
 
                 await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 

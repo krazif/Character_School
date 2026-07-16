@@ -29,3 +29,6 @@ lorebooks/*.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Uploaded images
+uploads/
