@@ -207,13 +207,14 @@ Respond in EXACTLY one of these two formats:
 2. On the first line: SKIP"""
 
 
-async def auto_generate_image_prompt(messages: list[dict], send_fn=None) -> str | None:
+async def auto_generate_image_prompt(messages: list[dict], send_fn=None, force: bool = False) -> str | None:
     """
     Ask the auto-gen LLM whether the current scene is worth illustrating.
     Returns a prompt string if yes, or None if the LLM says SKIP or on error.
     `messages` is a list of {"role": ..., "content": ...} dicts (recent conversation).
+    When `force=True`, bypass the enabled check (for manual on-demand use).
     """
-    if not db.IMAGEGEN_AUTO_ENABLED:
+    if not force and not db.IMAGEGEN_AUTO_ENABLED:
         return None
 
     # Build conversation snippet (last few messages)
@@ -352,6 +353,27 @@ async def api_generate_image(request: Request):
     if not result["success"]:
         return JSONResponse(result, status_code=500)
     return JSONResponse(result)
+
+
+@router.post("/api/imagegen/auto-prompt")
+async def api_auto_image_prompt(request: Request):
+    """
+    Use the auto-gen LLM to produce a scene image prompt from recent messages.
+    Request body: {"messages": [{"role": "...", "content": "...", ...}, ...]}
+    Returns: {"success": true, "prompt": "..."} or {"success": false, "error": "..."}
+    When the LLM decides SKIP, returns {"success": true, "prompt": null, "skipped": true}.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid JSON body"}, status_code=400)
+    messages = body.get("messages", [])
+    if not messages:
+        return JSONResponse({"success": False, "error": "No messages provided"}, status_code=400)
+    prompt = await auto_generate_image_prompt(messages, force=True)
+    if prompt is None:
+        return JSONResponse({"success": True, "prompt": None, "skipped": True})
+    return JSONResponse({"success": True, "prompt": prompt, "skipped": False})
 
 
 @router.get("/api/imagegen/status")
