@@ -175,7 +175,7 @@ async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
             save_path = db.UPLOAD_DIR / safe_name
             save_path.write_bytes(img_resp.content)
 
-        return {"success": True, "image_path": safe_name}
+        return {"success": True, "image_path": safe_name, "prompt": prompt_text}
 
     except TimeoutError as e:
         return {"success": False, "error": str(e)}
@@ -321,7 +321,7 @@ async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_
 
     # Insert into session via callback
     if image_add_fn:
-        await image_add_fn(image_path)
+        await image_add_fn(image_path, prompt)
 
 
 def _now_iso() -> str:

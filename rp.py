@@ -48,7 +48,7 @@ async def api_rp_get_session(session_id: int):
     if not sess:
         return JSONResponse({"error": "Session not found"}, status_code=404)
     messages = db.db_rp_get_messages(session_id)
-    sess["messages"] = [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "image_path": m.get("image_path")} for m in messages]
+    sess["messages"] = [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt")} for m in messages]
     return JSONResponse(sess)
 
 
@@ -283,7 +283,7 @@ async def ws_rp(ws: WebSocket):
                     "turn_routing": turn_routing, "response_style": response_style,
                     "stack_config": stack_cfg,
                     "lorebooks": session_lorebooks,
-                    "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name"), "image_path": m.get("image_path")} for m in messages],
+                    "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name"), "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt")} for m in messages],
                     "console_events": [],
                     "console_events_truncated": len(json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else []) > 0,
                     "system_prompt": _sys_prompt,
@@ -294,9 +294,10 @@ async def ws_rp(ws: WebSocket):
                 directed_to = data.get("directed_to")
                 client_msg_id = data.get("client_msg_id")
                 image_path = data.get("image_path")
+                image_prompt = data.get("image_prompt")
 
                 _pn = persona.get("name") if persona else None
-                user_msg_id = db.db_rp_add_message(session_id, "user", user_content, persona_name=_pn, image_path=image_path, client_msg_id=client_msg_id)
+                user_msg_id = db.db_rp_add_message(session_id, "user", user_content, persona_name=_pn, image_path=image_path, image_prompt=image_prompt, client_msg_id=client_msg_id)
                 await _safe_send({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 
                 # Image-only message: store + render, but don't trigger LLM generation
@@ -433,13 +434,13 @@ async def ws_rp(ws: WebSocket):
 
                         # ── Auto image generation (Phase 3) ──
                         if _ws_state[0] and db.IMAGEGEN_AUTO_ENABLED:
-                            async def _rp_auto_img_add(img_path):
+                            async def _rp_auto_img_add(img_path, img_prompt=None):
                                 _pn = persona.get("name") if persona else None
-                                msg_id_img = db.db_rp_add_message(session_id, "user", "", persona_name=_pn, image_path=img_path)
+                                msg_id_img = db.db_rp_add_message(session_id, "user", "", persona_name=_pn, image_path=img_path, image_prompt=img_prompt)
                                 await _safe_send({
                                     "type": "character_message", "content": "",
                                     "character_filename": None, "character_name": None,
-                                    "is_first_mes": False, "message_id": msg_id_img, "image_path": img_path,
+                                    "is_first_mes": False, "message_id": msg_id_img, "image_path": img_path, "image_prompt": img_prompt,
                                 })
                             all_msgs_for_img = db.db_rp_get_messages(session_id)
                             await imagegen.maybe_auto_generate_image(
@@ -599,13 +600,13 @@ async def ws_rp(ws: WebSocket):
 
                             # ── Auto image generation (Phase 3, regen path) ──
                             if _ws_state[0] and db.IMAGEGEN_AUTO_ENABLED:
-                                async def _rp_regen_img_add(img_path):
+                                async def _rp_regen_img_add(img_path, img_prompt=None):
                                     _pn = persona.get("name") if persona else None
-                                    msg_id_img = db.db_rp_add_message(session_id, "user", "", persona_name=_pn, image_path=img_path)
+                                    msg_id_img = db.db_rp_add_message(session_id, "user", "", persona_name=_pn, image_path=img_path, image_prompt=img_prompt)
                                     await _safe_send({
                                         "type": "character_message", "content": "",
                                         "character_filename": None, "character_name": None,
-                                        "is_first_mes": False, "message_id": msg_id_img, "image_path": img_path,
+                                        "is_first_mes": False, "message_id": msg_id_img, "image_path": img_path, "image_prompt": img_prompt,
                                     })
                                 _all_msgs_img = db.db_rp_get_messages(session_id)
                                 await imagegen.maybe_auto_generate_image(

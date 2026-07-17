@@ -426,6 +426,7 @@ def init_db():
             speaker         TEXT,
             content         TEXT NOT NULL,
             image_path      TEXT,
+            image_prompt    TEXT,
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (session_id) REFERENCES rp_sessions(id) ON DELETE CASCADE
         )
@@ -470,6 +471,7 @@ def init_db():
             is_first_mes INTEGER DEFAULT 0,
             analysis_json TEXT,
             image_path  TEXT,
+            image_prompt TEXT,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (session_id) REFERENCES school_sessions(id) ON DELETE CASCADE
         )
@@ -503,6 +505,7 @@ def init_db():
 
     # Migrations
     _migrate_add_image_path()
+    _migrate_add_image_prompt()
 
 
 def _migrate_add_image_path():
@@ -515,6 +518,21 @@ def _migrate_add_image_path():
             cols = [row[1] for row in cur.fetchall()]
             if "image_path" not in cols:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN image_path TEXT")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _migrate_add_image_prompt():
+    """Add image_prompt column to rp_messages and school_messages if missing."""
+    conn = sqlite3.connect(str(DB_PATH))
+    cur = conn.cursor()
+    try:
+        for table in ("rp_messages", "school_messages"):
+            cur.execute(f"PRAGMA table_info({table})")
+            cols = [row[1] for row in cur.fetchall()]
+            if "image_prompt" not in cols:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN image_prompt TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -792,13 +810,13 @@ def db_rp_create_session(characters: list[dict], persona_filename: str,
     return sid
 
 
-def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None, persona_name: str = None, image_path: str = None, client_msg_id: str = None) -> int:
+def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None, persona_name: str = None, image_path: str = None, image_prompt: str = None, client_msg_id: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM rp_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
-        "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (session_id, next_seq, role, speaker, content, persona_name, image_path, client_msg_id),
+        "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path, image_prompt, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (session_id, next_seq, role, speaker, content, persona_name, image_path, image_prompt, client_msg_id),
     )
     msg_id = cur.lastrowid
     conn.execute("UPDATE rp_sessions SET updated_at = datetime('now') WHERE id = ?", (session_id,))
@@ -810,11 +828,11 @@ def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = N
 def db_rp_get_messages(session_id: int) -> list[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     rows = conn.execute(
-        "SELECT id, seq, role, speaker, content, persona_name, image_path FROM rp_messages WHERE session_id = ? ORDER BY seq",
+        "SELECT id, seq, role, speaker, content, persona_name, image_path, image_prompt FROM rp_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
     ).fetchall()
     conn.close()
-    return [{"id": r[0], "seq": r[1], "role": r[2], "speaker": r[3], "content": r[4], "persona_name": r[5], "image_path": r[6]} for r in rows]
+    return [{"id": r[0], "seq": r[1], "role": r[2], "speaker": r[3], "content": r[4], "persona_name": r[5], "image_path": r[6], "image_prompt": r[7]} for r in rows]
 
 
 def db_rp_get_session(session_id: int) -> Optional[dict]:
@@ -863,6 +881,7 @@ def db_rp_list_sessions() -> list[dict]:
 
 def db_rp_delete_session(session_id: int) -> bool:
     conn = sqlite3.connect(str(DB_PATH))
+    _cleanup_image_files(conn, session_id, "rp_messages", 0)
     conn.execute("DELETE FROM rp_messages WHERE session_id = ?", (session_id,))
     conn.execute("DELETE FROM rp_characters WHERE session_id = ?", (session_id,))
     cur = conn.execute("DELETE FROM rp_sessions WHERE id = ?", (session_id,))
@@ -1097,13 +1116,13 @@ def db_school_update_message_analysis(message_id: int, analysis_json: str) -> No
 
 
 def db_school_add_message(session_id: int, role: str, content: str,
-                          is_first_mes: bool = False, analysis_json: str = None, image_path: str = None, client_msg_id: str = None) -> int:
+                          is_first_mes: bool = False, analysis_json: str = None, image_path: str = None, image_prompt: str = None, client_msg_id: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM school_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
-        "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json, image_path, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (session_id, next_seq, role, content, 1 if is_first_mes else 0, analysis_json, image_path, client_msg_id),
+        "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json, image_path, image_prompt, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (session_id, next_seq, role, content, 1 if is_first_mes else 0, analysis_json, image_path, image_prompt, client_msg_id),
     )
     msg_id = cur.lastrowid
     conn.execute("UPDATE school_sessions SET updated_at = datetime('now') WHERE id = ?", (session_id,))
@@ -1115,12 +1134,12 @@ def db_school_add_message(session_id: int, role: str, content: str,
 def db_school_get_messages(session_id: int) -> list[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     rows = conn.execute(
-        "SELECT id, seq, role, content, is_first_mes, analysis_json, image_path FROM school_messages WHERE session_id = ? ORDER BY seq",
+        "SELECT id, seq, role, content, is_first_mes, analysis_json, image_path, image_prompt FROM school_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
     ).fetchall()
     conn.close()
     return [{"id": r[0], "seq": r[1], "role": r[2], "content": r[3],
-             "is_first_mes": bool(r[4]), "analysis_json": r[5], "image_path": r[6]} for r in rows]
+             "is_first_mes": bool(r[4]), "analysis_json": r[5], "image_path": r[6], "image_prompt": r[7]} for r in rows]
 
 
 def db_school_get_session(session_id: int) -> Optional[dict]:
@@ -1151,6 +1170,7 @@ def db_school_list_sessions() -> list[dict]:
 
 def db_school_delete_session(session_id: int) -> bool:
     conn = sqlite3.connect(str(DB_PATH))
+    _cleanup_image_files(conn, session_id, "school_messages", 0)
     conn.execute("DELETE FROM school_messages WHERE session_id = ?", (session_id,))
     cur = conn.execute("DELETE FROM school_sessions WHERE id = ?", (session_id,))
     conn.commit()

@@ -1947,7 +1947,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.type === 'character_message') {
-      addMessage('character', data.content, data.analysis, data.is_first_mes, data.message_id, null, data.image_path || null);
+      addMessage('character', data.content, data.analysis, data.is_first_mes, data.message_id, null, data.image_path || null, data.image_prompt || null);
       isWaiting = false;
       updateInputState();
     } else if (data.type === 'user_message_stored') {
@@ -2029,11 +2029,11 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.messages) {
         data.messages.forEach(m => {
           if (m.role === 'user') {
-            schoolMessages.push({ role: 'user', content: m.content, analysis: null, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null });
+            schoolMessages.push({ role: 'user', content: m.content, analysis: null, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null });
           } else if (m.role === 'assistant') {
-            schoolMessages.push({ role: 'character', content: m.content, analysis: m.analysis, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null });
+            schoolMessages.push({ role: 'character', content: m.content, analysis: m.analysis, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null });
           } else if (m.role === 'system') {
-            schoolMessages.push({ role: 'system', content: m.content, analysis: null, isFirst: false, messageId: m.id, clientId: null, imagePath: m.image_path || null });
+            schoolMessages.push({ role: 'system', content: m.content, analysis: null, isFirst: false, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null });
           }
         });
       }
@@ -2217,13 +2217,13 @@ function connectWS(filename, personaFilename, resumeSessionId) {
 
 // ─── Chat ───────────────────────────────────────
 
-function addMessage(role, content, analysis, isFirst, messageId, clientId, imagePath) {
+function addMessage(role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt) {
   // Remove loading indicator if present
   const loading = document.getElementById('firstMesLoading');
   if (loading) loading.remove();
 
   // Push to array
-  const msg = { role, content, analysis, isFirst, messageId, clientId, imagePath };
+  const msg = { role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt };
   schoolMessages.push(msg);
 
   // Render
@@ -3344,11 +3344,11 @@ function handleRPMessage(data) {
     if (data.messages) {
       data.messages.forEach(m => {
         if (m.role === 'user') {
-          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null, personaName: m.persona_name || null, imagePath: m.image_path || null });
+          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null, personaName: m.persona_name || null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null });
         } else if (m.role === 'character') {
-          rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: null, imagePath: m.image_path || null });
+          rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null });
         } else if (m.role === 'system') {
-          rpMessages.push({ role: 'system', content: m.content, speaker: null, messageId: m.id, clientId: null, imagePath: m.image_path || null });
+          rpMessages.push({ role: 'system', content: m.content, speaker: null, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null });
         }
       });
     }
@@ -3363,7 +3363,7 @@ function handleRPMessage(data) {
       el.classList.toggle('active', parseInt(el.dataset.sessionId) === rpActiveSessionId);
     });
     } else if (data.type === 'character_message') {
-      addRPMessage('character', data.content, data.character_name, data.message_id, null, data.image_path || null);
+      addRPMessage('character', data.content, data.character_name, data.message_id, null, data.image_path || null, data.image_prompt || null);
       rpIsWaiting = false;
       updateRPInputState();
   } else if (data.type === 'character_typing') {
@@ -3523,14 +3523,14 @@ function renderRPSceneBar() {
   }
 }
 
-function addRPMessage(role, content, speaker, messageId, clientId, imagePath) {
+function addRPMessage(role, content, speaker, messageId, clientId, imagePath, imagePrompt) {
   // Remove empty placeholder
   const empty = document.getElementById('rpChatEmpty');
   if (empty) empty.remove();
 
   // Push to array — stamp persona name per-message so old labels don't change when persona switches
   const personaName = role === 'user' ? (currentPersona?.name || null) : null;
-  const msg = { role, content, speaker, messageId, clientId, personaName, imagePath };
+  const msg = { role, content, speaker, messageId, clientId, personaName, imagePath, imagePrompt };
   rpMessages.push(msg);
 
   // Render
@@ -5246,7 +5246,7 @@ function buildSchoolMessageDOM(msg, index) {
   const frag = document.createDocumentFragment();
   // Image-only message: just a middle balloon, no chat bubble
   if (msg.imagePath && (!msg.content || !msg.content.trim())) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/school/images/', index, deleteSchoolMessage));
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/school/images/', index, deleteSchoolMessage, msg.imagePrompt));
     return frag;
   }
   const div = document.createElement('div');
@@ -5303,7 +5303,7 @@ function buildSchoolMessageDOM(msg, index) {
   frag.appendChild(div);
   // If message also has an image, split it into a separate middle balloon below
   if (msg.imagePath) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/school/images/', index, deleteSchoolMessage));
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/school/images/', index, deleteSchoolMessage, msg.imagePrompt));
   }
   return frag;
 }
@@ -5312,7 +5312,7 @@ function buildRPMessageDOM(msg, index) {
   const frag = document.createDocumentFragment();
   // Image-only message: just a middle balloon, no chat bubble
   if (msg.imagePath && (!msg.content || !msg.content.trim())) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage));
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt));
     return frag;
   }
   const div = document.createElement('div');
@@ -5367,7 +5367,7 @@ function buildRPMessageDOM(msg, index) {
   frag.appendChild(div);
   // If message also has an image, split it into a separate middle balloon below
   if (msg.imagePath) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage));
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt));
   }
   return frag;
 }
@@ -5441,12 +5441,36 @@ function clearSchoolChat() {
   if (schoolObserver) { schoolObserver.disconnect(); schoolObserver = null; }
 }
 
-function openImageLightbox(src) {
+function openImageLightbox(src, promptText) {
   const box = document.createElement('div');
   box.className = 'image-lightbox';
   const img = document.createElement('img');
   img.src = src;
   box.appendChild(img);
+  if (promptText) {
+    const promptBox = document.createElement('div');
+    promptBox.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);max-width:80%;background:rgba(20,20,20,0.92);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:10px 14px;display:flex;align-items:flex-start;gap:10px;cursor:default';
+    const promptSpan = document.createElement('span');
+    promptSpan.style.cssText = 'color:#ccc;font-size:12px;line-height:1.5;flex:1;white-space:pre-wrap;word-break:break-word';
+    promptSpan.textContent = promptText;
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy';
+    copyBtn.style.cssText = 'flex-shrink:0;font-size:12px;padding:4px 10px;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:rgba(255,255,255,0.1);color:#fff;cursor:pointer';
+    copyBtn.onclick = (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(promptText).then(() => {
+        copyBtn.textContent = '✓';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      }).catch(() => {
+        copyBtn.textContent = '✗';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      });
+    };
+    promptBox.appendChild(promptSpan);
+    promptBox.appendChild(copyBtn);
+    promptBox.onclick = (e) => e.stopPropagation();
+    box.appendChild(promptBox);
+  }
   box.onclick = () => box.remove();
   document.body.appendChild(box);
 }
@@ -5604,15 +5628,15 @@ async function doGenerateScene() {
     // Insert as a middle balloon into the chat
     if (genSceneMode === 'school') {
       const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-      addMessage('user', '', null, false, null, clientId, j.image_path);
+      addMessage('user', '', null, false, null, clientId, j.image_path, promptText);
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: j.image_path }));
+        ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText }));
       }
     } else {
       const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-      addRPMessage('user', '', null, null, clientId, j.image_path);
+      addRPMessage('user', '', null, null, clientId, j.image_path, promptText);
       if (rpWS && rpWS.readyState === WebSocket.OPEN) {
-        rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: j.image_path }));
+        rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText }));
       }
     }
     btn.disabled = false;
@@ -5625,13 +5649,13 @@ async function doGenerateScene() {
 }
 
 // ─── VN Image Balloon Builder ──────────────────
-function buildImageBalloon(imagePath, apiBase, index, deleteFn) {
+function buildImageBalloon(imagePath, apiBase, index, deleteFn, promptText) {
   const balloon = document.createElement('div');
   balloon.className = 'msg-image-balloon';
   const img = document.createElement('img');
   img.src = apiBase + encodeURIComponent(imagePath);
   img.alt = 'scene image';
-  img.onclick = () => openImageLightbox(img.src);
+  img.onclick = () => openImageLightbox(img.src, promptText);
   balloon.appendChild(img);
   const delLink = document.createElement('a');
   delLink.className = 'balloon-delete';
