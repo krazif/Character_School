@@ -295,7 +295,7 @@ async def ws_rp(ws: WebSocket):
                 image_path = data.get("image_path")
 
                 _pn = persona.get("name") if persona else None
-                user_msg_id = db.db_rp_add_message(session_id, "user", user_content, persona_name=_pn, image_path=image_path)
+                user_msg_id = db.db_rp_add_message(session_id, "user", user_content, persona_name=_pn, image_path=image_path, client_msg_id=client_msg_id)
                 await _safe_send({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 
                 # Image-only message: store + render, but don't trigger LLM generation
@@ -441,9 +441,10 @@ async def ws_rp(ws: WebSocket):
 
             elif data["type"] == "delete_message":
                 target_id = data.get("message_id")
-                if target_id is not None and session_id is not None:
-                    deleted = db.db_rp_delete_message(session_id, target_id)
-                    await _safe_send({"type": "message_deleted", "message_id": target_id, "success": deleted})
+                target_cid = data.get("client_msg_id")
+                if (target_id is not None or target_cid) and session_id is not None:
+                    deleted = db.db_rp_delete_message(session_id, target_id, target_cid)
+                    await _safe_send({"type": "message_deleted", "message_id": target_id, "client_msg_id": target_cid, "success": deleted})
 
             elif data["type"] == "regenerate_message":
                 target_id = data.get("message_id")

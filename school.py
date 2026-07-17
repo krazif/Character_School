@@ -732,7 +732,7 @@ async def ws_chat(ws: WebSocket):
                 user_content = data.get("content", "") or ""
                 client_msg_id = data.get("client_msg_id")
                 image_path = data.get("image_path")
-                user_msg_id = db.db_school_add_message(session_id, "user", user_content, image_path=image_path)
+                user_msg_id = db.db_school_add_message(session_id, "user", user_content, image_path=image_path, client_msg_id=client_msg_id)
 
                 await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 
@@ -926,9 +926,10 @@ async def ws_chat(ws: WebSocket):
 
             elif data["type"] == "delete_message":
                 target_id = data.get("message_id")
-                if target_id is not None and session_id is not None:
-                    deleted = db.db_school_delete_message(session_id, target_id)
-                    await ws.send_json({"type": "message_deleted", "message_id": target_id, "success": deleted})
+                target_cid = data.get("client_msg_id")
+                if (target_id is not None or target_cid) and session_id is not None:
+                    deleted = db.db_school_delete_message(session_id, target_id, target_cid)
+                    await ws.send_json({"type": "message_deleted", "message_id": target_id, "client_msg_id": target_cid, "success": deleted})
 
             elif data["type"] == "regenerate_message":
                 target_id = data.get("message_id")

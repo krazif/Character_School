@@ -406,6 +406,15 @@ def init_db():
         conn.execute("ALTER TABLE school_sessions ADD COLUMN lorebooks TEXT")
     except Exception:
         pass
+    # Migration: add client_msg_id column for delete-by-fallback
+    try:
+        conn.execute("ALTER TABLE rp_messages ADD COLUMN client_msg_id TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE school_messages ADD COLUMN client_msg_id TEXT")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -700,13 +709,13 @@ def db_rp_create_session(characters: list[dict], persona_filename: str,
     return sid
 
 
-def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None, persona_name: str = None, image_path: str = None) -> int:
+def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None, persona_name: str = None, image_path: str = None, client_msg_id: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM rp_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
-        "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (session_id, next_seq, role, speaker, content, persona_name, image_path),
+        "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (session_id, next_seq, role, speaker, content, persona_name, image_path, client_msg_id),
     )
     msg_id = cur.lastrowid
     conn.execute("UPDATE rp_sessions SET updated_at = datetime('now') WHERE id = ?", (session_id,))
@@ -780,13 +789,34 @@ def db_rp_delete_session(session_id: int) -> bool:
     return deleted
 
 
-def db_rp_delete_message(session_id: int, message_id: int) -> bool:
+def _cleanup_image_files(conn, session_id: int, table: str, deleted_seq: int):
+    """Delete image files from disk for all messages being removed."""
+    rows = conn.execute(
+        f"SELECT image_path FROM {table} WHERE session_id = ? AND seq >= ? AND image_path IS NOT NULL",
+        (session_id, deleted_seq),
+    ).fetchall()
+    for (img_path,) in rows:
+        if img_path:
+            try:
+                full = UPLOAD_DIR / Path(img_path).name
+                if full.exists():
+                    full.unlink()
+            except Exception:
+                pass
+
+
+def db_rp_delete_message(session_id: int, message_id: int = None, client_msg_id: str = None) -> bool:
     conn = sqlite3.connect(str(DB_PATH))
-    row = conn.execute("SELECT seq FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    row = None
+    if message_id is not None:
+        row = conn.execute("SELECT seq FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row and client_msg_id is not None:
+        row = conn.execute("SELECT seq FROM rp_messages WHERE client_msg_id = ? AND session_id = ?", (client_msg_id, session_id)).fetchone()
     if not row:
         conn.close()
         return False
     deleted_seq = row[0]
+    _cleanup_image_files(conn, session_id, "rp_messages", deleted_seq)
     conn.execute("DELETE FROM rp_messages WHERE session_id = ? AND seq >= ?", (session_id, deleted_seq))
     conn.commit()
     conn.close()
@@ -984,13 +1014,13 @@ def db_school_update_message_analysis(message_id: int, analysis_json: str) -> No
 
 
 def db_school_add_message(session_id: int, role: str, content: str,
-                          is_first_mes: bool = False, analysis_json: str = None, image_path: str = None) -> int:
+                          is_first_mes: bool = False, analysis_json: str = None, image_path: str = None, client_msg_id: str = None) -> int:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM school_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
-        "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json, image_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (session_id, next_seq, role, content, 1 if is_first_mes else 0, analysis_json, image_path),
+        "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json, image_path, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (session_id, next_seq, role, content, 1 if is_first_mes else 0, analysis_json, image_path, client_msg_id),
     )
     msg_id = cur.lastrowid
     conn.execute("UPDATE school_sessions SET updated_at = datetime('now') WHERE id = ?", (session_id,))
@@ -1046,13 +1076,18 @@ def db_school_delete_session(session_id: int) -> bool:
     return deleted
 
 
-def db_school_delete_message(session_id: int, message_id: int) -> bool:
+def db_school_delete_message(session_id: int, message_id: int = None, client_msg_id: str = None) -> bool:
     conn = sqlite3.connect(str(DB_PATH))
-    row = conn.execute("SELECT seq FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    row = None
+    if message_id is not None:
+        row = conn.execute("SELECT seq FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row and client_msg_id is not None:
+        row = conn.execute("SELECT seq FROM school_messages WHERE client_msg_id = ? AND session_id = ?", (client_msg_id, session_id)).fetchone()
     if not row:
         conn.close()
         return False
     deleted_seq = row[0]
+    _cleanup_image_files(conn, session_id, "school_messages", deleted_seq)
     conn.execute("DELETE FROM school_messages WHERE session_id = ? AND seq >= ?", (session_id, deleted_seq))
     conn.commit()
     conn.close()

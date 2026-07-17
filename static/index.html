@@ -5198,8 +5198,12 @@ function deleteSchoolMessage(index) {
   if (index < 0 || index >= schoolMessages.length) return;
   const msg = schoolMessages[index];
   const msgId = msg.messageId;
-  if (msgId && ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'delete_message', message_id: msgId }));
+  const cid = msg.clientId;
+  if ((msgId || cid) && ws && ws.readyState === WebSocket.OPEN) {
+    const payload = { type: 'delete_message' };
+    if (msgId) payload.message_id = msgId;
+    else payload.client_msg_id = cid;
+    ws.send(JSON.stringify(payload));
   }
   // Remove this message and all subsequent
   schoolMessages.splice(index);
@@ -5225,8 +5229,12 @@ function deleteRPMessage(index) {
   if (index < 0 || index >= rpMessages.length) return;
   const msg = rpMessages[index];
   const msgId = msg.messageId;
-  if (msgId && rpWS && rpWS.readyState === WebSocket.OPEN) {
-    rpWS.send(JSON.stringify({ type: 'delete_message', message_id: msgId }));
+  const cid = msg.clientId;
+  if ((msgId || cid) && rpWS && rpWS.readyState === WebSocket.OPEN) {
+    const payload = { type: 'delete_message' };
+    if (msgId) payload.message_id = msgId;
+    else payload.client_msg_id = cid;
+    rpWS.send(JSON.stringify(payload));
   }
   rpMessages.splice(index);
   rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
