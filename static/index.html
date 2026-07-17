@@ -5696,6 +5696,73 @@ function buildImageBalloon(imagePath, apiBase, index, deleteFn, promptText) {
   balloon.appendChild(delLink);
   return balloon;
  }
+
+async function doRegenerateScene() {
+  const promptText = document.getElementById('genScenePrompt').value.trim();
+  if (!promptText) {
+    document.getElementById('genSceneStatus').textContent = '⚠ Prompt is empty';
+    return;
+  }
+  const negativeText = document.getElementById('genSceneNegative').value.trim();
+  const btn = document.getElementById('genSceneRegenBtn');
+  const statusEl = document.getElementById('genSceneStatus');
+
+  btn.disabled = true;
+  btn.textContent = 'Regenerating...';
+  statusEl.textContent = '⏳ Calling ComfyUI...';
+
+  try {
+    const body = { prompt: promptText, negative_prompt: negativeText };
+    const r = await fetch('/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!j.success) {
+      statusEl.textContent = '✗ ' + (j.error || 'Generation failed');
+      btn.disabled = false;
+      btn.textContent = '↻ Regenerate';
+      return;
+    }
+    statusEl.textContent = '✓ Image regenerated!';
+    // Show preview
+    const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+    const preview = document.getElementById('genScenePreview');
+    preview.src = apiBase + encodeURIComponent(j.image_path);
+    document.getElementById('genScenePreviewWrap').style.display = 'block';
+
+    // Delete old image message, then insert new one
+    if (lastGenSceneClientId) {
+      if (genSceneMode === 'school') {
+        deleteSchoolMessageByClientId(lastGenSceneClientId);
+      } else {
+        deleteRPMessageByClientId(lastGenSceneClientId);
+      }
+    }
+    if (genSceneMode === 'school') {
+      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
+      lastGenSceneClientId = clientId;
+      addMessage('user', '', null, false, null, clientId, j.image_path, promptText);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText }));
+      }
+    } else {
+      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
+      lastGenSceneClientId = clientId;
+      addRPMessage('user', '', null, null, clientId, j.image_path, promptText);
+      if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+        rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText }));
+      }
+    }
+    btn.disabled = false;
+    btn.textContent = '↻ Regenerate';
+  } catch (err) {
+    statusEl.textContent = '✗ Error: ' + err.message;
+    btn.disabled = false;
+    btn.textContent = '↻ Regenerate';
+  }
+}
 </script>
 <!-- Generate Scene Modal Overlay -->
 <div class="gen-overlay show" id="genSceneOverlay" style="display:none">
@@ -5823,71 +5890,4 @@ function buildImageBalloon(imagePath, apiBase, index, deleteFn, promptText) {
   --char-bubble: #ffffff; --char-bubble-border: #d0d7de;
   --bubble-opacity: 0.95;
 }
-async function doRegenerateScene() {
-  const promptText = document.getElementById('genScenePrompt').value.trim();
-  if (!promptText) {
-    document.getElementById('genSceneStatus').textContent = '⚠ Prompt is empty';
-    return;
-  }
-  const negativeText = document.getElementById('genSceneNegative').value.trim();
-  const btn = document.getElementById('genSceneRegenBtn');
-  const statusEl = document.getElementById('genSceneStatus');
-
-  btn.disabled = true;
-  btn.textContent = 'Regenerating...';
-  statusEl.textContent = '⏳ Calling ComfyUI...';
-
-  try {
-    const body = { prompt: promptText, negative_prompt: negativeText };
-    const r = await fetch('/api/generate-image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const j = await r.json();
-    if (!j.success) {
-      statusEl.textContent = '✗ ' + (j.error || 'Generation failed');
-      btn.disabled = false;
-      btn.textContent = '↻ Regenerate';
-      return;
-    }
-    statusEl.textContent = '✓ Image regenerated!';
-    // Show preview
-    const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
-    const preview = document.getElementById('genScenePreview');
-    preview.src = apiBase + encodeURIComponent(j.image_path);
-    document.getElementById('genScenePreviewWrap').style.display = 'block';
-
-    // Delete old image message, then insert new one
-    if (lastGenSceneClientId) {
-      if (genSceneMode === 'school') {
-        deleteSchoolMessageByClientId(lastGenSceneClientId);
-      } else {
-        deleteRPMessageByClientId(lastGenSceneClientId);
-      }
-    }
-    if (genSceneMode === 'school') {
-      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-      lastGenSceneClientId = clientId;
-      addMessage('user', '', null, false, null, clientId, j.image_path, promptText);
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText }));
-      }
-    } else {
-      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-      lastGenSceneClientId = clientId;
-      addRPMessage('user', '', null, null, clientId, j.image_path, promptText);
-      if (rpWS && rpWS.readyState === WebSocket.OPEN) {
-        rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText }));
-      }
-    }
-    btn.disabled = false;
-    btn.textContent = '↻ Regenerate';
-  } catch (err) {
-    statusEl.textContent = '✗ Error: ' + err.message;
-    btn.disabled = false;
-    btn.textContent = '↻ Regenerate';
-  }
-}
-
-// ─── VN Image Balloon Builder ──────────────────
+</style>
