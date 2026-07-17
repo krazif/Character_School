@@ -740,7 +740,7 @@ async def ws_chat(ws: WebSocket):
 
                 # Image-only message: store + render, but don't trigger LLM/analysis
                 if not user_content.strip() and image_path:
-                    return
+                    continue
 
                 async def _school_gen():
                     try:

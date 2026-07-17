@@ -302,7 +302,7 @@ async def ws_rp(ws: WebSocket):
 
                 # Image-only message: store + render, but don't trigger LLM generation
                 if not user_content.strip() and image_path:
-                    return
+                    continue
 
                 async def _rp_gen():
                     try:
