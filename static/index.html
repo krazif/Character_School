@@ -942,6 +942,12 @@ body.rp-mode .school-only { display:none; }
         <div class="settings-field">
           <label>Custom Workflow JSON (empty = built-in default txt2img)</label>
           <textarea id="cfgImagegenWorkflow" placeholder='Paste ComfyUI API workflow JSON here, or leave empty for default' style="width:100%;min-height:60px;font-size:11px;font-family:monospace;resize:vertical"></textarea>
+          <div style="margin-top:6px;font-size:11px;color:var(--text-muted);line-height:1.5">
+            <strong>Placeholders</strong> (replaced at generation time):<br>
+            <code>%positive%</code> — prompt text &nbsp; <code>%negative%</code> — negative prompt<br>
+            <code>%width%</code> <code>%height%</code> <code>%steps%</code> <code>%cfg%</code> — values from the fields above<br>
+            Leave a field as-is if your workflow handles it; placeholders are optional.
+          </div>
         </div>
       </div>
 

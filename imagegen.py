@@ -120,9 +120,17 @@ async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
         # Inject prompt/negative via %positive% / %negative% placeholders.
         # Serialize → replace → parse so placeholders can appear anywhere in the workflow.
         neg_text = negative_prompt or db.IMAGEGEN_NEGATIVE or "bad quality, low resolution, blurry"
+        replacements = {
+            "%positive%": prompt_text,
+            "%negative%": neg_text,
+            "%width%": str(db.IMAGEGEN_WIDTH),
+            "%height%": str(db.IMAGEGEN_HEIGHT),
+            "%steps%": str(db.IMAGEGEN_STEPS),
+            "%cfg%": str(db.IMAGEGEN_CFG_SCALE),
+        }
         workflow_json = json.dumps(db.IMAGEGEN_WORKFLOW)
-        workflow_json = workflow_json.replace("%positive%", prompt_text.replace("\\", "\\\\").replace('"', '\\"'))
-        workflow_json = workflow_json.replace("%negative%", neg_text.replace("\\", "\\\\").replace('"', '\\"'))
+        for placeholder, value in replacements.items():
+            workflow_json = workflow_json.replace(placeholder, value.replace("\\", "\\\\").replace('"', '\\"'))
         workflow = json.loads(workflow_json)
     else:
         workflow = _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE)
