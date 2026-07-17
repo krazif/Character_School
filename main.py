@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 import db
 from school import router as school_router
 from rp import router as rp_router
+from imagegen import router as imagegen_router
 
 app = FastAPI(title="Character School")
 
@@ -23,6 +24,7 @@ async def index():
 
 app.include_router(school_router)
 app.include_router(rp_router)
+app.include_router(imagegen_router)
 
 if db.STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(db.STATIC_DIR)), name="static")

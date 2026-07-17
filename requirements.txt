@@ -3,3 +3,4 @@ uvicorn
 openai
 json-repair
 Pillow
+httpx

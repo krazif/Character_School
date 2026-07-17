@@ -787,6 +787,18 @@ async def get_config():
             "top_k": _c.get("summary", {}).get("top_k", 40),
         },
         "paths": _c.get("paths", {"characters_dir": None, "personas_dir": None}),
+        "imagegen": {
+            "enabled": _c.get("imagegen", {}).get("enabled", False),
+            "base_url": _c.get("imagegen", {}).get("base_url", "http://127.0.0.1:8188"),
+            "negative_prompt": _c.get("imagegen", {}).get("negative_prompt", ""),
+            "width": _c.get("imagegen", {}).get("width", 512),
+            "height": _c.get("imagegen", {}).get("height", 768),
+            "steps": _c.get("imagegen", {}).get("steps", 20),
+            "cfg_scale": _c.get("imagegen", {}).get("cfg_scale", 7.0),
+            "sampler": _c.get("imagegen", {}).get("sampler", "euler"),
+            "scheduler": _c.get("imagegen", {}).get("scheduler", "normal"),
+            "workflow": _c.get("imagegen", {}).get("workflow", None),
+        },
         "presets": {
             name: {k: (mask(v) if k == "api_key" else v) for k, v in p.items()}
             for name, p in _c.get("presets", {}).items()
@@ -802,7 +814,7 @@ async def update_config(req: Request):
     current = db.load_config()
 
     # Deep-merge: update only provided fields
-    for section in ("server", "chat", "analysis", "summary", "paths"):
+    for section in ("server", "chat", "analysis", "summary", "paths", "imagegen"):
         if section not in body:
             continue
         if section not in current:

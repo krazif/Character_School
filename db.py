@@ -149,6 +149,22 @@ def save_config(cfg: dict):
     lines.append(f'    "top_p": {_json_val(summ.get("top_p"))},')
     lines.append(f'    "top_k": {_json_val(summ.get("top_k"))}')
     lines.append('  },')
+    imggen = cfg.get("imagegen", {})
+    lines.append('')
+    lines.append('  // ── Image generation endpoint (ComfyUI) — for Generate Scene feature ──')
+    lines.append('  "imagegen": {')
+    lines.append(f'    "enabled": {"true" if imggen.get("enabled", False) else "false"},')
+    lines.append('    "base_url": ' + json.dumps(str(imggen.get("base_url", "http://127.0.0.1:8188"))) + ',')
+    lines.append('    "negative_prompt": ' + json.dumps(str(imggen.get("negative_prompt", ""))) + ',')
+    lines.append(f'    "width": {int(imggen.get("width", 512))},')
+    lines.append(f'    "height": {int(imggen.get("height", 768))},')
+    lines.append(f'    "steps": {int(imggen.get("steps", 20))},')
+    lines.append(f'    "cfg_scale": {float(imggen.get("cfg_scale", 7.0))},')
+    lines.append('    "sampler": ' + json.dumps(str(imggen.get("sampler", "euler"))) + ',')
+    lines.append('    "scheduler": ' + json.dumps(str(imggen.get("scheduler", "normal"))) + ',')
+    wf = imggen.get("workflow")
+    lines.append('    "workflow": ' + (json.dumps(wf) if wf else 'null') + '  // null = use built-in default txt2img workflow')
+    lines.append('  },')
     paths = cfg.get("paths", {})
     lines.append('')
     lines.append('  // Paths — can be absolute or relative to the app directory')
@@ -176,6 +192,8 @@ def reload_config():
     global ANALYSIS_BASE_URL, ANALYSIS_API_KEY, ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, ANALYSIS_TOP_P, ANALYSIS_TOP_K
     global SUMMARY_BASE_URL, SUMMARY_API_KEY, SUMMARY_MODEL, SUMMARY_TEMPERATURE, SUMMARY_MAX_TOKENS, SUMMARY_TOP_P, SUMMARY_TOP_K
     global chat_client, analysis_client, summary_client, CHARACTERS_DIR, PERSONAS_DIR, PRESETS
+    global IMAGEGEN_BASE_URL, IMAGEGEN_ENABLED, IMAGEGEN_NEGATIVE, IMAGEGEN_WORKFLOW
+    global IMAGEGEN_WIDTH, IMAGEGEN_HEIGHT, IMAGEGEN_STEPS, IMAGEGEN_CFG_SCALE, IMAGEGEN_SAMPLER, IMAGEGEN_SCHEDULER
     _cfg = load_config()
     _chat_cfg = _cfg.get("chat", {})
     _analysis_cfg = _cfg.get("analysis", {})
@@ -206,6 +224,18 @@ def reload_config():
     SUMMARY_TOP_P = _normalize_float(_summary_cfg.get("top_p"))
     SUMMARY_TOP_K = _normalize_int(_summary_cfg.get("top_k"))
     PRESETS = _cfg.get("presets", {})
+    # ── Image generation (ComfyUI) config ──
+    _imggen_cfg = _cfg.get("imagegen", {})
+    IMAGEGEN_BASE_URL = _imggen_cfg.get("base_url", "http://127.0.0.1:8188")
+    IMAGEGEN_ENABLED  = _imggen_cfg.get("enabled", False)
+    IMAGEGEN_NEGATIVE = _imggen_cfg.get("negative_prompt", "")
+    IMAGEGEN_WORKFLOW = _imggen_cfg.get("workflow", None)
+    IMAGEGEN_WIDTH    = int(_imggen_cfg.get("width", 512))
+    IMAGEGEN_HEIGHT   = int(_imggen_cfg.get("height", 768))
+    IMAGEGEN_STEPS    = int(_imggen_cfg.get("steps", 20))
+    IMAGEGEN_CFG_SCALE = float(_imggen_cfg.get("cfg_scale", 7.0))
+    IMAGEGEN_SAMPLER  = _imggen_cfg.get("sampler", "euler")
+    IMAGEGEN_SCHEDULER = _imggen_cfg.get("scheduler", "normal")
     chat_client     = AsyncOpenAI(base_url=CHAT_BASE_URL,     api_key=CHAT_API_KEY or "not-configured")
     analysis_client = AsyncOpenAI(base_url=ANALYSIS_BASE_URL, api_key=ANALYSIS_API_KEY or "not-configured")
     summary_client  = AsyncOpenAI(base_url=SUMMARY_BASE_URL,  api_key=SUMMARY_API_KEY or "not-configured")
@@ -277,6 +307,19 @@ summary_client  = AsyncOpenAI(base_url=SUMMARY_BASE_URL,  api_key=SUMMARY_API_KE
 
 # ─── Presets ──────────────────────────────────────────────────────
 PRESETS = _cfg.get("presets", {})
+
+# ─── Image generation (ComfyUI) ────────────────────────────────────
+_imggen_cfg = _cfg.get("imagegen", {})
+IMAGEGEN_BASE_URL = _imggen_cfg.get("base_url", "http://127.0.0.1:8188")
+IMAGEGEN_ENABLED  = _imggen_cfg.get("enabled", False)
+IMAGEGEN_NEGATIVE = _imggen_cfg.get("negative_prompt", "")
+IMAGEGEN_WORKFLOW = _imggen_cfg.get("workflow", None)
+IMAGEGEN_WIDTH    = int(_imggen_cfg.get("width", 512))
+IMAGEGEN_HEIGHT   = int(_imggen_cfg.get("height", 768))
+IMAGEGEN_STEPS    = int(_imggen_cfg.get("steps", 20))
+IMAGEGEN_CFG_SCALE = float(_imggen_cfg.get("cfg_scale", 7.0))
+IMAGEGEN_SAMPLER  = _imggen_cfg.get("sampler", "euler")
+IMAGEGEN_SCHEDULER = _imggen_cfg.get("scheduler", "normal")
 
 # ─── SQLite Database ─────────────────────────────────────────────
 DB_PATH = APP_DIR / "char_test.db"

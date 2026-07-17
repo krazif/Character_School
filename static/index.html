@@ -601,6 +601,7 @@ body.rp-mode .school-only { display:none; }
       <button class="btn-reset" id="btnEditor" onclick="openEditor()" disabled>Edit Card</button>
       <button class="btn-reset" id="btnSchoolStack" onclick="openSchoolStackBuilder()" disabled style="background:var(--surface2);border:1px solid var(--border)">📚 Stack</button>
       <button class="btn-reset" id="btnSchoolLore" onclick="openLorebookManager('school')" disabled style="background:var(--surface2);border:1px solid var(--border)">📖 Lorebooks</button>
+      <button class="btn-reset" id="btnSchoolGenScene" onclick="openGenerateSceneModal('school')" disabled style="background:var(--surface2);border:1px solid var(--border)">🎨 Generate Scene</button>
       <div class="style-toggle-wrap" id="schoolStyleToggleWrap" style="display:none">
         <div class="rp-toggle-btn" id="schoolStyleBtn" onclick="schoolCycleStyle()" title="Response length">Moderate</div>
       </div>
@@ -892,6 +893,55 @@ body.rp-mode .school-only { display:none; }
             <label>Top K</label>
             <input type="number" id="cfgSummaryTopK" min="1" max="200" value="40" />
           </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Image Generation (ComfyUI)</div>
+        <div class="settings-field">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="cfgImagegenEnabled" /> Enable "Generate Scene" button
+          </label>
+        </div>
+        <div class="settings-field">
+          <label>ComfyUI Base URL</label>
+          <input type="text" id="cfgImagegenBaseUrl" placeholder="http://127.0.0.1:8188" />
+        </div>
+        <div class="settings-field">
+          <label>Negative Prompt (default)</label>
+          <input type="text" id="cfgImagegenNegative" placeholder="bad quality, low resolution, blurry" />
+        </div>
+        <div style="display:flex;gap:12px">
+          <div class="settings-field" style="flex:1">
+            <label>Width</label>
+            <input type="number" id="cfgImagegenWidth" min="128" max="2048" step="64" />
+          </div>
+          <div class="settings-field" style="flex:1">
+            <label>Height</label>
+            <input type="number" id="cfgImagegenHeight" min="128" max="2048" step="64" />
+          </div>
+          <div class="settings-field" style="flex:1">
+            <label>Steps</label>
+            <input type="number" id="cfgImagegenSteps" min="1" max="100" />
+          </div>
+          <div class="settings-field" style="flex:1">
+            <label>CFG Scale</label>
+            <input type="number" id="cfgImagegenCfgScale" min="1" max="20" step="0.5" />
+          </div>
+        </div>
+        <div style="display:flex;gap:12px">
+          <div class="settings-field" style="flex:1">
+            <label>Sampler</label>
+            <input type="text" id="cfgImagegenSampler" placeholder="euler" />
+          </div>
+          <div class="settings-field" style="flex:1">
+            <label>Scheduler</label>
+            <input type="text" id="cfgImagegenScheduler" placeholder="normal" />
+          </div>
+        </div>
+        <div class="settings-field">
+          <label>Custom Workflow JSON (empty = built-in default txt2img)</label>
+          <textarea id="cfgImagegenWorkflow" placeholder='Paste ComfyUI API workflow JSON here, or leave empty for default' style="width:100%;min-height:60px;font-size:11px;font-family:monospace;resize:vertical"></textarea>
         </div>
       </div>
 
@@ -1878,6 +1928,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('btnEditor').disabled = false;
       document.getElementById('btnSchoolStack').disabled = false;
       document.getElementById('btnSchoolLore').disabled = false;
+      document.getElementById('btnSchoolGenScene').disabled = false;
       // Show style toggle
       document.getElementById('schoolStyleToggleWrap').style.display = '';
       // Enable input — first_mes has no analysis, arrives instantly
@@ -1944,6 +1995,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('btnEditor').disabled = false;
       document.getElementById('btnSchoolStack').disabled = false;
       document.getElementById('btnSchoolLore').disabled = false;
+      document.getElementById('btnSchoolGenScene').disabled = false;
       // Show style toggle + restore response style
       document.getElementById('schoolStyleToggleWrap').style.display = '';
       if (data.response_style) {
@@ -3371,6 +3423,9 @@ function renderRPSceneBar() {
   // Lorebook button
   html += `<div class="rp-toggle-btn" onclick="openLorebookManager()" title="Manage lorebooks">📚 Lorebooks</div>`;
 
+  // Generate Scene button (ComfyUI)
+  html += `<div class="rp-toggle-btn" onclick="openGenerateSceneModal('rp')" title="Generate scene image via ComfyUI">🎨 Generate Scene</div>`;
+
   // Active lorebook indicator
   if (rpLorebooks && rpLorebooks.length > 0) {
     html += `<span style="font-size:11px;color:var(--accent);margin-left:4px">${rpLorebooks.length} 📚</span>`;
@@ -3879,6 +3934,7 @@ async function deleteSchoolSession(sessionId) {
       document.getElementById('btnEditor').disabled = true;
       document.getElementById('btnSchoolStack').disabled = true;
       document.getElementById('btnSchoolLore').disabled = true;
+      document.getElementById('btnSchoolGenScene').disabled = true;
       if (ws) ws.close();
     }
     loadSchoolSessions();
@@ -4642,6 +4698,18 @@ async function openSettings() {
     document.getElementById('cfgSummaryTopK').value = cfg.summary?.top_k != null ? cfg.summary.top_k : '';
     document.getElementById('cfgCharactersDir').value = cfg.paths.characters_dir || '';
     document.getElementById('cfgPersonasDir').value = cfg.paths.personas_dir || '';
+    // Image generation settings
+    const ig = cfg.imagegen || {};
+    document.getElementById('cfgImagegenEnabled').checked = ig.enabled || false;
+    document.getElementById('cfgImagegenBaseUrl').value = ig.base_url || 'http://127.0.0.1:8188';
+    document.getElementById('cfgImagegenNegative').value = ig.negative_prompt || '';
+    document.getElementById('cfgImagegenWidth').value = ig.width || 512;
+    document.getElementById('cfgImagegenHeight').value = ig.height || 768;
+    document.getElementById('cfgImagegenSteps').value = ig.steps || 20;
+    document.getElementById('cfgImagegenCfgScale').value = ig.cfg_scale || 7.0;
+    document.getElementById('cfgImagegenSampler').value = ig.sampler || 'euler';
+    document.getElementById('cfgImagegenScheduler').value = ig.scheduler || 'normal';
+    document.getElementById('cfgImagegenWorkflow').value = ig.workflow ? JSON.stringify(ig.workflow, null, 2) : '';
     if (cfg.version) {
       document.getElementById('settingsFooter').textContent = `Character School v${cfg.version} © Krazif & Tunas`;
     }
@@ -4710,6 +4778,18 @@ async function saveSettings() {
       paths: {
         characters_dir: document.getElementById('cfgCharactersDir').value.trim() || null,
         personas_dir: document.getElementById('cfgPersonasDir').value.trim() || null,
+      },
+      imagegen: {
+        enabled: document.getElementById('cfgImagegenEnabled').checked,
+        base_url: document.getElementById('cfgImagegenBaseUrl').value.trim() || 'http://127.0.0.1:8188',
+        negative_prompt: document.getElementById('cfgImagegenNegative').value.trim(),
+        width: parseInt(document.getElementById('cfgImagegenWidth').value) || 512,
+        height: parseInt(document.getElementById('cfgImagegenHeight').value) || 768,
+        steps: parseInt(document.getElementById('cfgImagegenSteps').value) || 20,
+        cfg_scale: parseFloat(document.getElementById('cfgImagegenCfgScale').value) || 7.0,
+        sampler: document.getElementById('cfgImagegenSampler').value.trim() || 'euler',
+        scheduler: document.getElementById('cfgImagegenScheduler').value.trim() || 'normal',
+        workflow: (() => { const v = document.getElementById('cfgImagegenWorkflow').value.trim(); if (!v) return null; try { return JSON.parse(v); } catch { return null; } })(),
       },
     };
     const res = await fetch('/api/config', {
@@ -5283,6 +5363,131 @@ function clearRPChat() {
 
 // ─── End Virtual Scrolling ──────────────────────
 
+// ─── ComfyUI Generate Scene ─────────────────────
+let genSceneMode = 'rp'; // 'rp' or 'school'
+
+function openGenerateSceneModal(mode) {
+  genSceneMode = mode || 'rp';
+  const overlay = document.getElementById('genSceneOverlay');
+  overlay.style.display = 'flex';
+  document.getElementById('genSceneModeLabel').textContent = genSceneMode === 'school' ? 'School Mode' : 'RP Mode';
+  document.getElementById('genSceneStatus').textContent = '';
+  document.getElementById('genScenePreviewWrap').style.display = 'none';
+  document.getElementById('genSceneBtn').disabled = false;
+  document.getElementById('genSceneBtn').textContent = 'Generate';
+  autoFillGenScenePrompt();
+}
+
+function closeGenSceneModal() {
+  document.getElementById('genSceneOverlay').style.display = 'none';
+}
+
+function autoFillGenScenePrompt() {
+  let prompt = '';
+  const lastMsgs = genSceneMode === 'school' ? schoolMessages : rpMessages;
+  // Find last non-empty message content for scene context
+  let lastContent = '';
+  for (let i = lastMsgs.length - 1; i >= 0; i--) {
+    if (lastMsgs[i].content && lastMsgs[i].content.trim()) {
+      lastContent = lastMsgs[i].content.trim();
+      break;
+    }
+  }
+  // Extract appearance/description from character cards
+  if (genSceneMode === 'school') {
+    const d = currentCard?.data || currentCard;
+    const charName = d?.name || 'Character';
+    const desc = d?.description || '';
+    prompt = `Scene featuring ${charName}`;
+    if (desc) {
+      // Extract first 200 chars of description for appearance hints
+      prompt += `. ${desc.substring(0, 200)}`;
+    }
+  } else {
+    // RP mode: use last speaker's character data
+    const lastSpeaker = lastMsgs.length > 0 ? lastMsgs[lastMsgs.length - 1].speaker : null;
+    if (lastSpeaker && rpCharacters.length > 0) {
+      const char = rpCharacters.find(c => c.name === lastSpeaker);
+      if (char) {
+        prompt = `Scene featuring ${lastSpeaker}`;
+        // We don't have full card data in rpCharacters, just name+filename
+        // Use the last message content as scene context
+      } else {
+        prompt = `Scene featuring ${lastSpeaker || 'characters'}`;
+      }
+    } else if (rpCharacters.length > 0) {
+      prompt = `Scene featuring ${rpCharacters.map(c => c.name).join(', ')}`;
+    } else {
+      prompt = 'Scene';
+    }
+  }
+  // Append scene context from last message (truncated)
+  if (lastContent) {
+    const sceneHint = lastContent.substring(0, 300).replace(/\n/g, ' ');
+    prompt += `. Scene context: ${sceneHint}`;
+  }
+  prompt += `. High quality, detailed, cinematic lighting.`;
+  document.getElementById('genScenePrompt').value = prompt;
+}
+
+async function doGenerateScene() {
+  const promptText = document.getElementById('genScenePrompt').value.trim();
+  if (!promptText) {
+    document.getElementById('genSceneStatus').textContent = '⚠ Prompt is empty';
+    return;
+  }
+  const negativeText = document.getElementById('genSceneNegative').value.trim();
+  const btn = document.getElementById('genSceneBtn');
+  const statusEl = document.getElementById('genSceneStatus');
+
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  statusEl.textContent = '⏳ Calling ComfyUI...';
+
+  try {
+    const body = { prompt: promptText, negative_prompt: negativeText };
+    const r = await fetch('/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!j.success) {
+      statusEl.textContent = '✗ ' + (j.error || 'Generation failed');
+      btn.disabled = false;
+      btn.textContent = 'Generate';
+      return;
+    }
+    statusEl.textContent = '✓ Image generated!';
+    // Show preview
+    const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+    const preview = document.getElementById('genScenePreview');
+    preview.src = apiBase + encodeURIComponent(j.image_path);
+    document.getElementById('genScenePreviewWrap').style.display = 'block';
+
+    // Insert as a middle balloon into the chat
+    if (genSceneMode === 'school') {
+      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
+      addMessage('user', '', null, false, null, clientId, j.image_path);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: j.image_path }));
+      }
+    } else {
+      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
+      addRPMessage('user', '', null, null, clientId, j.image_path);
+      if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+        rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: j.image_path }));
+      }
+    }
+    btn.disabled = false;
+    btn.textContent = 'Generate';
+  } catch (err) {
+    statusEl.textContent = '✗ Error: ' + err.message;
+    btn.disabled = false;
+    btn.textContent = 'Generate';
+  }
+}
+
 // ─── VN Image Balloon Builder ──────────────────
 function buildImageBalloon(imagePath, apiBase, index, deleteFn) {
   const balloon = document.createElement('div');
@@ -5298,8 +5503,34 @@ function buildImageBalloon(imagePath, apiBase, index, deleteFn) {
   delLink.onclick = (e) => { e.stopPropagation(); deleteFn(index); };
   balloon.appendChild(delLink);
   return balloon;
-}
+ }
 </script>
+<!-- Generate Scene Modal Overlay -->
+<div class="gen-overlay show" id="genSceneOverlay" style="display:none">
+  <div class="gen-modal" style="max-width:640px">
+    <div class="gen-header">
+      <h2>🎨 Generate Scene</h2>
+      <span class="sub" id="genSceneModeLabel">RP Mode</span>
+      <span style="flex:1"></span>
+      <button class="btn-reset" onclick="closeGenSceneModal()">Close</button>
+    </div>
+    <div class="gen-body" style="flex-direction:column;gap:12px;padding:16px">
+      <div id="genSceneStatus" style="font-size:12px;color:var(--text-dim);min-height:16px"></div>
+      <textarea id="genScenePrompt" placeholder="Describe the scene to generate..." style="width:100%;min-height:120px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="genSceneNegative" placeholder="Negative prompt (optional)" style="flex:1;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn-reset" onclick="autoFillGenScenePrompt()" style="font-size:12px;padding:6px 12px">↻ Auto-fill</button>
+        <button class="btn-send" id="genSceneBtn" onclick="doGenerateScene()" style="font-size:13px;padding:8px 20px">Generate</button>
+      </div>
+      <div id="genScenePreviewWrap" style="display:none;text-align:center;margin-top:8px">
+        <img id="genScenePreview" style="max-width:100%;max-height:400px;border-radius:8px;border:1px solid var(--border)" />
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Lorebook Manager Overlay -->
 <div class="gen-overlay show" id="lorebookOverlay" style="display:none">
   <div class="gen-modal">
