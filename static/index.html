@@ -952,7 +952,7 @@ body.rp-mode .school-only { display:none; }
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Auto Image Generation (Phase 3)</div>
+        <div class="settings-section-title">Auto Image Generation</div>
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;line-height:1.5">
           A small LLM reads the conversation every N messages and decides whether to auto-generate a scene image.
           Requires ComfyUI image generation enabled above.
@@ -961,6 +961,13 @@ body.rp-mode .school-only { display:none; }
           <label style="display:flex;align-items:center;gap:8px">
             <input type="checkbox" id="cfgImgAutoEnabled" /> Enable auto image generation
           </label>
+        </div>
+        <div class="settings-field" style="flex-direction:row;align-items:center;gap:8px;">
+          <label style="margin:0;white-space:nowrap;">Preset</label>
+          <select id="cfgImgAutoPreset" onchange="applyPreset('imgAuto', this.value)" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px">
+            <option value="">— None (manual) —</option>
+          </select>
+          <button onclick="openPresetManager('imgAuto')" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;white-space:nowrap">⚙ Manage</button>
         </div>
         <div class="settings-field">
           <label>API Base URL</label>
@@ -981,7 +988,7 @@ body.rp-mode .school-only { display:none; }
           </div>
           <div class="settings-field" style="flex:1">
             <label>Max Tokens</label>
-            <input type="number" id="cfgImgAutoMaxTokens" min="50" max="2000" step="50" />
+            <input type="number" id="cfgImgAutoMaxTok" min="50" max="2000" step="50" />
           </div>
           <div class="settings-field" style="flex:1">
             <label>Interval (every N messages)</label>
@@ -4759,14 +4766,14 @@ async function openSettings() {
     document.getElementById('cfgImagegenSampler').value = ig.sampler || 'euler';
     document.getElementById('cfgImagegenScheduler').value = ig.scheduler || 'normal';
     document.getElementById('cfgImagegenWorkflow').value = ig.workflow ? JSON.stringify(ig.workflow, null, 2) : '';
-    // Auto image generation settings (Phase 3)
+    // Auto image generation settings
     const iga = cfg.imagegen_auto || {};
     document.getElementById('cfgImgAutoEnabled').checked = iga.enabled || false;
     document.getElementById('cfgImgAutoBaseUrl').value = iga.base_url || 'https://openrouter.ai/api/v1';
     document.getElementById('cfgImgAutoApiKey').value = iga.api_key || '';
     document.getElementById('cfgImgAutoModel').value = iga.model || 'deepseek/deepseek-v4-flash';
     document.getElementById('cfgImgAutoTemp').value = iga.temperature ?? 0.5;
-    document.getElementById('cfgImgAutoMaxTokens').value = iga.max_tokens || 500;
+    document.getElementById('cfgImgAutoMaxTok').value = iga.max_tokens || 500;
     document.getElementById('cfgImgAutoInterval').value = iga.interval || 5;
     document.getElementById('cfgImgAutoNegative').value = iga.negative_prompt || '';
     if (cfg.version) {
@@ -4852,11 +4859,16 @@ async function saveSettings() {
       },
       imagegen_auto: {
         enabled: document.getElementById('cfgImgAutoEnabled').checked,
-        base_url: document.getElementById('cfgImgAutoBaseUrl').value.trim() || 'https://openrouter.ai/api/v1',
-        api_key: document.getElementById('cfgImgAutoApiKey').value.trim() || null,
-        model: document.getElementById('cfgImgAutoModel').value.trim() || 'deepseek/deepseek-v4-flash',
-        temperature: parseFloat(document.getElementById('cfgImgAutoTemp').value) || 0.5,
-        max_tokens: parseInt(document.getElementById('cfgImgAutoMaxTokens').value) || 500,
+        ...(() => {
+          const f = getEndpointFields('imgAuto');
+          return {
+            base_url: f.base_url || 'https://openrouter.ai/api/v1',
+            api_key: f.api_key || null,
+            model: f.model || 'deepseek/deepseek-v4-flash',
+            temperature: f.temperature ?? 0.5,
+            max_tokens: f.max_tokens || 500,
+          };
+        })(),
         interval: parseInt(document.getElementById('cfgImgAutoInterval').value) || 5,
         negative_prompt: document.getElementById('cfgImgAutoNegative').value.trim(),
       },
@@ -4921,7 +4933,7 @@ async function resetDatabase() {
 function populatePresetDropdowns() {
   const presets = window._presets || {};
   const names = Object.keys(presets).sort();
-  for (const section of ['chat', 'analysis', 'summary']) {
+  for (const section of ['chat', 'analysis', 'summary', 'imgAuto']) {
     const sel = document.getElementById(`cfg${section.charAt(0).toUpperCase() + section.slice(1)}Preset`);
     if (!sel) continue;
     sel.innerHTML = '<option value="">— None (manual) —</option>';
@@ -4933,14 +4945,15 @@ function populatePresetDropdowns() {
 
 function getEndpointFields(section) {
   const cap = section.charAt(0).toUpperCase() + section.slice(1);
-  const topP = document.getElementById(`cfg${cap}TopP`).value.trim();
-  const topK = document.getElementById(`cfg${cap}TopK`).value.trim();
+  const getVal = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const topP = getVal(`cfg${cap}TopP`);
+  const topK = getVal(`cfg${cap}TopK`);
   return {
-    base_url: document.getElementById(`cfg${cap}BaseUrl`).value.trim(),
-    api_key: document.getElementById(`cfg${cap}ApiKey`).value.trim(),
-    model: document.getElementById(`cfg${cap}Model`).value.trim(),
-    temperature: parseFloat(document.getElementById(`cfg${cap}Temp`).value) || 0.8,
-    max_tokens: parseInt(document.getElementById(`cfg${cap}MaxTok`).value) || 2000,
+    base_url: getVal(`cfg${cap}BaseUrl`),
+    api_key: getVal(`cfg${cap}ApiKey`),
+    model: getVal(`cfg${cap}Model`),
+    temperature: parseFloat(getVal(`cfg${cap}Temp`)) || 0.8,
+    max_tokens: parseInt(getVal(`cfg${cap}MaxTok`)) || 2000,
     top_p: topP === '' ? null : (parseFloat(topP) ?? 1.0),
     top_k: topK === '' ? null : (isNaN(topK) ? null : parseInt(topK)),
   };
@@ -4948,15 +4961,19 @@ function getEndpointFields(section) {
 
 function setEndpointFields(section, preset) {
   const cap = section.charAt(0).toUpperCase() + section.slice(1);
-  document.getElementById(`cfg${cap}BaseUrl`).value = preset.base_url || '';
-  document.getElementById(`cfg${cap}ApiKey`).value = preset.api_key || '';
-  document.getElementById(`cfg${cap}Model`).value = preset.model || '';
-  document.getElementById(`cfg${cap}Temp`).value = preset.temperature ?? 0.8;
-  document.getElementById(`cfg${cap}MaxTok`).value = preset.max_tokens ?? 2000;
-  document.getElementById(`cfg${cap}TopP`).value = preset.top_p != null ? preset.top_p : '';
-  document.getElementById(`cfg${cap}TopK`).value = preset.top_k != null ? preset.top_k : '';
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  setVal(`cfg${cap}BaseUrl`, preset.base_url || '');
+  setVal(`cfg${cap}ApiKey`, preset.api_key || '');
+  setVal(`cfg${cap}Model`, preset.model || '');
+  setVal(`cfg${cap}Temp`, preset.temperature ?? 0.8);
+  setVal(`cfg${cap}MaxTok`, preset.max_tokens ?? 2000);
+  const tp = document.getElementById(`cfg${cap}TopP`);
+  if (tp) tp.value = preset.top_p != null ? preset.top_p : '';
+  const tk = document.getElementById(`cfg${cap}TopK`);
+  if (tk) tk.value = preset.top_k != null ? preset.top_k : '';
   if (section === 'chat') {
-    document.getElementById('cfgChatEnableThinking').checked = preset.enable_thinking ?? false;
+    const et = document.getElementById('cfgChatEnableThinking');
+    if (et) et.checked = preset.enable_thinking ?? false;
   }
 }
 
