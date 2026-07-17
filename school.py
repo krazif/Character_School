@@ -729,12 +729,16 @@ async def ws_chat(ws: WebSocket):
                 })
 
             elif data["type"] == "user_message":
-                user_content = data["content"]
+                user_content = data.get("content", "") or ""
                 client_msg_id = data.get("client_msg_id")
                 image_path = data.get("image_path")
                 user_msg_id = db.db_school_add_message(session_id, "user", user_content, image_path=image_path)
 
                 await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
+
+                # Image-only message: store + render, but don't trigger LLM/analysis
+                if not user_content.strip() and image_path:
+                    return
 
                 async def _school_gen():
                     try:

@@ -289,7 +289,7 @@ async def ws_rp(ws: WebSocket):
                 })
 
             elif data["type"] == "user_message":
-                user_content = data["content"]
+                user_content = data.get("content", "") or ""
                 directed_to = data.get("directed_to")
                 client_msg_id = data.get("client_msg_id")
                 image_path = data.get("image_path")
@@ -297,6 +297,10 @@ async def ws_rp(ws: WebSocket):
                 _pn = persona.get("name") if persona else None
                 user_msg_id = db.db_rp_add_message(session_id, "user", user_content, persona_name=_pn, image_path=image_path)
                 await _safe_send({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
+
+                # Image-only message: store + render, but don't trigger LLM generation
+                if not user_content.strip() and image_path:
+                    return
 
                 async def _rp_gen():
                     try:

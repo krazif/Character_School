@@ -322,11 +322,13 @@ body.rp-mode .school-only { display:none; }
 .rp-msg .rp-delete-link { color:var(--text-dim); text-decoration:none; cursor:pointer; }
 .rp-msg:hover .rp-delete-link { opacity:0.6; }
 .rp-msg .rp-delete-link:hover { color:var(--red); opacity:1; }
-.msg-vn-image { display:block; max-width:100%; max-height:260px; border-radius:10px; margin-top:8px; object-fit:contain; cursor:pointer; }
-.rp-msg.user .msg-vn-image { border:1px solid var(--user-bubble-border); }
-.rp-msg.character .msg-vn-image { border:1px solid var(--char-bubble-border); }
-.message.user .msg-vn-image { border:1px solid var(--user-bubble-border); }
-.message.character .msg-vn-image { border:1px solid var(--char-bubble-border); }
+/* VN-style middle image balloon */
+.msg-image-balloon { display:flex; justify-content:center; align-items:center; margin:6px 0; position:relative; }
+.msg-image-balloon img { max-width:70%; max-height:420px; border-radius:10px; object-fit:contain; cursor:pointer; border:1px solid var(--border); box-shadow:0 2px 12px rgba(0,0,0,0.3); transition:box-shadow 0.2s; }
+.msg-image-balloon img:hover { box-shadow:0 4px 18px rgba(0,0,0,0.45); }
+.msg-image-balloon .balloon-delete { position:absolute; top:4px; right:8px; color:var(--text-dim); text-decoration:none; cursor:pointer; font-size:11px; opacity:0; transition:opacity 0.2s; background:rgba(0,0,0,0.5); padding:2px 6px; border-radius:4px; }
+.msg-image-balloon:hover .balloon-delete { opacity:0.7; }
+.msg-image-balloon .balloon-delete:hover { color:var(--red); opacity:1; }
 .image-lightbox { position:fixed; inset:0; background:rgba(0,0,0,0.85); display:flex; align-items:center; justify-content:center; z-index:1000; cursor:pointer; }
 .image-lightbox img { max-width:95vw; max-height:95vh; border-radius:6px; }
 
@@ -2122,10 +2124,11 @@ function addMessage(role, content, analysis, isFirst, messageId, clientId, image
     updateAnalysis(analysis, content);
   }
 
-  // Return the last rendered DOM node for callers that need to tag it
+  // Return the last rendered .message DOM node for callers that need to tag it
   const container = document.getElementById('chatMessages');
   const msgs = container.querySelectorAll('.message');
-  return msgs.length > 0 ? msgs[msgs.length - 1] : null;
+  const last = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+  return last;
 }
 
 function updateAnalysis(analysis, content) {
@@ -2313,7 +2316,10 @@ async function sendMessage() {
   ws.send(JSON.stringify({type: 'user_message', content: text, client_msg_id: clientId, image_path: imagePath}));
   input.value = '';
 
-  isWaiting = true;
+  // Image-only: no LLM wait state
+  if (text || !imagePath) {
+    isWaiting = true;
+  }
   updateInputState();
 }
 
@@ -3528,7 +3534,10 @@ async function sendRPMessage() {
   rpWS.send(JSON.stringify({type: 'user_message', content: text, directed_to: directedTo || null, client_msg_id: clientId, image_path: imagePath}));
 
   input.value = '';
-  rpIsWaiting = true;
+  // Image-only: no LLM wait state
+  if (text || !imagePath) {
+    rpIsWaiting = true;
+  }
   updateRPInputState();
 }
 
@@ -5043,10 +5052,10 @@ function renderVirtualMessages(containerId, messagesArr, visibleCount) {
   // Render messages from start to end
   for (let i = start; i < total; i++) {
     const msg = messagesArr[i];
-    const div = isSchool
+    const frag = isSchool
       ? buildSchoolMessageDOM(msg, i)
       : buildRPMessageDOM(msg, i);
-    container.appendChild(div);
+    container.appendChild(frag);
   }
   // Scroll to bottom on new messages (only if already near bottom)
   const wasNearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 100;
@@ -5056,6 +5065,12 @@ function renderVirtualMessages(containerId, messagesArr, visibleCount) {
 }
 
 function buildSchoolMessageDOM(msg, index) {
+  const frag = document.createDocumentFragment();
+  // Image-only message: just a middle balloon, no chat bubble
+  if (msg.imagePath && (!msg.content || !msg.content.trim())) {
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/school/images/', index, deleteSchoolMessage));
+    return frag;
+  }
   const div = document.createElement('div');
   div.className = 'message ' + msg.role;
   if (msg.role === 'character' && msg.isFirst) div.classList.add('first-mes');
@@ -5077,14 +5092,6 @@ function buildSchoolMessageDOM(msg, index) {
   contentDiv.className = 'msg-content';
   contentDiv.innerHTML = formatMessage(msg.content);
   div.appendChild(contentDiv);
-  if (msg.imagePath) {
-    const img = document.createElement('img');
-    img.className = 'msg-vn-image';
-    img.src = '/api/school/images/' + encodeURIComponent(msg.imagePath);
-    img.alt = 'attached image';
-    img.onclick = () => openImageLightbox(img.src);
-    div.appendChild(img);
-  }
   // Analysis (School only)
   if (msg.analysis) {
     const analysisDiv = document.createElement('div');
@@ -5115,10 +5122,21 @@ function buildSchoolMessageDOM(msg, index) {
     actionsDiv.appendChild(delLink);
     div.appendChild(actionsDiv);
   }
-  return div;
+  frag.appendChild(div);
+  // If message also has an image, split it into a separate middle balloon below
+  if (msg.imagePath) {
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/school/images/', index, deleteSchoolMessage));
+  }
+  return frag;
 }
 
 function buildRPMessageDOM(msg, index) {
+  const frag = document.createDocumentFragment();
+  // Image-only message: just a middle balloon, no chat bubble
+  if (msg.imagePath && (!msg.content || !msg.content.trim())) {
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage));
+    return frag;
+  }
   const div = document.createElement('div');
   div.className = 'rp-msg ' + msg.role;
   div.dataset.messageId = msg.messageId || '';
@@ -5145,14 +5163,6 @@ function buildRPMessageDOM(msg, index) {
   contentDiv.className = 'rp-msg-content';
   contentDiv.innerHTML = formatMessage(msg.content);
   div.appendChild(contentDiv);
-  if (msg.imagePath) {
-    const img = document.createElement('img');
-    img.className = 'msg-vn-image';
-    img.src = '/api/rp/images/' + encodeURIComponent(msg.imagePath);
-    img.alt = 'attached image';
-    img.onclick = () => openImageLightbox(img.src);
-    div.appendChild(img);
-  }
   // Actions (delete + regenerate for character)
   if (msg.role !== 'system') {
     const actionsDiv = document.createElement('div');
@@ -5176,7 +5186,12 @@ function buildRPMessageDOM(msg, index) {
     actionsDiv.appendChild(delLink);
     div.appendChild(actionsDiv);
   }
-  return div;
+  frag.appendChild(div);
+  // If message also has an image, split it into a separate middle balloon below
+  if (msg.imagePath) {
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage));
+  }
+  return frag;
 }
 
 function deleteSchoolMessage(index) {
@@ -5259,6 +5274,23 @@ function clearRPChat() {
 }
 
 // ─── End Virtual Scrolling ──────────────────────
+
+// ─── VN Image Balloon Builder ──────────────────
+function buildImageBalloon(imagePath, apiBase, index, deleteFn) {
+  const balloon = document.createElement('div');
+  balloon.className = 'msg-image-balloon';
+  const img = document.createElement('img');
+  img.src = apiBase + encodeURIComponent(imagePath);
+  img.alt = 'scene image';
+  img.onclick = () => openImageLightbox(img.src);
+  balloon.appendChild(img);
+  const delLink = document.createElement('a');
+  delLink.className = 'balloon-delete';
+  delLink.textContent = 'delete';
+  delLink.onclick = (e) => { e.stopPropagation(); deleteFn(index); };
+  balloon.appendChild(delLink);
+  return balloon;
+}
 </script>
 <!-- Lorebook Manager Overlay -->
 <div class="gen-overlay show" id="lorebookOverlay" style="display:none">
