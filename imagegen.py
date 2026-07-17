@@ -117,12 +117,13 @@ async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
 
     # Build workflow (custom or default)
     if db.IMAGEGEN_WORKFLOW and isinstance(db.IMAGEGEN_WORKFLOW, dict):
-        workflow = dict(db.IMAGEGEN_WORKFLOW)
-        # Inject prompt into CLIPTextEncode positive node (node "6" by convention)
-        if "6" in workflow and "inputs" in workflow["6"]:
-            workflow["6"]["inputs"]["text"] = prompt_text
-        if "7" in workflow and "inputs" in workflow["7"]:
-            workflow["7"]["inputs"]["text"] = negative_prompt or db.IMAGEGEN_NEGATIVE or "bad quality, low resolution, blurry"
+        # Inject prompt/negative via %positive% / %negative% placeholders.
+        # Serialize → replace → parse so placeholders can appear anywhere in the workflow.
+        neg_text = negative_prompt or db.IMAGEGEN_NEGATIVE or "bad quality, low resolution, blurry"
+        workflow_json = json.dumps(db.IMAGEGEN_WORKFLOW)
+        workflow_json = workflow_json.replace("%positive%", prompt_text.replace("\\", "\\\\").replace('"', '\\"'))
+        workflow_json = workflow_json.replace("%negative%", neg_text.replace("\\", "\\\\").replace('"', '\\"'))
+        workflow = json.loads(workflow_json)
     else:
         workflow = _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE)
 
