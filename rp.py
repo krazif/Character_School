@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse
 import db
 import engine
 import lorebook
+import imagegen
 
 router = APIRouter()
 
@@ -430,6 +431,22 @@ async def ws_rp(ws: WebSocket):
                         if _ws_state[0]:
                             await check_auto_summary(session_id, ws, send_fn=_safe_send)
 
+                        # ── Auto image generation (Phase 3) ──
+                        if _ws_state[0] and db.IMAGEGEN_AUTO_ENABLED:
+                            async def _rp_auto_img_add(img_path):
+                                _pn = persona.get("name") if persona else None
+                                msg_id_img = db.db_rp_add_message(session_id, "user", "", persona_name=_pn, image_path=img_path)
+                                await _safe_send({
+                                    "type": "character_message", "content": "",
+                                    "character_filename": None, "character_name": None,
+                                    "is_first_mes": False, "message_id": msg_id_img, "image_path": img_path,
+                                })
+                            all_msgs_for_img = db.db_rp_get_messages(session_id)
+                            await imagegen.maybe_auto_generate_image(
+                                session_id, all_msgs_for_img, _safe_send, mode="rp",
+                                image_add_fn=_rp_auto_img_add,
+                            )
+
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
@@ -579,6 +596,22 @@ async def ws_rp(ws: WebSocket):
 
                             if _ws_state[0]:
                                 await check_auto_summary(session_id, ws, send_fn=_safe_send)
+
+                            # ── Auto image generation (Phase 3, regen path) ──
+                            if _ws_state[0] and db.IMAGEGEN_AUTO_ENABLED:
+                                async def _rp_regen_img_add(img_path):
+                                    _pn = persona.get("name") if persona else None
+                                    msg_id_img = db.db_rp_add_message(session_id, "user", "", persona_name=_pn, image_path=img_path)
+                                    await _safe_send({
+                                        "type": "character_message", "content": "",
+                                        "character_filename": None, "character_name": None,
+                                        "is_first_mes": False, "message_id": msg_id_img, "image_path": img_path,
+                                    })
+                                _all_msgs_img = db.db_rp_get_messages(session_id)
+                                await imagegen.maybe_auto_generate_image(
+                                    session_id, _all_msgs_img, _safe_send, mode="rp",
+                                    image_add_fn=_rp_regen_img_add,
+                                )
 
                         except asyncio.CancelledError:
                             raise
@@ -799,6 +832,16 @@ async def get_config():
             "scheduler": _c.get("imagegen", {}).get("scheduler", "normal"),
             "workflow": _c.get("imagegen", {}).get("workflow", None),
         },
+        "imagegen_auto": {
+            "enabled": _c.get("imagegen_auto", {}).get("enabled", False),
+            "base_url": _c.get("imagegen_auto", {}).get("base_url", "https://openrouter.ai/api/v1"),
+            "api_key": mask(_c.get("imagegen_auto", {}).get("api_key")),
+            "model": _c.get("imagegen_auto", {}).get("model", "deepseek/deepseek-v4-flash"),
+            "temperature": _c.get("imagegen_auto", {}).get("temperature", 0.5),
+            "max_tokens": _c.get("imagegen_auto", {}).get("max_tokens", 500),
+            "interval": _c.get("imagegen_auto", {}).get("interval", 5),
+            "negative_prompt": _c.get("imagegen_auto", {}).get("negative_prompt", ""),
+        },
         "presets": {
             name: {k: (mask(v) if k == "api_key" else v) for k, v in p.items()}
             for name, p in _c.get("presets", {}).items()
@@ -814,7 +857,7 @@ async def update_config(req: Request):
     current = db.load_config()
 
     # Deep-merge: update only provided fields
-    for section in ("server", "chat", "analysis", "summary", "paths", "imagegen"):
+    for section in ("server", "chat", "analysis", "summary", "paths", "imagegen", "imagegen_auto"):
         if section not in body:
             continue
         if section not in current:

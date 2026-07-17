@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from openai import AsyncOpenAI
 
 import db
 
@@ -182,6 +183,149 @@ async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
         return {"success": False, "error": f"Cannot connect to ComfyUI at {base_url}: {e}"}
     except Exception as e:
         return {"success": False, "error": f"Unexpected error: {e}"}
+
+
+# ─── Auto image prompt generation (Phase 3) ────────────────────────
+
+AUTO_IMG_SYSTEM = """You are a scene image prompt generator for a roleplay/character chat application.
+Your job: read the recent conversation and decide if this moment is worth illustrating.
+
+If the scene is visually interesting (a dramatic moment, new location, emotional beat, character interaction with visual cues), generate a concise image generation prompt.
+
+If the conversation is mundane (greetings, short exchanges with no visual change, OOC chatter), return SKIP.
+
+Rules for the image prompt:
+- Write a single comma-separated prompt, no sentences, no explanations.
+- Describe: subjects, appearance, clothing, pose, expression, setting, lighting, mood, art style.
+- Prefer "anime style" or "digital painting" as art style unless the scene is photorealistic.
+- Keep it under 80 words.
+- Do NOT include character speech or dialogue.
+- Focus on the visual moment, not the history.
+
+Respond in EXACTLY one of these two formats:
+1. On the first line: PROMPT: <your image prompt here>
+2. On the first line: SKIP"""
+
+
+async def auto_generate_image_prompt(messages: list[dict], send_fn=None) -> str | None:
+    """
+    Ask the auto-gen LLM whether the current scene is worth illustrating.
+    Returns a prompt string if yes, or None if the LLM says SKIP or on error.
+    `messages` is a list of {"role": ..., "content": ...} dicts (recent conversation).
+    """
+    if not db.IMAGEGEN_AUTO_ENABLED:
+        return None
+
+    # Build conversation snippet (last few messages)
+    convo_lines = []
+    for m in messages[-8:]:
+        role = m.get("role", "unknown")
+        speaker = m.get("speaker", "")
+        content = m.get("content", "")
+        label = speaker or role
+        convo_lines.append(f"[{label}]: {content}")
+    convo_text = "\n".join(convo_lines)
+
+    llm_messages = [
+        {"role": "system", "content": AUTO_IMG_SYSTEM},
+        {"role": "user", "content": f"Recent conversation:\n{convo_text}\n\nDecide: is this moment worth illustrating?"},
+    ]
+
+    if send_fn:
+        await send_fn({
+            "type": "console_event", "event": "request", "llm": "imagegen_auto",
+            "model": db.IMAGEGEN_AUTO_MODEL, "label": "Auto Image Prompt",
+            "temperature": db.IMAGEGEN_AUTO_TEMPERATURE, "max_tokens": db.IMAGEGEN_AUTO_MAX_TOKENS,
+            "messages": llm_messages, "timestamp": db._now_iso() if hasattr(db, "_now_iso") else _now_iso(),
+        })
+
+    try:
+        kwargs = dict(
+            model=db.IMAGEGEN_AUTO_MODEL,
+            messages=llm_messages,
+            temperature=db.IMAGEGEN_AUTO_TEMPERATURE,
+            max_tokens=db.IMAGEGEN_AUTO_MAX_TOKENS,
+        )
+        resp = await db.imagegen_auto_client.chat.completions.create(**kwargs)
+        raw = resp.choices[0].message.content.strip()
+        usage = resp.usage
+
+        if send_fn:
+            await send_fn({
+                "type": "console_event", "event": "response", "llm": "imagegen_auto",
+                "model": db.IMAGEGEN_AUTO_MODEL, "label": "Auto Image Prompt",
+                "content": raw,
+                "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
+                "finish_reason": resp.choices[0].finish_reason, "timestamp": _now_iso(),
+            })
+
+        # Parse response
+        first_line = raw.split("\n")[0].strip()
+        if first_line.upper().startswith("SKIP"):
+            return None
+        if first_line.upper().startswith("PROMPT:"):
+            return first_line[len("PROMPT:"):].strip()
+        # Fallback: if the LLM didn't follow format, treat the whole thing as a prompt if not SKIP
+        if "SKIP" in raw.upper():
+            return None
+        return raw.strip() or None
+
+    except Exception as e:
+        if send_fn:
+            try:
+                await send_fn({"type": "error", "message": f"Auto image prompt error: {e}"})
+            except Exception:
+                pass
+        return None
+
+
+async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_fn, mode: str = "rp",
+                                     image_add_fn=None) -> None:
+    """
+    Check if auto image generation should trigger (based on message count interval),
+    ask the LLM for a prompt, generate the image, and insert it into the chat.
+
+    Args:
+        session_id: DB session ID
+        messages: recent messages from the session (list of dicts with role/content)
+        send_fn: async callable for sending WS events
+        mode: "rp" or "school"
+        image_add_fn: async callable(image_path: str) to insert the generated image
+                      into the session's DB + send the WS message. If None, uses a default.
+    """
+    if not db.IMAGEGEN_AUTO_ENABLED or not db.IMAGEGEN_ENABLED:
+        return
+
+    interval = max(1, db.IMAGEGEN_AUTO_INTERVAL)
+    msg_count = len(messages)
+    if msg_count == 0 or msg_count % interval != 0:
+        return
+
+    # Ask LLM for a prompt
+    prompt = await auto_generate_image_prompt(messages, send_fn=send_fn)
+    if not prompt:
+        return
+
+    await send_fn({"type": "console_event", "event": "auto_image_prompt", "content": prompt, "timestamp": _now_iso()})
+
+    # Generate the image via ComfyUI
+    negative = db.IMAGEGEN_AUTO_NEGATIVE or db.IMAGEGEN_NEGATIVE or ""
+    result = await generate_image(prompt, negative)
+    if not result.get("success"):
+        await send_fn({"type": "console_event", "event": "auto_image_error", "error": result.get("error", "unknown"), "timestamp": _now_iso()})
+        return
+
+    image_path = result["image_path"]
+    await send_fn({"type": "console_event", "event": "auto_image_generated", "image_path": image_path, "prompt": prompt, "timestamp": _now_iso()})
+
+    # Insert into session via callback
+    if image_add_fn:
+        await image_add_fn(image_path)
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ─── REST endpoints ────────────────────────────────────────────────

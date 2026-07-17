@@ -165,6 +165,20 @@ def save_config(cfg: dict):
     wf = imggen.get("workflow")
     lines.append('    "workflow": ' + (json.dumps(wf) if wf else 'null') + '  // null = use built-in default txt2img workflow')
     lines.append('  },')
+    imgauto = cfg.get("imagegen_auto", {})
+    lines.append('')
+    lines.append('  // ── Image auto-generation (Phase 3) — small LLM decides when to generate scene images ──')
+    lines.append('  "imagegen_auto": {')
+    lines.append(f'    "enabled": {"true" if imgauto.get("enabled", False) else "false"},')
+    lines.append('    "base_url": ' + json.dumps(str(imgauto.get("base_url", "https://openrouter.ai/api/v1"))) + ',')
+    imgauto_key = imgauto.get("api_key")
+    lines.append('    "api_key": ' + (json.dumps(imgauto_key) if imgauto_key else 'null') + ',')
+    lines.append('    "model": ' + json.dumps(str(imgauto.get("model", "deepseek/deepseek-v4-flash"))) + ',')
+    lines.append(f'    "temperature": {float(imgauto.get("temperature", 0.5))},')
+    lines.append(f'    "max_tokens": {int(imgauto.get("max_tokens", 500))},')
+    lines.append(f'    "interval": {int(imgauto.get("interval", 5))},' + '  // auto-generate every N messages')
+    lines.append('    "negative_prompt": ' + json.dumps(str(imgauto.get("negative_prompt", ""))) + '')
+    lines.append('  },')
     paths = cfg.get("paths", {})
     lines.append('')
     lines.append('  // Paths — can be absolute or relative to the app directory')
@@ -194,6 +208,9 @@ def reload_config():
     global chat_client, analysis_client, summary_client, CHARACTERS_DIR, PERSONAS_DIR, PRESETS
     global IMAGEGEN_BASE_URL, IMAGEGEN_ENABLED, IMAGEGEN_NEGATIVE, IMAGEGEN_WORKFLOW
     global IMAGEGEN_WIDTH, IMAGEGEN_HEIGHT, IMAGEGEN_STEPS, IMAGEGEN_CFG_SCALE, IMAGEGEN_SAMPLER, IMAGEGEN_SCHEDULER
+    global IMAGEGEN_AUTO_ENABLED, IMAGEGEN_AUTO_BASE_URL, IMAGEGEN_AUTO_API_KEY, IMAGEGEN_AUTO_MODEL
+    global IMAGEGEN_AUTO_TEMPERATURE, IMAGEGEN_AUTO_MAX_TOKENS, IMAGEGEN_AUTO_INTERVAL, IMAGEGEN_AUTO_NEGATIVE
+    global imagegen_auto_client
     _cfg = load_config()
     _chat_cfg = _cfg.get("chat", {})
     _analysis_cfg = _cfg.get("analysis", {})
@@ -236,6 +253,17 @@ def reload_config():
     IMAGEGEN_CFG_SCALE = float(_imggen_cfg.get("cfg_scale", 7.0))
     IMAGEGEN_SAMPLER  = _imggen_cfg.get("sampler", "euler")
     IMAGEGEN_SCHEDULER = _imggen_cfg.get("scheduler", "normal")
+    # ── Image auto-generation (Phase 3) config ──
+    _imgauto_cfg = _cfg.get("imagegen_auto", {})
+    IMAGEGEN_AUTO_ENABLED     = _imgauto_cfg.get("enabled", False)
+    IMAGEGEN_AUTO_BASE_URL    = _imgauto_cfg.get("base_url", "https://openrouter.ai/api/v1")
+    IMAGEGEN_AUTO_API_KEY     = _imgauto_cfg.get("api_key") or os.environ.get("OPENROUTER_API_KEY", "")
+    IMAGEGEN_AUTO_MODEL       = _imgauto_cfg.get("model", "deepseek/deepseek-v4-flash")
+    IMAGEGEN_AUTO_TEMPERATURE = _imgauto_cfg.get("temperature", 0.5)
+    IMAGEGEN_AUTO_MAX_TOKENS  = int(_imgauto_cfg.get("max_tokens", 500))
+    IMAGEGEN_AUTO_INTERVAL    = int(_imgauto_cfg.get("interval", 5))
+    IMAGEGEN_AUTO_NEGATIVE    = _imgauto_cfg.get("negative_prompt", "")
+    imagegen_auto_client = AsyncOpenAI(base_url=IMAGEGEN_AUTO_BASE_URL, api_key=IMAGEGEN_AUTO_API_KEY or "not-configured")
     chat_client     = AsyncOpenAI(base_url=CHAT_BASE_URL,     api_key=CHAT_API_KEY or "not-configured")
     analysis_client = AsyncOpenAI(base_url=ANALYSIS_BASE_URL, api_key=ANALYSIS_API_KEY or "not-configured")
     summary_client  = AsyncOpenAI(base_url=SUMMARY_BASE_URL,  api_key=SUMMARY_API_KEY or "not-configured")
@@ -320,6 +348,18 @@ IMAGEGEN_STEPS    = int(_imggen_cfg.get("steps", 20))
 IMAGEGEN_CFG_SCALE = float(_imggen_cfg.get("cfg_scale", 7.0))
 IMAGEGEN_SAMPLER  = _imggen_cfg.get("sampler", "euler")
 IMAGEGEN_SCHEDULER = _imggen_cfg.get("scheduler", "normal")
+
+# ─── Image auto-generation (Phase 3) ───────────────────────────────
+_imgauto_cfg = _cfg.get("imagegen_auto", {})
+IMAGEGEN_AUTO_ENABLED     = _imgauto_cfg.get("enabled", False)
+IMAGEGEN_AUTO_BASE_URL    = _imgauto_cfg.get("base_url", "https://openrouter.ai/api/v1")
+IMAGEGEN_AUTO_API_KEY     = _imgauto_cfg.get("api_key") or os.environ.get("OPENROUTER_API_KEY", "")
+IMAGEGEN_AUTO_MODEL       = _imgauto_cfg.get("model", "deepseek/deepseek-v4-flash")
+IMAGEGEN_AUTO_TEMPERATURE = _imgauto_cfg.get("temperature", 0.5)
+IMAGEGEN_AUTO_MAX_TOKENS  = int(_imgauto_cfg.get("max_tokens", 500))
+IMAGEGEN_AUTO_INTERVAL    = int(_imgauto_cfg.get("interval", 5))
+IMAGEGEN_AUTO_NEGATIVE    = _imgauto_cfg.get("negative_prompt", "")
+imagegen_auto_client = AsyncOpenAI(base_url=IMAGEGEN_AUTO_BASE_URL, api_key=IMAGEGEN_AUTO_API_KEY or "not-configured")
 
 # ─── SQLite Database ─────────────────────────────────────────────
 DB_PATH = APP_DIR / "char_test.db"

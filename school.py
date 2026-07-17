@@ -15,6 +15,7 @@ from json_repair import repair_json
 import db
 import engine
 import lorebook
+import imagegen
 
 router = APIRouter()
 
@@ -846,6 +847,24 @@ async def ws_chat(ws: WebSocket):
                         if updated_cfg:
                             await ws.send_json({"type": "stack_updated", "stack_config": updated_cfg})
 
+                        # ── Auto image generation (Phase 3) ──
+                        if db.IMAGEGEN_AUTO_ENABLED:
+                            async def _school_auto_img_add(img_path):
+                                msg_id_img = db.db_school_add_message(session_id, "user", "", image_path=img_path)
+                                await ws.send_json({
+                                    "type": "character_message",
+                                    "content": "",
+                                    "analysis": None,
+                                    "is_first_mes": False,
+                                    "message_id": msg_id_img,
+                                    "image_path": img_path,
+                                })
+                            all_msgs_for_img = db.db_school_get_messages(session_id)
+                            await imagegen.maybe_auto_generate_image(
+                                session_id, all_msgs_for_img, ws.send_json, mode="school",
+                                image_add_fn=_school_auto_img_add,
+                            )
+
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
@@ -1033,6 +1052,24 @@ async def ws_chat(ws: WebSocket):
                             updated_cfg = await check_school_auto_summary(session_id, ws)
                             if updated_cfg:
                                 await ws.send_json({"type": "stack_updated", "stack_config": updated_cfg})
+
+                            # ── Auto image generation (Phase 3) ──
+                            if db.IMAGEGEN_AUTO_ENABLED:
+                                async def _school_regen_img_add(img_path):
+                                    msg_id_img = db.db_school_add_message(session_id, "user", "", image_path=img_path)
+                                    await ws.send_json({
+                                        "type": "character_message",
+                                        "content": "",
+                                        "analysis": None,
+                                        "is_first_mes": False,
+                                        "message_id": msg_id_img,
+                                        "image_path": img_path,
+                                    })
+                                all_msgs_for_img = db.db_school_get_messages(session_id)
+                                await imagegen.maybe_auto_generate_image(
+                                    session_id, all_msgs_for_img, ws.send_json, mode="school",
+                                    image_add_fn=_school_regen_img_add,
+                                )
 
                         except asyncio.CancelledError:
                             raise
