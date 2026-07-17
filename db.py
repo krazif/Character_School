@@ -208,6 +208,7 @@ def reload_config():
     global chat_client, analysis_client, summary_client, CHARACTERS_DIR, PERSONAS_DIR, PRESETS
     global IMAGEGEN_BASE_URL, IMAGEGEN_ENABLED, IMAGEGEN_NEGATIVE, IMAGEGEN_WORKFLOW
     global IMAGEGEN_WIDTH, IMAGEGEN_HEIGHT, IMAGEGEN_STEPS, IMAGEGEN_CFG_SCALE, IMAGEGEN_SAMPLER, IMAGEGEN_SCHEDULER
+    global IMAGEGEN_SEED, IMAGEGEN_RANDOM_SEED
     global IMAGEGEN_AUTO_ENABLED, IMAGEGEN_AUTO_BASE_URL, IMAGEGEN_AUTO_API_KEY, IMAGEGEN_AUTO_MODEL
     global IMAGEGEN_AUTO_TEMPERATURE, IMAGEGEN_AUTO_MAX_TOKENS, IMAGEGEN_AUTO_INTERVAL, IMAGEGEN_AUTO_NEGATIVE
     global imagegen_auto_client
@@ -253,6 +254,8 @@ def reload_config():
     IMAGEGEN_CFG_SCALE = float(_imggen_cfg.get("cfg_scale", 7.0))
     IMAGEGEN_SAMPLER  = _imggen_cfg.get("sampler", "euler")
     IMAGEGEN_SCHEDULER = _imggen_cfg.get("scheduler", "normal")
+    IMAGEGEN_SEED      = int(_imggen_cfg.get("seed", 0))
+    IMAGEGEN_RANDOM_SEED = _imggen_cfg.get("random_seed", True)
     # ── Image auto-generation (Phase 3) config ──
     _imgauto_cfg = _cfg.get("imagegen_auto", {})
     IMAGEGEN_AUTO_ENABLED     = _imgauto_cfg.get("enabled", False)
@@ -348,6 +351,8 @@ IMAGEGEN_STEPS    = int(_imggen_cfg.get("steps", 20))
 IMAGEGEN_CFG_SCALE = float(_imggen_cfg.get("cfg_scale", 7.0))
 IMAGEGEN_SAMPLER  = _imggen_cfg.get("sampler", "euler")
 IMAGEGEN_SCHEDULER = _imggen_cfg.get("scheduler", "normal")
+IMAGEGEN_SEED      = int(_imggen_cfg.get("seed", 0))
+IMAGEGEN_RANDOM_SEED = _imggen_cfg.get("random_seed", True)
 
 # ─── Image auto-generation (Phase 3) ───────────────────────────────
 _imgauto_cfg = _cfg.get("imagegen_auto", {})

@@ -938,6 +938,15 @@ body.rp-mode .school-only { display:none; }
             <label>Scheduler</label>
             <input type="text" id="cfgImagegenScheduler" placeholder="normal" />
           </div>
+          <div class="settings-field" style="flex:1">
+            <label>Seed</label>
+            <input type="number" id="cfgImagegenSeed" min="0" max="4294967295" placeholder="0" />
+          </div>
+          <div class="settings-field" style="flex:0 0 auto;display:flex;align-items:flex-end">
+            <label style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+              <input type="checkbox" id="cfgImagegenRandomSeed" checked /> Randomize seed
+            </label>
+          </div>
         </div>
         <div class="settings-field">
           <label>Custom Workflow JSON (empty = built-in default txt2img)</label>
@@ -945,7 +954,7 @@ body.rp-mode .school-only { display:none; }
           <div style="margin-top:6px;font-size:11px;color:var(--text-muted);line-height:1.5">
             <strong>Placeholders</strong> (replaced at generation time):<br>
             <code>%positive%</code> — prompt text &nbsp; <code>%negative%</code> — negative prompt<br>
-            <code>%width%</code> <code>%height%</code> <code>%steps%</code> <code>%cfg%</code> — values from the fields above<br>
+            <code>%width%</code> <code>%height%</code> <code>%steps%</code> <code>%cfg%</code> <code>%seed%</code> — values from the fields above (injected as raw numbers)<br>
             Leave a field as-is if your workflow handles it; placeholders are optional.
           </div>
         </div>
@@ -4777,6 +4786,8 @@ async function openSettings() {
     document.getElementById('cfgImagegenCfgScale').value = ig.cfg_scale || 7.0;
     document.getElementById('cfgImagegenSampler').value = ig.sampler || 'euler';
     document.getElementById('cfgImagegenScheduler').value = ig.scheduler || 'normal';
+    document.getElementById('cfgImagegenSeed').value = ig.seed ?? 0;
+    document.getElementById('cfgImagegenRandomSeed').checked = ig.random_seed !== false;
     document.getElementById('cfgImagegenWorkflow').value = ig.workflow ? JSON.stringify(ig.workflow, null, 2) : '';
     // Auto image generation settings
     const iga = cfg.imagegen_auto || {};
@@ -4867,6 +4878,8 @@ async function saveSettings() {
         cfg_scale: parseFloat(document.getElementById('cfgImagegenCfgScale').value) || 7.0,
         sampler: document.getElementById('cfgImagegenSampler').value.trim() || 'euler',
         scheduler: document.getElementById('cfgImagegenScheduler').value.trim() || 'normal',
+        seed: parseInt(document.getElementById('cfgImagegenSeed').value) || 0,
+        random_seed: document.getElementById('cfgImagegenRandomSeed').checked,
         workflow: (() => { const v = document.getElementById('cfgImagegenWorkflow').value.trim(); if (!v) return null; try { return JSON.parse(v); } catch { return null; } })(),
       },
       imagegen_auto: {

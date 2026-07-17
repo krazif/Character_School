@@ -27,13 +27,21 @@ POLL_INTERVAL = 1.0  # seconds between history polls
 MAX_POLL_TIME = 120   # max seconds to wait for generation
 
 
+def _resolve_seed() -> int:
+    """Return the seed to use for this generation — fixed or random."""
+    if db.IMAGEGEN_RANDOM_SEED:
+        return __import__('random').randint(0, 2**32 - 1)
+    return db.IMAGEGEN_SEED
+
+
 def _default_workflow(prompt_text: str, negative: str = "") -> dict:
     """Build a minimal txt2img ComfyUI workflow (API format, node IDs as string keys)."""
+    seed = _resolve_seed()
     return {
         "3": {
             "class_type": "KSampler",
             "inputs": {
-                "seed": int(time.time()) % (2**32),
+                "seed": seed,
                 "steps": db.IMAGEGEN_STEPS,
                 "cfg": db.IMAGEGEN_CFG_SCALE,
                 "sampler_name": db.IMAGEGEN_SAMPLER,
@@ -121,17 +129,30 @@ async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
         # Inject prompt/negative via %positive% / %negative% placeholders.
         # Serialize → replace → parse so placeholders can appear anywhere in the workflow.
         neg_text = negative_prompt or db.IMAGEGEN_NEGATIVE or "bad quality, low resolution, blurry"
-        replacements = {
+        seed_val = _resolve_seed()
+        # String placeholders: replaced as escaped JSON strings
+        string_replacements = {
             "%positive%": prompt_text,
             "%negative%": neg_text,
-            "%width%": str(db.IMAGEGEN_WIDTH),
-            "%height%": str(db.IMAGEGEN_HEIGHT),
-            "%steps%": str(db.IMAGEGEN_STEPS),
-            "%cfg%": str(db.IMAGEGEN_CFG_SCALE),
+        }
+        # Numeric placeholders: must be injected as raw JSON numbers, not quoted strings.
+        # We do this by replacing the quoted placeholder " %placeholder% " with the raw number.
+        numeric_replacements = {
+            "%width%": db.IMAGEGEN_WIDTH,
+            "%height%": db.IMAGEGEN_HEIGHT,
+            "%steps%": db.IMAGEGEN_STEPS,
+            "%cfg%": db.IMAGEGEN_CFG_SCALE,
+            "%seed%": seed_val,
         }
         workflow_json = json.dumps(db.IMAGEGEN_WORKFLOW)
-        for placeholder, value in replacements.items():
+        # String replacements (escape for JSON)
+        for placeholder, value in string_replacements.items():
             workflow_json = workflow_json.replace(placeholder, value.replace("\\", "\\\\").replace('"', '\\"'))
+        # Numeric replacements: replace quoted "%placeholder%" with raw number (unquoted)
+        for placeholder, value in numeric_replacements.items():
+            workflow_json = workflow_json.replace(f'"{placeholder}"', str(value))
+            # Also replace bare %placeholder% for inline use in text strings
+            workflow_json = workflow_json.replace(placeholder, str(value))
         workflow = json.loads(workflow_json)
     else:
         workflow = _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE)
