@@ -27,21 +27,23 @@ POLL_INTERVAL = 1.0  # seconds between history polls
 MAX_POLL_TIME = 120   # max seconds to wait for generation
 
 
-def _resolve_seed() -> int:
-    """Return the seed to use for this generation — fixed or random."""
+def _resolve_seed(override: int | None = None) -> int:
+    """Return the seed to use for this generation — explicit override, fixed, or random."""
+    if override is not None:
+        return override
     if db.IMAGEGEN_RANDOM_SEED:
         return __import__('random').randint(0, 2**32 - 1)
     return db.IMAGEGEN_SEED
 
 
-def _default_workflow(prompt_text: str, negative: str = "") -> dict:
+def _default_workflow(prompt_text: str, negative: str = "", seed: int | None = None) -> dict:
     """Build a minimal txt2img ComfyUI workflow (API format, node IDs as string keys)."""
-    seed = _resolve_seed()
+    s = _resolve_seed(seed)
     return {
         "3": {
             "class_type": "KSampler",
             "inputs": {
-                "seed": seed,
+                "seed": s,
                 "steps": db.IMAGEGEN_STEPS,
                 "cfg": db.IMAGEGEN_CFG_SCALE,
                 "sampler_name": db.IMAGEGEN_SAMPLER,
@@ -112,12 +114,13 @@ def _extract_output_filename(history_entry: dict):
     return None, None, None
 
 
-async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
+async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int | None = None) -> dict:
     """
     Call ComfyUI to generate an image from a text prompt.
     Returns dict with:
       - success: bool
       - image_path: str (relative filename in UPLOAD_DIR) on success
+      - seed: int (the seed actually used)
       - error: str on failure
     """
     base_url = db.IMAGEGEN_BASE_URL.rstrip("/")
@@ -125,11 +128,11 @@ async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
         return {"success": False, "error": "Image generation is disabled. Enable it in Settings → Image Generation."}
 
     # Build workflow (custom or default)
+    seed_val = _resolve_seed(seed)
     if db.IMAGEGEN_WORKFLOW and isinstance(db.IMAGEGEN_WORKFLOW, dict):
         # Inject prompt/negative via %positive% / %negative% placeholders.
         # Serialize → replace → parse so placeholders can appear anywhere in the workflow.
         neg_text = negative_prompt or db.IMAGEGEN_NEGATIVE or "bad quality, low resolution, blurry"
-        seed_val = _resolve_seed()
         # String placeholders: replaced as escaped JSON strings
         string_replacements = {
             "%positive%": prompt_text,
@@ -155,7 +158,7 @@ async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
             workflow_json = workflow_json.replace(placeholder, str(value))
         workflow = json.loads(workflow_json)
     else:
-        workflow = _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE)
+        workflow = _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE, seed=seed)
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -196,7 +199,7 @@ async def generate_image(prompt_text: str, negative_prompt: str = "") -> dict:
             save_path = db.UPLOAD_DIR / safe_name
             save_path.write_bytes(img_resp.content)
 
-        return {"success": True, "image_path": safe_name, "prompt": prompt_text}
+        return {"success": True, "image_path": safe_name, "prompt": prompt_text, "seed": seed_val}
 
     except TimeoutError as e:
         return {"success": False, "error": str(e)}
@@ -370,7 +373,14 @@ async def api_generate_image(request: Request):
 
     negative = body.get("negative_prompt", "") or db.IMAGEGEN_NEGATIVE
 
-    result = await generate_image(prompt_text, negative)
+    seed_override = body.get("seed")
+    if seed_override is not None:
+        try:
+            seed_override = int(seed_override)
+        except (ValueError, TypeError):
+            seed_override = None
+
+    result = await generate_image(prompt_text, negative, seed=seed_override)
     if not result["success"]:
         return JSONResponse(result, status_code=500)
     return JSONResponse(result)

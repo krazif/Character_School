@@ -5525,7 +5525,52 @@ function openGenerateSceneModal(mode) {
   document.getElementById('genSceneBtn').disabled = false;
   document.getElementById('genSceneBtn').textContent = 'Generate';
   document.getElementById('genSceneRegenBtn').style.display = 'none';
+  // Reset seed: if Auto is on, clear the field (random each time); otherwise roll a seed
+  if (document.getElementById('genSceneAutoSeed').checked) {
+    document.getElementById('genSceneSeed').value = '';
+  } else {
+    rollGenSceneSeed();
+  }
   autoFillGenScenePrompt();
+}
+
+function rollGenSceneSeed() {
+  document.getElementById('genSceneSeed').value = Math.floor(Math.random() * 4294967296);
+}
+
+function onGenSceneAutoSeedChange() {
+  const auto = document.getElementById('genSceneAutoSeed').checked;
+  const seedInput = document.getElementById('genSceneSeed');
+  const diceBtn = document.getElementById('genSceneDiceBtn');
+  if (auto) {
+    seedInput.value = '';
+    seedInput.placeholder = 'random';
+    diceBtn.style.opacity = '0.5';
+  } else {
+    rollGenSceneSeed();
+    seedInput.placeholder = '0';
+    diceBtn.style.opacity = '1';
+  }
+}
+
+function getGenSceneSeedPayload() {
+  const auto = document.getElementById('genSceneAutoSeed').checked;
+  if (auto) return {};
+  const v = parseInt(document.getElementById('genSceneSeed').value);
+  if (isNaN(v)) return {};
+  return { seed: v };
+}
+
+function showGenSceneSeed(seed) {
+  if (seed !== undefined && seed !== null) {
+    const statusEl = document.getElementById('genSceneStatus');
+    const cur = statusEl.textContent.replace(/\s*\(seed:.*\)/, '');
+    statusEl.textContent = cur + '  (seed: ' + seed + ')';
+    // Also update the seed input so user sees what was used
+    if (!document.getElementById('genSceneAutoSeed').checked) {
+      document.getElementById('genSceneSeed').value = seed;
+    }
+  }
 }
 
 function closeGenSceneModal() {
@@ -5633,7 +5678,7 @@ async function doGenerateScene() {
   statusEl.textContent = '⏳ Calling ComfyUI...';
 
   try {
-    const body = { prompt: promptText, negative_prompt: negativeText };
+    const body = { prompt: promptText, negative_prompt: negativeText, ...getGenSceneSeedPayload() };
     const r = await fetch('/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5647,6 +5692,7 @@ async function doGenerateScene() {
       return;
     }
     statusEl.textContent = '✓ Image generated!';
+    showGenSceneSeed(j.seed);
     // Show preview
     const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
     const preview = document.getElementById('genScenePreview');
@@ -5712,7 +5758,7 @@ async function doRegenerateScene() {
   statusEl.textContent = '⏳ Calling ComfyUI...';
 
   try {
-    const body = { prompt: promptText, negative_prompt: negativeText };
+    const body = { prompt: promptText, negative_prompt: negativeText, ...getGenSceneSeedPayload() };
     const r = await fetch('/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5726,6 +5772,7 @@ async function doRegenerateScene() {
       return;
     }
     statusEl.textContent = '✓ Image regenerated!';
+    showGenSceneSeed(j.seed);
     // Show preview
     const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
     const preview = document.getElementById('genScenePreview');
@@ -5778,6 +5825,14 @@ async function doRegenerateScene() {
       <textarea id="genScenePrompt" placeholder="Describe the scene to generate..." style="width:100%;min-height:120px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;line-height:1.5;resize:vertical"></textarea>
       <div style="display:flex;gap:8px;align-items:center">
         <input type="text" id="genSceneNegative" placeholder="Negative prompt (optional)" style="flex:1;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:12px;white-space:nowrap">Seed</label>
+        <input type="number" id="genSceneSeed" min="0" max="4294967295" placeholder="random" style="flex:1;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:monospace">
+        <button class="btn-reset" id="genSceneDiceBtn" onclick="rollGenSceneSeed()" title="Randomize seed" style="font-size:13px;padding:4px 8px">🎲</button>
+        <label style="font-size:12px;white-space:nowrap;display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="genSceneAutoSeed" checked onchange="onGenSceneAutoSeedChange()" /> Auto
+        </label>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn-reset" id="genSceneAutogenBtn" onclick="doAutogenPrompt()" style="font-size:12px;padding:6px 12px">✨ Autogen</button>
