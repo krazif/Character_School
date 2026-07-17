@@ -2171,6 +2171,13 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       isWaiting = false;
       updateInputState();
       loadSchoolSessions();
+    } else if (data.type === 'message_deleted') {
+      // If server says delete failed (success: false), the optimistic DOM removal was
+      // wrong — reload session from DB to restore the message. If success: true, the
+      // optimistic splice was correct and no action is needed.
+      if (data.success === false && schoolActiveSessionId && ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({type: 'resume', session_id: schoolActiveSessionId}));
+      }
     } else if (data.type === 'report') {
       showReport(data.content);
     } else if (data.type === 'error') {
@@ -3434,7 +3441,12 @@ function handleRPMessage(data) {
   } else if (data.type === 'reload_sessions') {
     loadRPSessions();
   } else if (data.type === 'message_deleted') {
-    // DOM already removed by caller
+    // If server says delete failed (success: false), the optimistic DOM removal was
+    // wrong — reload session from DB to restore the message. If success: true, the
+    // optimistic splice was correct and no action is needed.
+    if (data.success === false && rpActiveSessionId && rpWS && rpWS.readyState === 1) {
+      rpWS.send(JSON.stringify({type: 'resume', session_id: rpActiveSessionId}));
+    }
   } else if (data.type === 'error') {
     addRPMessage('system', 'Error: ' + data.message, null, null, null, null);
     rpIsWaiting = false;
