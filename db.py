@@ -721,17 +721,21 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
             tail_n = block.get("n", 3)
 
     def _add_raw_msgs(msgs):
-        """Append raw messages, return (start_index, count)."""
+        """Append raw messages, return (start_index, count).
+        Skips messages with empty content (e.g. image-only messages)."""
         start = len(llm_messages)
         for m in msgs:
+            content = m.get("content") or ""
+            if not content.strip():
+                continue  # skip empty-content messages (image-only, etc.)
             if m["role"] == "user":
-                llm_messages.append({"role": "user", "content": m["content"]})
+                llm_messages.append({"role": "user", "content": content})
             elif m["role"] == "character":
-                llm_messages.append({"role": "assistant", "content": f"[{m['speaker']}]: {m['content']}"})
+                llm_messages.append({"role": "assistant", "content": f"[{m['speaker']}]: {content}"})
             elif m["role"] == "assistant":
-                llm_messages.append({"role": "assistant", "content": m["content"]})
+                llm_messages.append({"role": "assistant", "content": content})
             elif m["role"] == "system":
-                llm_messages.append({"role": "system", "content": m["content"]})
+                llm_messages.append({"role": "system", "content": content})
         return start, len(llm_messages) - start
 
     # Count summary chunks for labels
@@ -765,9 +769,11 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
             label = btype
 
         if btype == "system":
-            start = len(llm_messages)
-            llm_messages.append({"role": "system", "content": system_prompt})
-            block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
+            sp = (system_prompt or "").strip()
+            if sp:
+                start = len(llm_messages)
+                llm_messages.append({"role": "system", "content": sp})
+                block_markers.append({"block": btype, "label": label, "start": start, "count": 1})
 
         elif btype == "head" and head_n > 0:
             head_msgs = all_msgs[:head_n]
