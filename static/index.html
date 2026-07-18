@@ -5567,6 +5567,7 @@ function openGenerateSceneModal(mode) {
   }
   checkComfyUIStatus();
   autoFillGenScenePrompt();
+  loadImageGallery();
 }
 
 function rollGenSceneSeed() {
@@ -5705,6 +5706,99 @@ function renderGenSceneHistory() {
 
 function closeGenSceneModal() {
   document.getElementById('genSceneOverlay').style.display = 'none';
+}
+
+// ── Image gallery (all uploads, grouped by date) ──
+let galleryImages = [];
+
+async function loadImageGallery() {
+  const container = document.getElementById('genSceneGallery');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;color:var(--text-dim);font-size:12px;padding:20px">Loading...</div>';
+  try {
+    const resp = await fetch('/api/images');
+    const data = await resp.json();
+    galleryImages = data.images || [];
+    renderImageGallery();
+  } catch (e) {
+    container.innerHTML = '<div style="text-align:center;color:#f87171;font-size:12px;padding:20px">Failed to load gallery</div>';
+  }
+}
+
+function renderImageGallery() {
+  const container = document.getElementById('genSceneGallery');
+  const countEl = document.getElementById('genSceneGalleryCount');
+  if (!container) return;
+  const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+
+  if (galleryImages.length === 0) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-dim);font-size:12px;padding:20px">No images uploaded yet</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+
+  if (countEl) countEl.textContent = `${galleryImages.length} image${galleryImages.length > 1 ? 's' : ''}`;
+
+  // Group by date
+  const groups = {};
+  galleryImages.forEach(img => {
+    const d = img.date || 'Unknown';
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(img);
+  });
+
+  container.innerHTML = '';
+  const sortedDates = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+  sortedDates.forEach(date => {
+    const dateHeader = document.createElement('div');
+    dateHeader.style.cssText = 'font-size:11px;font-weight:bold;color:var(--text-dim);margin:8px 0 4px 0;position:sticky;top:0;background:var(--bg);padding:2px 0';
+    dateHeader.textContent = date;
+    container.appendChild(dateHeader);
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+    groups[date].forEach(img => {
+      const thumb = document.createElement('div');
+      thumb.style.cssText = 'position:relative;flex-shrink:0';
+      const imgEl = document.createElement('img');
+      imgEl.src = apiBase + encodeURIComponent(img.filename);
+      imgEl.style.cssText = 'width:72px;height:72px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer';
+      imgEl.title = img.filename;
+      imgEl.onclick = () => {
+        // Check if this image is in genSceneHistory for seed/prompt
+        const hist = genSceneHistory.find(h => h.image_path === img.filename);
+        if (hist) {
+          document.getElementById('genSceneAutoSeed').checked = false;
+          onGenSceneAutoSeedChange();
+          document.getElementById('genSceneSeed').value = hist.seed || 0;
+          if (hist.prompt) document.getElementById('genScenePrompt').value = hist.prompt;
+        }
+      };
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '×';
+      delBtn.style.cssText = 'position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);font-size:13px;line-height:1;cursor:pointer;display:none;padding:0';
+      delBtn.title = 'Delete image';
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this image? This cannot be undone.')) return;
+        try {
+          const resp = await fetch('/api/images/' + encodeURIComponent(img.filename), { method: 'DELETE' });
+          if (resp.ok) {
+            galleryImages = galleryImages.filter(g => g.filename !== img.filename);
+            genSceneHistory = genSceneHistory.filter(h => h.image_path !== img.filename);
+            renderImageGallery();
+            renderGenSceneHistory();
+          }
+        } catch (e) { console.error('Delete failed:', e); }
+      };
+      thumb.onmouseenter = () => { delBtn.style.display = 'block'; };
+      thumb.onmouseleave = () => { delBtn.style.display = 'none'; };
+      thumb.appendChild(imgEl);
+      thumb.appendChild(delBtn);
+      row.appendChild(thumb);
+    });
+    container.appendChild(row);
+  });
 }
 
 function autoFillGenScenePrompt() {
@@ -5988,6 +6082,14 @@ async function doRegenerateScene() {
       <div id="genSceneHistoryWrap" style="display:none;margin-top:8px">
         <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">History — click a thumbnail to reuse its seed</div>
         <div id="genSceneHistory" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px"></div>
+      </div>
+      <div id="genSceneGalleryWrap" style="margin-top:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:11px;color:var(--text-dim)">Gallery</span>
+          <button class="btn-reset" onclick="loadImageGallery()" style="font-size:11px;padding:2px 8px">↻ Refresh</button>
+          <span id="genSceneGalleryCount" style="font-size:11px;color:var(--text-dim)"></span>
+        </div>
+        <div id="genSceneGallery" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg)"></div>
       </div>
     </div>
   </div>
