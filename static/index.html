@@ -626,7 +626,7 @@ body.rp-mode .school-only { display:none; }
       <span class="count" id="consoleCount">0</span>
       <span class="console-limit-wrap" onclick="event.stopPropagation()">
         <span style="font-size:11px;color:var(--text-dim)">keep</span>
-        <input type="number" id="consoleLimitInput" min="0" step="5" value="0" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" onchange="onConsoleLimitChange(this.value)">
+        <input type="number" id="consoleLimitInput" min="0" step="5" value="0" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" oninput="onConsoleLimitChange(this.value)">
       </span>
       <span class="console-tok-est" id="consoleTokEst" style="font-size:11px;color:var(--text-dim);min-width:80px">— tok</span>
       <span class="spacer"></span>
@@ -668,7 +668,7 @@ body.rp-mode .school-only { display:none; }
       <span class="count" id="rpConsoleCount">0</span>
       <span class="console-limit-wrap" onclick="event.stopPropagation()">
         <span style="font-size:11px;color:var(--text-dim)">keep</span>
-        <input type="number" id="rpConsoleLimitInput" min="0" step="5" value="0" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" onchange="onConsoleLimitChange(this.value)">
+        <input type="number" id="rpConsoleLimitInput" min="0" step="5" value="0" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" oninput="onConsoleLimitChange(this.value)">
       </span>
       <span class="console-tok-est" id="rpConsoleTokEst" style="font-size:11px;color:var(--text-dim);min-width:80px">— tok</span>
       <span class="spacer"></span>
@@ -1372,10 +1372,19 @@ let personaEditorFilename = null;
 let consoleOpen = false;
 let consoleMaximized = false;
 let consoleEventCount = 0;
-let consoleLimit = 0; // 0 = unlimited; shared across School + RP consoles
+let consoleLimit = parseInt(localStorage.getItem('cs_console_limit')) || 0; // 0 = unlimited; shared across School + RP consoles
+
+// Restore console limit inputs on load
+function initConsoleLimit() {
+  const si = document.getElementById('consoleLimitInput');
+  const ri = document.getElementById('rpConsoleLimitInput');
+  if (si) si.value = consoleLimit;
+  if (ri) ri.value = consoleLimit;
+}
 
 function onConsoleLimitChange(val) {
   consoleLimit = Math.max(0, parseInt(val) || 0);
+  localStorage.setItem('cs_console_limit', consoleLimit);
   // Sync both inputs
   const si = document.getElementById('consoleLimitInput');
   const ri = document.getElementById('rpConsoleLimitInput');
@@ -1392,6 +1401,17 @@ function trimConsoleEntries(inner) {
   const excess = entries.length - consoleLimit;
   if (excess > 0) {
     for (let i = 0; i < excess; i++) entries[i].remove();
+    // Update count badges to reflect actual visible entries
+    const visible = inner.querySelectorAll('.console-entry').length;
+    if (inner.id === 'consoleInner') {
+      consoleEventCount = visible;
+      const el = document.getElementById('consoleCount');
+      if (el) el.textContent = consoleEventCount;
+    } else if (inner.id === 'rpConsoleInner') {
+      rpConsoleEvents = visible;
+      const el = document.getElementById('rpConsoleCount');
+      if (el) el.textContent = rpConsoleEvents;
+    }
   }
 }
 
@@ -2064,7 +2084,9 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       // Restore console events
       if (data.console_events && data.console_events.length > 0) {
         schoolConsoleEvents = data.console_events;
+        const consoleInner = document.getElementById('consoleInner');
         data.console_events.forEach(ev => addConsoleEntry(ev));
+        trimConsoleEntries(consoleInner);
       }
       // Enable controls
       document.getElementById('btnReset').disabled = false;
@@ -3107,6 +3129,7 @@ function buildThemeSwatches() {
     if (ovInput) ovInput.value = savedOverlay;
     if (ovInput) ovInput.value = savedOverlay;
     if (ovVal) ovVal.textContent = savedOverlay;
+    initConsoleLimit();
   });
 })();
 // Live-apply appearance settings from Settings modal (called on input change)
@@ -3354,6 +3377,7 @@ function handleRPMessage(data) {
       const savedEvents = data.console_events || [];
       if (savedEvents.length) {
         savedEvents.forEach(evt => addRPConsoleEntry(evt));
+        trimConsoleEntries(rpConsoleInner);
       } else {
         rpConsoleInner.innerHTML = '<div class="console-empty">LLM inference events will appear here.</div>';
         document.getElementById('rpConsoleCount').textContent = '0';
