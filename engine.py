@@ -980,3 +980,13 @@ def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
     Roughly 1.5 tokens per word + small buffer."""
     caps = {'short': 700, 'moderate': 1200}
     return caps.get(response_style, default)
+
+
+def estimate_tokens(messages):
+    """Rough token estimate: ~4 chars per token + 4 per message.
+    Matches the frontend heuristic in estimateTokens()."""
+    total = 0
+    for m in messages:
+        content = m.get("content", "") or ""
+        total += (len(content) + 3) // 4 + 4
+    return total

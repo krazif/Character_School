@@ -628,6 +628,7 @@ body.rp-mode .school-only { display:none; }
         <span style="font-size:11px;color:var(--text-dim)">keep</span>
         <input type="number" id="consoleLimitInput" min="0" step="5" value="0" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" onchange="onConsoleLimitChange(this.value)">
       </span>
+      <span class="console-tok-est" id="consoleTokEst" style="font-size:11px;color:var(--text-dim);min-width:80px">— tok</span>
       <span class="spacer"></span>
       <span class="max-btn" id="consoleMaxBtn" onclick="event.stopPropagation(); toggleConsoleMax()" title="Expand to maximum">⤢</span>
       <span class="chevron" id="consoleChevron">▲</span>
@@ -669,6 +670,7 @@ body.rp-mode .school-only { display:none; }
         <span style="font-size:11px;color:var(--text-dim)">keep</span>
         <input type="number" id="rpConsoleLimitInput" min="0" step="5" value="0" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" onchange="onConsoleLimitChange(this.value)">
       </span>
+      <span class="console-tok-est" id="rpConsoleTokEst" style="font-size:11px;color:var(--text-dim);min-width:80px">— tok</span>
       <span class="spacer"></span>
       <span class="max-btn" id="rpConsoleMaxBtn" onclick="event.stopPropagation(); toggleConsoleMax()" title="Expand to maximum">⤢</span>
       <span class="chevron" id="rpConsoleChevron">▲</span>
@@ -1509,6 +1511,16 @@ function addConsoleEntry(data) {
   const isResp = data.event === 'response';
   const isErr = data.event === 'error';
   const isKwargs = data.event === 'request_kwargs';
+
+  // Update token estimate in console title bar
+  if (isReq && data.token_estimate !== undefined) {
+    const el = document.getElementById('consoleTokEst');
+    if (el) el.textContent = '~' + data.token_estimate + ' tok';
+  }
+  if (isResp && data.usage && data.usage.prompt_tokens !== undefined) {
+    const el = document.getElementById('consoleTokEst');
+    if (el) el.textContent = data.usage.prompt_tokens + ' tok';
+  }
   const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : isErr ? 'console-tag-err' : 'console-tag-req';
   const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : isErr ? '✕ ERR' : '→ KWARGS';
   const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';
@@ -3776,6 +3788,16 @@ function addRPConsoleEntry(data) {
   const isResp = data.event === 'response';
   const isErr = data.event === 'error';
   const isKwargs = data.event === 'request_kwargs';
+
+  // Update token estimate in console title bar
+  if (isReq && data.token_estimate !== undefined) {
+    const el = document.getElementById('rpConsoleTokEst');
+    if (el) el.textContent = '~' + data.token_estimate + ' tok';
+  }
+  if (isResp && data.usage && data.usage.prompt_tokens !== undefined) {
+    const el = document.getElementById('rpConsoleTokEst');
+    if (el) el.textContent = data.usage.prompt_tokens + ' tok';
+  }
   const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : isErr ? 'console-tag-err' : 'console-tag-req';
   const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : isErr ? '✕ ERR' : '→ KWARGS';
   const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';

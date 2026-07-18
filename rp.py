@@ -363,6 +363,7 @@ async def ws_rp(ws: WebSocket):
                             "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": effective_max_tokens,
                             "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
                             "block_markers": block_markers,
+                            "token_estimate": engine.estimate_tokens(llm_messages),
                             "timestamp": engine._now_iso(),
                         })
 
@@ -535,6 +536,7 @@ async def ws_rp(ws: WebSocket):
                                 "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": effective_max_tokens,
                                 "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
                                 "block_markers": block_markers,
+                                "token_estimate": engine.estimate_tokens(llm_messages),
                                 "timestamp": engine._now_iso(),
                             })
 
