@@ -5712,6 +5712,8 @@ function closeGenSceneModal() {
 
 // ── Image gallery (all uploads, grouped by date) ──
 let galleryImages = [];
+let galleryPage = 0;
+const GALLERY_PAGE_SIZE = 50;
 
 async function loadImageGallery() {
   const container = document.getElementById('genSceneGallery');
@@ -5721,6 +5723,7 @@ async function loadImageGallery() {
     const resp = await fetch('/api/images');
     const data = await resp.json();
     galleryImages = data.images || [];
+    galleryPage = 0;
     renderImageGallery();
   } catch (e) {
     container.innerHTML = '<div style="text-align:center;color:#f87171;font-size:12px;padding:20px">Failed to load gallery</div>';
@@ -5739,11 +5742,19 @@ function renderImageGallery() {
     return;
   }
 
+  const totalPages = Math.ceil(galleryImages.length / GALLERY_PAGE_SIZE);
+  if (galleryPage >= totalPages) galleryPage = totalPages - 1;
+  if (galleryPage < 0) galleryPage = 0;
+
   if (countEl) countEl.textContent = `${galleryImages.length} image${galleryImages.length > 1 ? 's' : ''}`;
+
+  // Slice current page
+  const startIdx = galleryPage * GALLERY_PAGE_SIZE;
+  const pageImages = galleryImages.slice(startIdx, startIdx + GALLERY_PAGE_SIZE);
 
   // Group by date
   const groups = {};
-  galleryImages.forEach(img => {
+  pageImages.forEach(img => {
     const d = img.date || 'Unknown';
     if (!groups[d]) groups[d] = [];
     groups[d].push(img);
@@ -5800,6 +5811,34 @@ function renderImageGallery() {
     });
     container.appendChild(row);
   });
+
+  // Pagination controls
+  if (totalPages > 1) {
+    const pager = document.createElement('div');
+    pager.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px;padding:6px 0;font-size:12px;color:var(--text-dim)';
+
+    const prevBtn = document.createElement('button');
+    prevBtn.textContent = '◀ Prev';
+    prevBtn.style.cssText = 'padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px';
+    prevBtn.disabled = galleryPage === 0;
+    if (prevBtn.disabled) prevBtn.style.opacity = '0.4';
+    prevBtn.onclick = () => { galleryPage--; renderImageGallery(); };
+
+    const pageLabel = document.createElement('span');
+    pageLabel.textContent = `Page ${galleryPage + 1} / ${totalPages}`;
+
+    const nextBtn = document.createElement('button');
+    nextBtn.textContent = 'Next ▶';
+    nextBtn.style.cssText = 'padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px';
+    nextBtn.disabled = galleryPage >= totalPages - 1;
+    if (nextBtn.disabled) nextBtn.style.opacity = '0.4';
+    nextBtn.onclick = () => { galleryPage++; renderImageGallery(); };
+
+    pager.appendChild(prevBtn);
+    pager.appendChild(pageLabel);
+    pager.appendChild(nextBtn);
+    container.appendChild(pager);
+  }
 }
 
 function autoFillGenScenePrompt() {
