@@ -722,7 +722,7 @@ async def ws_chat(ws: WebSocket):
                     "messages": [{"id": m["id"], "seq": m["seq"], "role": m["role"],
                                   "content": m["content"], "is_first_mes": m["is_first_mes"],
                                   "analysis": json.loads(m["analysis_json"]) if m["analysis_json"] else None,
-                                  "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt")}
+                                  "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt"), "seed": m.get("seed")}
                                  for m in messages],
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
                     "response_style": school_response_style,
@@ -734,7 +734,8 @@ async def ws_chat(ws: WebSocket):
                 client_msg_id = data.get("client_msg_id")
                 image_path = data.get("image_path")
                 image_prompt = data.get("image_prompt")
-                user_msg_id = db.db_school_add_message(session_id, "user", user_content, image_path=image_path, image_prompt=image_prompt, client_msg_id=client_msg_id)
+                user_seed = data.get("seed")
+                user_msg_id = db.db_school_add_message(session_id, "user", user_content, image_path=image_path, image_prompt=image_prompt, client_msg_id=client_msg_id, seed=user_seed)
 
                 await ws.send_json({"type": "user_message_stored", "message_id": user_msg_id, "client_msg_id": client_msg_id})
 
@@ -850,8 +851,8 @@ async def ws_chat(ws: WebSocket):
 
                         # ── Auto image generation (Phase 3) ──
                         if db.IMAGEGEN_AUTO_ENABLED:
-                            async def _school_auto_img_add(img_path, img_prompt=None):
-                                msg_id_img = db.db_school_add_message(session_id, "user", "", image_path=img_path, image_prompt=img_prompt)
+                            async def _school_auto_img_add(img_path, img_prompt=None, img_seed=None):
+                                msg_id_img = db.db_school_add_message(session_id, "user", "", image_path=img_path, image_prompt=img_prompt, seed=img_seed)
                                 await ws.send_json({
                                     "type": "character_message",
                                     "content": "",
@@ -860,6 +861,7 @@ async def ws_chat(ws: WebSocket):
                                     "message_id": msg_id_img,
                                     "image_path": img_path,
                                     "image_prompt": img_prompt,
+                                    "seed": img_seed,
                                 })
                             all_msgs_for_img = db.db_school_get_messages(session_id)
                             await imagegen.maybe_auto_generate_image(
@@ -1057,8 +1059,8 @@ async def ws_chat(ws: WebSocket):
 
                             # ── Auto image generation (Phase 3) ──
                             if db.IMAGEGEN_AUTO_ENABLED:
-                                async def _school_regen_img_add(img_path, img_prompt=None):
-                                    msg_id_img = db.db_school_add_message(session_id, "user", "", image_path=img_path, image_prompt=img_prompt)
+                                async def _school_regen_img_add(img_path, img_prompt=None, img_seed=None):
+                                    msg_id_img = db.db_school_add_message(session_id, "user", "", image_path=img_path, image_prompt=img_prompt, seed=img_seed)
                                     await ws.send_json({
                                         "type": "character_message",
                                         "content": "",
@@ -1067,6 +1069,7 @@ async def ws_chat(ws: WebSocket):
                                         "message_id": msg_id_img,
                                         "image_path": img_path,
                                         "image_prompt": img_prompt,
+                                        "seed": img_seed,
                                     })
                                 all_msgs_for_img = db.db_school_get_messages(session_id)
                                 await imagegen.maybe_auto_generate_image(

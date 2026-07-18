@@ -36,9 +36,11 @@ def _resolve_seed(override: int | None = None) -> int:
     return db.IMAGEGEN_SEED
 
 
-def _default_workflow(prompt_text: str, negative: str = "", seed: int | None = None) -> dict:
+def _default_workflow(prompt_text: str, negative: str = "", seed: int | None = None, width: int | None = None, height: int | None = None) -> dict:
     """Build a minimal txt2img ComfyUI workflow (API format, node IDs as string keys)."""
     s = _resolve_seed(seed)
+    w = width if width is not None else db.IMAGEGEN_WIDTH
+    h = height if height is not None else db.IMAGEGEN_HEIGHT
     return {
         "3": {
             "class_type": "KSampler",
@@ -62,8 +64,8 @@ def _default_workflow(prompt_text: str, negative: str = "", seed: int | None = N
         "5": {
             "class_type": "EmptyLatentImage",
             "inputs": {
-                "width": db.IMAGEGEN_WIDTH,
-                "height": db.IMAGEGEN_HEIGHT,
+                "width": w,
+                "height": h,
                 "batch_size": 1,
             },
         },
@@ -114,7 +116,7 @@ def _extract_output_filename(history_entry: dict):
     return None, None, None
 
 
-async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int | None = None) -> dict:
+async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int | None = None, width: int | None = None, height: int | None = None) -> dict:
     """
     Call ComfyUI to generate an image from a text prompt.
     Returns dict with:
@@ -141,8 +143,8 @@ async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int 
         # Numeric placeholders: must be injected as raw JSON numbers, not quoted strings.
         # We do this by replacing the quoted placeholder " %placeholder% " with the raw number.
         numeric_replacements = {
-            "%width%": db.IMAGEGEN_WIDTH,
-            "%height%": db.IMAGEGEN_HEIGHT,
+            "%width%": width if width is not None else db.IMAGEGEN_WIDTH,
+            "%height%": height if height is not None else db.IMAGEGEN_HEIGHT,
             "%steps%": db.IMAGEGEN_STEPS,
             "%cfg%": db.IMAGEGEN_CFG_SCALE,
             "%seed%": seed_val,
@@ -158,7 +160,7 @@ async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int 
             workflow_json = workflow_json.replace(placeholder, str(value))
         workflow = json.loads(workflow_json)
     else:
-        workflow = _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE, seed=seed)
+        workflow = _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE, seed=seed, width=width, height=height)
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -345,7 +347,7 @@ async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_
 
     # Insert into session via callback
     if image_add_fn:
-        await image_add_fn(image_path, prompt)
+        await image_add_fn(image_path, prompt, result.get("seed"))
 
 
 def _now_iso() -> str:
@@ -380,7 +382,8 @@ async def api_generate_image(request: Request):
         except (ValueError, TypeError):
             seed_override = None
 
-    result = await generate_image(prompt_text, negative, seed=seed_override)
+    result = await generate_image(prompt_text, negative, seed=seed_override,
+                                  width=body.get("width"), height=body.get("height"))
     if not result["success"]:
         return JSONResponse(result, status_code=500)
     return JSONResponse(result)
