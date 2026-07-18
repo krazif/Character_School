@@ -5544,6 +5544,7 @@ function clearRPChat() {
 let genSceneMode = 'rp'; // 'rp' or 'school'
 let lastGenSceneClientId = null; // track last inserted image msg for regenerate
 let genSceneHistory = []; // {image_path, seed, prompt} entries
+let lastPreviewedImage = null; // {filename, prompt, seed} — currently previewed image for Insert to Chat
 
 function openGenerateSceneModal(mode) {
   genSceneMode = mode || 'rp';
@@ -5559,6 +5560,7 @@ function openGenerateSceneModal(mode) {
   document.getElementById('genSceneBtn').disabled = false;
   document.getElementById('genSceneBtn').textContent = 'Generate';
   document.getElementById('genSceneRegenBtn').style.display = 'none';
+  document.getElementById('genSceneInsertBtn').style.display = 'none';
   // Reset seed: if Auto is on, clear the field (random each time); otherwise roll a seed
   if (document.getElementById('genSceneAutoSeed').checked) {
     document.getElementById('genSceneSeed').value = '';
@@ -5765,14 +5767,7 @@ function renderImageGallery() {
       imgEl.style.cssText = 'width:72px;height:72px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer';
       imgEl.title = img.filename;
       imgEl.onclick = () => {
-        // Check if this image is in genSceneHistory for seed/prompt
-        const hist = genSceneHistory.find(h => h.image_path === img.filename);
-        if (hist) {
-          document.getElementById('genSceneAutoSeed').checked = false;
-          onGenSceneAutoSeedChange();
-          document.getElementById('genSceneSeed').value = hist.seed || 0;
-          if (hist.prompt) document.getElementById('genScenePrompt').value = hist.prompt;
-        }
+        previewGalleryImage(img);
       };
       const delBtn = document.createElement('button');
       delBtn.textContent = '×';
@@ -5786,6 +5781,12 @@ function renderImageGallery() {
           if (resp.ok) {
             galleryImages = galleryImages.filter(g => g.filename !== img.filename);
             genSceneHistory = genSceneHistory.filter(h => h.image_path !== img.filename);
+            // Clear preview if the deleted image was being previewed
+            if (lastPreviewedImage && lastPreviewedImage.filename === img.filename) {
+              lastPreviewedImage = null;
+              document.getElementById('genScenePreviewWrap').style.display = 'none';
+              document.getElementById('genSceneInsertBtn').style.display = 'none';
+            }
             renderImageGallery();
             renderGenSceneHistory();
           }
@@ -5924,22 +5925,10 @@ async function doGenerateScene() {
     preview.src = apiBase + encodeURIComponent(j.image_path);
     document.getElementById('genScenePreviewWrap').style.display = 'block';
 
-    // Insert as a middle balloon into the chat
-    if (genSceneMode === 'school') {
-      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-      lastGenSceneClientId = clientId;
-      addMessage('user', '', null, false, null, clientId, j.image_path, promptText);
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText, seed: j.seed }));
-      }
-    } else {
-      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-      lastGenSceneClientId = clientId;
-      addRPMessage('user', '', null, null, clientId, j.image_path, promptText);
-      if (rpWS && rpWS.readyState === WebSocket.OPEN) {
-        rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText, seed: j.seed }));
-      }
-    }
+    // Set as previewed image (no auto-insert to chat)
+    lastPreviewedImage = { filename: j.image_path, prompt: promptText, seed: j.seed };
+    document.getElementById('genSceneInsertBtn').style.display = '';
+
     btn.disabled = false;
     btn.textContent = 'Generate';
     // Show regenerate button after successful generation
@@ -6005,29 +5994,10 @@ async function doRegenerateScene() {
     preview.src = apiBase + encodeURIComponent(j.image_path);
     document.getElementById('genScenePreviewWrap').style.display = 'block';
 
-    // Delete old image message, then insert new one
-    if (lastGenSceneClientId) {
-      if (genSceneMode === 'school') {
-        deleteSchoolMessageByClientId(lastGenSceneClientId);
-      } else {
-        deleteRPMessageByClientId(lastGenSceneClientId);
-      }
-    }
-    if (genSceneMode === 'school') {
-      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-      lastGenSceneClientId = clientId;
-      addMessage('user', '', null, false, null, clientId, j.image_path, promptText);
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText, seed: j.seed }));
-      }
-    } else {
-      const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-      lastGenSceneClientId = clientId;
-      addRPMessage('user', '', null, null, clientId, j.image_path, promptText);
-      if (rpWS && rpWS.readyState === WebSocket.OPEN) {
-        rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: j.image_path, image_prompt: promptText, seed: j.seed }));
-      }
-    }
+    // Set as previewed image (no auto-insert to chat)
+    lastPreviewedImage = { filename: j.image_path, prompt: promptText, seed: j.seed };
+    document.getElementById('genSceneInsertBtn').style.display = '';
+
     btn.disabled = false;
     btn.textContent = '↻ Regenerate';
   } catch (err) {
@@ -6035,6 +6005,64 @@ async function doRegenerateScene() {
     btn.disabled = false;
     btn.textContent = '↻ Regenerate';
   }
+}
+
+function insertPreviewedToChat() {
+  if (!lastPreviewedImage) return;
+  const { filename, prompt, seed } = lastPreviewedImage;
+  const promptText = prompt || '';
+
+  if (genSceneMode === 'school') {
+    const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
+    lastGenSceneClientId = clientId;
+    addMessage('user', '', null, false, null, clientId, filename, promptText);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: filename, image_prompt: promptText, seed: seed }));
+    }
+  } else {
+    const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
+    lastGenSceneClientId = clientId;
+    addRPMessage('user', '', null, null, clientId, filename, promptText);
+    if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+      rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: filename, image_prompt: promptText, seed: seed }));
+    }
+  }
+
+  // Update preview to confirm insertion
+  document.getElementById('genSceneStatus').textContent = '✓ Inserted to chat!';
+  // Keep insert button visible in case user wants to insert again
+}
+
+// ── Gallery thumbnail click: fill fields + show preview ──
+function previewGalleryImage(img) {
+  const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+
+  // Fill prompt field if available
+  if (img.prompt) {
+    document.getElementById('genScenePrompt').value = img.prompt;
+  }
+  if (img.negative_prompt) {
+    document.getElementById('genSceneNegative').value = img.negative_prompt;
+  }
+  // Fill seed if available
+  if (img.seed !== null && img.seed !== undefined) {
+    document.getElementById('genSceneAutoSeed').checked = false;
+    onGenSceneAutoSeedChange();
+    document.getElementById('genSceneSeed').value = img.seed;
+  }
+
+  // Show preview
+  const preview = document.getElementById('genScenePreview');
+  preview.src = apiBase + encodeURIComponent(img.filename);
+  document.getElementById('genScenePreviewWrap').style.display = 'block';
+
+  // Set as last previewed image
+  lastPreviewedImage = { filename: img.filename, prompt: img.prompt || '', seed: img.seed };
+  document.getElementById('genSceneInsertBtn').style.display = '';
+  document.getElementById('genSceneRegenBtn').style.display = '';
+
+  // Update status
+  document.getElementById('genSceneStatus').textContent = '';
 }
 </script>
 <!-- Generate Scene Modal Overlay -->
@@ -6075,6 +6103,7 @@ async function doRegenerateScene() {
         <button class="btn-reset" onclick="autoFillGenScenePrompt()" style="font-size:12px;padding:6px 12px">↻ Auto-fill</button>
         <button class="btn-send" id="genSceneBtn" onclick="doGenerateScene()" style="font-size:13px;padding:8px 20px">Generate</button>
         <button class="btn-reset" id="genSceneRegenBtn" onclick="doRegenerateScene()" style="font-size:13px;padding:8px 16px;display:none">↻ Regenerate</button>
+        <button class="btn-send" id="genSceneInsertBtn" onclick="insertPreviewedToChat()" style="font-size:13px;padding:8px 16px;display:none">⬇ Insert to Chat</button>
       </div>
       <div id="genScenePreviewWrap" style="display:none;text-align:center;margin-top:8px">
         <img id="genScenePreview" style="max-width:100%;max-height:400px;border-radius:8px;border:1px solid var(--border)" />

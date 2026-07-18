@@ -201,6 +201,18 @@ async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int 
             save_path = db.UPLOAD_DIR / safe_name
             save_path.write_bytes(img_resp.content)
 
+            # Save sidecar metadata JSON
+            meta = {
+                "prompt": prompt_text,
+                "seed": seed_val,
+                "negative_prompt": negative_prompt or "",
+                "width": width if width is not None else db.IMAGEGEN_WIDTH,
+                "height": height if height is not None else db.IMAGEGEN_HEIGHT,
+                "timestamp": time.time(),
+            }
+            meta_path = db.UPLOAD_DIR / (safe_name + ".json")
+            meta_path.write_text(json.dumps(meta, ensure_ascii=False))
+
         return {"success": True, "image_path": safe_name, "prompt": prompt_text, "seed": seed_val}
 
     except TimeoutError as e:
