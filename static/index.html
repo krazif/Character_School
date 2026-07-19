@@ -3086,17 +3086,20 @@ function renderBgPanel() {
 }
 function addBgFromUpload(file) {
   if (!file) return;
-  if (file.size > 4 * 1024 * 1024) { alert('Image too large (max 4MB for localStorage).'); return; }
-  const reader = new FileReader();
-  reader.onload = function(ev) {
-    const dataUrl = ev.target.result;
-    const list = getBgList();
-    list.push(dataUrl);
-    setBgList(list);
-    applyBgImage(dataUrl, null);
-    renderBgPanel();
-  };
-  reader.readAsDataURL(file);
+  if (file.size > 10 * 1024 * 1024) { alert('Image too large (max 10MB).'); return; }
+  const formData = new FormData();
+  formData.append('file', file);
+  fetch('/api/bg-upload', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { alert(data.error); return; }
+      const list = getBgList();
+      list.push(data.url);
+      setBgList(list);
+      applyBgImage(data.url, null);
+      renderBgPanel();
+    })
+    .catch(err => alert('Upload failed: ' + err.message));
 }
 function addBgFromUrl() {
   const input = document.getElementById('bgPanelUrl');
@@ -3116,6 +3119,11 @@ function removeBgImage(index) {
   // If active bg was removed, clear it
   if (localStorage.getItem('cs_bg_image') === removed) {
     applyBgImage('', null);
+  }
+  // Delete server-uploaded files from disk (skip data URLs and external URLs)
+  if (removed && removed.startsWith('/api/bg/')) {
+    const filename = removed.split('/api/bg/')[1];
+    if (filename) fetch('/api/bg/' + encodeURIComponent(filename), { method: 'DELETE' }).catch(() => {});
   }
   renderBgPanel();
 }
