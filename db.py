@@ -196,6 +196,13 @@ def save_config(cfg: dict):
         lines.append('  "presets": ' + json.dumps(presets, indent=4).replace('\n', '\n  '))
     else:
         lines.append('  }')
+    # ─── Workflows ───
+    workflows = cfg.get("workflows", {})
+    if workflows:
+        lines[-1] = lines[-1] + ','
+        lines.append('')
+        lines.append('  // ── ComfyUI Workflow Presets ──')
+        lines.append('  "workflows": ' + json.dumps(workflows, indent=4).replace('\n', '\n  '))
     lines.append('}')
     config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

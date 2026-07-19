@@ -1013,6 +1013,7 @@ async def get_config():
             name: {k: (mask(v) if k == "api_key" else v) for k, v in p.items()}
             for name, p in _c.get("presets", {}).items()
         },
+        "workflows": _c.get("workflows", {}),
     }
 
 
@@ -1044,6 +1045,10 @@ async def update_config(req: Request):
     if "presets" in body:
         current["presets"] = body["presets"]
 
+    # Workflows — replace entirely if provided
+    if "workflows" in body:
+        current["workflows"] = body["workflows"]
+
     db.save_config(current)
     db.reload_config()
     return {"status": "ok", "message": "Config saved and reloaded. Restart server if port/host changed."}
@@ -1068,6 +1073,44 @@ async def get_presets():
     """Return presets with full (unmasked) api keys for the preset manager."""
     _c = db.load_config()
     return _c.get("presets", {})
+
+
+@router.get("/api/workflows")
+async def get_workflows():
+    """Return all saved ComfyUI workflow presets."""
+    _c = db.load_config()
+    return _c.get("workflows", {})
+
+
+@router.post("/api/workflows")
+async def save_workflow(req: Request):
+    """Save or update a named ComfyUI workflow.
+    Body: { "name": "...", "workflow": { ... } | null }"""
+    body = await req.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        return {"status": "error", "message": "Workflow name cannot be empty."}
+    current = db.load_config()
+    workflows = current.get("workflows", {})
+    workflows[name] = body.get("workflow")  # null = empty/default
+    current["workflows"] = workflows
+    db.save_config(current)
+    db.reload_config()
+    return {"status": "ok", "message": f"Workflow '{name}' saved."}
+
+
+@router.delete("/api/workflows/{name}")
+async def delete_workflow(name: str):
+    """Delete a named ComfyUI workflow from config."""
+    current = db.load_config()
+    workflows = current.get("workflows", {})
+    if name not in workflows:
+        return {"status": "error", "message": f"Workflow '{name}' not found."}
+    del workflows[name]
+    current["workflows"] = workflows
+    db.save_config(current)
+    db.reload_config()
+    return {"status": "ok", "message": f"Workflow '{name}' deleted."}
 
 
 @router.post("/api/database/reset")

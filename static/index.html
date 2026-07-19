@@ -961,6 +961,13 @@ body.rp-mode .school-only { display:none; }
         </div>
         <div class="settings-field">
           <label>Custom Workflow JSON (empty = built-in default txt2img)</label>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <select id="cfgImagegenWorkflowPreset" onchange="applyWorkflowPreset(this.value)" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:13px">
+              <option value="">— None (manual) —</option>
+            </select>
+            <button type="button" class="btn" style="padding:6px 12px;font-size:12px" onclick="saveWorkflowPresetAs()">💾 Save As</button>
+            <button type="button" class="btn" style="padding:6px 12px;font-size:12px" onclick="deleteWorkflowPreset()">🗑 Delete</button>
+          </div>
           <textarea id="cfgImagegenWorkflow" placeholder='Paste ComfyUI API workflow JSON here, or leave empty for default' style="width:100%;min-height:60px;font-size:11px;font-family:monospace;resize:vertical"></textarea>
           <div style="margin-top:6px;font-size:11px;color:var(--text-muted);line-height:1.5">
             <strong>Placeholders</strong> (replaced at generation time):<br>
@@ -4936,6 +4943,9 @@ async function openSettings() {
     // Populate preset dropdowns
     window._presets = cfg.presets || {};
     populatePresetDropdowns();
+    // Populate workflow presets
+    _workflowPresets = cfg.workflows || {};
+    populateWorkflowDropdown();
   } catch (e) {
     console.error('Failed to load config:', e);
     alert('Failed to load config: ' + e.message);
@@ -5301,6 +5311,84 @@ async function deletePresetFromManager(name) {
     }
   } catch (e) {
     alert('Failed to delete preset: ' + e.message);
+  }
+}
+
+// ── ComfyUI Workflow Presets ──────────────────────────────────────
+
+let _workflowPresets = {}; // cached workflow presets from /api/workflows
+
+function populateWorkflowDropdown() {
+  const sel = document.getElementById('cfgImagegenWorkflowPreset');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— None (manual) —</option>';
+  for (const name of Object.keys(_workflowPresets).sort()) {
+    sel.innerHTML += `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+  }
+}
+
+async function loadWorkflowPresets() {
+  try {
+    const res = await fetch('/api/workflows');
+    if (res.ok) _workflowPresets = await res.json();
+  } catch (e) { /* ignore */ }
+  populateWorkflowDropdown();
+}
+
+function applyWorkflowPreset(name) {
+  if (!name) return;
+  const wf = _workflowPresets[name];
+  if (!wf) return;
+  const ta = document.getElementById('cfgImagegenWorkflow');
+  if (ta) ta.value = wf ? JSON.stringify(wf, null, 2) : '';
+}
+
+async function saveWorkflowPresetAs() {
+  const name = prompt('Save workflow as (name):');
+  if (!name || !name.trim()) return;
+  const ta = document.getElementById('cfgImagegenWorkflow');
+  let workflow = null;
+  if (ta && ta.value.trim()) {
+    try {
+      workflow = JSON.parse(ta.value);
+    } catch (e) {
+      alert('Invalid JSON in workflow textarea: ' + e.message);
+      return;
+    }
+  }
+  try {
+    const res = await fetch('/api/workflows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), workflow }),
+    });
+    if (res.ok) {
+      await loadWorkflowPresets();
+      document.getElementById('cfgImagegenWorkflowPreset').value = name.trim();
+    } else {
+      const data = await res.json();
+      alert('Failed to save workflow: ' + (data.detail || data.message || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Failed to save workflow: ' + e.message);
+  }
+}
+
+async function deleteWorkflowPreset() {
+  const sel = document.getElementById('cfgImagegenWorkflowPreset');
+  if (!sel || !sel.value) { alert('Select a workflow to delete first.'); return; }
+  const name = sel.value;
+  if (!confirm(`Delete workflow "${name}"?`)) return;
+  try {
+    const res = await fetch(`/api/workflows/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (res.ok) {
+      await loadWorkflowPresets();
+    } else {
+      const data = await res.json();
+      alert('Failed to delete workflow: ' + (data.detail || data.message || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Failed to delete workflow: ' + e.message);
   }
 }
 
