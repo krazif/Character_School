@@ -722,7 +722,8 @@ async def ws_chat(ws: WebSocket):
                     "messages": [{"id": m["id"], "seq": m["seq"], "role": m["role"],
                                   "content": m["content"], "is_first_mes": m["is_first_mes"],
                                   "analysis": json.loads(m["analysis_json"]) if m["analysis_json"] else None,
-                                  "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt"), "seed": m.get("seed")}
+                                  "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt"), "seed": m.get("seed"),
+                                  "swipes": m.get("swipes"), "active_swipe": m.get("active_swipe", 0)}
                                  for m in messages],
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
                     "response_style": school_response_style,
@@ -955,10 +956,17 @@ async def ws_chat(ws: WebSocket):
                     deleted = db.db_school_delete_message(session_id, target_id, target_cid)
                     await ws.send_json({"type": "message_deleted", "message_id": target_id, "client_msg_id": target_cid, "success": deleted})
 
+            elif data["type"] == "delete_single_message":
+                target_id = data.get("message_id")
+                target_cid = data.get("client_msg_id")
+                if (target_id is not None or target_cid) and session_id is not None:
+                    deleted = db.db_school_delete_single_message(session_id, target_id, target_cid)
+                    await ws.send_json({"type": "message_deleted", "message_id": target_id, "client_msg_id": target_cid, "success": deleted, "mode": "single"})
+
             elif data["type"] == "regenerate_message":
                 target_id = data.get("message_id")
                 if target_id is not None and session_id is not None:
-                    db.db_school_delete_message(session_id, target_id)
+                    db.db_school_truncate_after(session_id, target_id)
                     # Re-run generation with remaining messages (no new user message)
                     async def _school_regen():
                         try:
@@ -970,6 +978,8 @@ async def ws_chat(ws: WebSocket):
                             sess = db.db_school_get_session(session_id)
                             stack_cfg = db.get_stack_config(sess)
                             all_msgs = db.db_school_get_messages(session_id)
+                            # Exclude the target message from LLM context (generate fresh response)
+                            all_msgs = [m for m in all_msgs if m["id"] != target_id]
                             llm_messages, block_markers = db.build_llm_messages_from_stack(
                                 stack_cfg, system_prompt, all_msgs,
                             )
@@ -1042,17 +1052,17 @@ async def ws_chat(ws: WebSocket):
                                 "timestamp": engine._now_iso(),
                             })
 
-                            msg_id = db.db_school_add_message(
-                                session_id, "assistant", char_content,
-                                is_first_mes=False, analysis_json=None
-                            )
+                            swipe_info = db.db_school_add_swipe(session_id, target_id, char_content)
 
                             await ws.send_json({
                                 "type": "character_message",
                                 "content": char_content,
                                 "analysis": None,
                                 "is_first_mes": False,
-                                "message_id": msg_id,
+                                "message_id": target_id,
+                                "regenerated": True,
+                                "swipe_index": swipe_info.get("active_swipe", 0),
+                                "swipe_count": swipe_info.get("swipe_count", 1),
                             })
 
                             updated_cfg = await check_school_auto_summary(session_id, ws)
@@ -1086,6 +1096,129 @@ async def ws_chat(ws: WebSocket):
                             await ws.send_json({"type": "error", "message": f"Regenerate error: {e}"})
 
                     current_gen_task = asyncio.create_task(_school_regen())
+                    continue
+
+            elif data["type"] == "swipe_message":
+                target_id = data.get("message_id")
+                swipe_idx = data.get("swipe_index")
+                if target_id is not None and session_id is not None and swipe_idx is not None:
+                    result = db.db_school_switch_swipe(session_id, target_id, swipe_idx)
+                    if result:
+                        await ws.send_json({
+                            "type": "swipe_switched", "message_id": target_id,
+                            "content": result["content"],
+                            "active_swipe": result["active_swipe"],
+                            "swipe_count": result["swipe_count"],
+                        })
+
+            elif data["type"] == "continue_message":
+                if session_id is not None:
+                    async def _school_cont():
+                        try:
+                            # ── Auto-summary check (before LLM call) ──
+                            updated_cfg = await check_school_auto_summary(session_id, ws)
+                            if updated_cfg:
+                                await ws.send_json({"type": "stack_updated", "stack_config": updated_cfg})
+
+                            sess = db.db_school_get_session(session_id)
+                            stack_cfg = db.get_stack_config(sess)
+                            all_msgs = db.db_school_get_messages(session_id)
+                            llm_messages, block_markers = db.build_llm_messages_from_stack(
+                                stack_cfg, system_prompt, all_msgs,
+                            )
+
+                            # ── Lorebook injection ──
+                            lb_filenames = []
+                            if sess.get("lorebooks"):
+                                try: lb_filenames = json.loads(sess["lorebooks"])
+                                except: pass
+                            if lb_filenames:
+                                lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
+                                lb_injection = lorebook.build_lorebook_injection(
+                                    lorebooks_data, all_msgs, scan_depth=10
+                                )
+                                if lb_injection:
+                                    if llm_messages and llm_messages[0]["role"] == "system":
+                                        llm_messages[0]["content"] += "\n\n" + lb_injection
+                                    await ws.send_json({
+                                        "type": "console_event", "event": "lorebook_injection",
+                                        "content": lb_injection, "timestamp": engine._now_iso(),
+                                    })
+
+                            await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
+
+                            style_cap = engine.response_style_max_tokens(school_response_style, db.CHAT_MAX_TOKENS)
+                            effective_max_tokens = min(db.CHAT_MAX_TOKENS, style_cap)
+
+                            await ws.send_json({
+                                "type": "console_event",
+                                "event": "request",
+                                "llm": "character",
+                                "model": db.CHAT_MODEL,
+                                "temperature": db.CHAT_TEMPERATURE,
+                                "max_tokens": effective_max_tokens,
+                                "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
+                                "block_markers": block_markers,
+                                "tokenEstimate": engine.estimate_tokens(llm_messages),
+                                "timestamp": engine._now_iso(),
+                            })
+
+                            kwargs = dict(
+                                model=db.CHAT_MODEL,
+                                messages=llm_messages,
+                                temperature=db.CHAT_TEMPERATURE,
+                                max_tokens=effective_max_tokens,
+                                extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+                            )
+                            if db.CHAT_TOP_P is not None:
+                                kwargs["top_p"] = db.CHAT_TOP_P
+                            if db.CHAT_TOP_K is not None:
+                                kwargs["top_k"] = db.CHAT_TOP_K
+                            await ws.send_json({
+                                "type": "console_event", "event": "request_kwargs", "llm": "character",
+                                "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
+                            })
+                            resp = await db.chat_client.chat.completions.create(**kwargs)
+                            char_content = resp.choices[0].message.content
+                            usage = resp.usage
+
+                            await ws.send_json({"type": "character_typing_stopped"})
+
+                            await ws.send_json({
+                                "type": "console_event",
+                                "event": "response",
+                                "llm": "character",
+                                "model": db.CHAT_MODEL,
+                                "content": char_content,
+                                "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
+                                "finish_reason": resp.choices[0].finish_reason,
+                                "timestamp": engine._now_iso(),
+                            })
+
+                            msg_id = db.db_school_add_message(
+                                session_id, "assistant", char_content,
+                                is_first_mes=False, analysis_json=None
+                            )
+
+                            await ws.send_json({
+                                "type": "character_message",
+                                "content": char_content,
+                                "analysis": None,
+                                "is_first_mes": False,
+                                "message_id": msg_id,
+                            })
+
+                            updated_cfg = await check_school_auto_summary(session_id, ws)
+                            if updated_cfg:
+                                await ws.send_json({"type": "stack_updated", "stack_config": updated_cfg})
+
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            await ws.send_json({"type": "character_typing_stopped"})
+                            await ws.send_json({"type": "error", "message": f"Continue error: {e}"})
+
+                    current_gen_task = asyncio.create_task(_school_cont())
                     continue
 
             elif data["type"] == "update_stack":

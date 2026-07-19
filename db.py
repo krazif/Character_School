@@ -512,6 +512,24 @@ def init_db():
     _migrate_add_image_path()
     _migrate_add_image_prompt()
     _migrate_add_seed()
+    _migrate_add_swipes()
+
+
+def _migrate_add_swipes():
+    """Add swipes and active_swipe columns to rp_messages and school_messages if missing."""
+    conn = sqlite3.connect(str(DB_PATH))
+    cur = conn.cursor()
+    try:
+        for table in ("rp_messages", "school_messages"):
+            cur.execute(f"PRAGMA table_info({table})")
+            cols = [row[1] for row in cur.fetchall()]
+            if "swipes" not in cols:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN swipes TEXT")
+            if "active_swipe" not in cols:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN active_swipe INTEGER DEFAULT 0")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _migrate_add_seed():
@@ -855,11 +873,20 @@ def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = N
 def db_rp_get_messages(session_id: int) -> list[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     rows = conn.execute(
-        "SELECT id, seq, role, speaker, content, persona_name, image_path, image_prompt, seed FROM rp_messages WHERE session_id = ? ORDER BY seq",
+        "SELECT id, seq, role, speaker, content, persona_name, image_path, image_prompt, seed, swipes, active_swipe FROM rp_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
     ).fetchall()
     conn.close()
-    return [{"id": r[0], "seq": r[1], "role": r[2], "speaker": r[3], "content": r[4], "persona_name": r[5], "image_path": r[6], "image_prompt": r[7], "seed": r[8]} for r in rows]
+    result = []
+    for r in rows:
+        swipes = None
+        if r[9]:
+            try:
+                swipes = json.loads(r[9])
+            except Exception:
+                pass
+        result.append({"id": r[0], "seq": r[1], "role": r[2], "speaker": r[3], "content": r[4], "persona_name": r[5], "image_path": r[6], "image_prompt": r[7], "seed": r[8], "swipes": swipes, "active_swipe": r[10] if len(r) > 10 else 0})
+    return result
 
 
 def db_rp_get_session(session_id: int) -> Optional[dict]:
@@ -952,8 +979,104 @@ def db_rp_delete_message(session_id: int, message_id: int = None, client_msg_id:
     return True
 
 
+def db_rp_delete_single_message(session_id: int, message_id: int = None, client_msg_id: str = None) -> bool:
+    """Delete a single message and renumber remaining seq values."""
+    conn = sqlite3.connect(str(DB_PATH))
+    row = None
+    if message_id is not None:
+        row = conn.execute("SELECT seq FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row and client_msg_id is not None:
+        row = conn.execute("SELECT seq FROM rp_messages WHERE client_msg_id = ? AND session_id = ?", (client_msg_id, session_id)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    deleted_seq = row[0]
+    # Cleanup image for this single message only
+    img_row = conn.execute("SELECT image_path FROM rp_messages WHERE seq = ? AND session_id = ? AND image_path IS NOT NULL", (deleted_seq, session_id)).fetchone()
+    if img_row and img_row[0]:
+        try:
+            full = UPLOAD_DIR / Path(img_row[0]).name
+            if full.exists():
+                full.unlink()
+        except Exception:
+            pass
+    # Delete the single message
+    conn.execute("DELETE FROM rp_messages WHERE session_id = ? AND seq = ?", (session_id, deleted_seq))
+    # Renumber seq for remaining messages
+    conn.execute("UPDATE rp_messages SET seq = seq - 1 WHERE session_id = ? AND seq > ?", (session_id, deleted_seq))
+    conn.commit()
+    conn.close()
+    return True
 
 
+def db_rp_add_swipe(session_id: int, message_id: int, new_content: str) -> dict:
+    """Append a new swipe to a message. Returns {active_swipe, swipe_count}."""
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT content, swipes FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row:
+        conn.close()
+        return {}
+    old_content = row[0]
+    swipes_raw = row[1]
+    if swipes_raw:
+        try:
+            swipes = json.loads(swipes_raw)
+        except Exception:
+            swipes = [old_content]
+    else:
+        swipes = [old_content]
+    swipes.append(new_content)
+    new_index = len(swipes) - 1
+    conn.execute(
+        "UPDATE rp_messages SET swipes = ?, active_swipe = ?, content = ? WHERE id = ? AND session_id = ?",
+        (json.dumps(swipes), new_index, new_content, message_id, session_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"active_swipe": new_index, "swipe_count": len(swipes)}
+
+
+def db_rp_switch_swipe(session_id: int, message_id: int, swipe_index: int) -> dict:
+    """Switch active swipe. Returns {content, active_swipe, swipe_count} or empty."""
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT swipes FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row or not row[0]:
+        conn.close()
+        return {}
+    try:
+        swipes = json.loads(row[0])
+    except Exception:
+        conn.close()
+        return {}
+    if swipe_index < 0 or swipe_index >= len(swipes):
+        conn.close()
+        return {}
+    conn.execute(
+        "UPDATE rp_messages SET active_swipe = ?, content = ? WHERE id = ? AND session_id = ?",
+        (swipe_index, swipes[swipe_index], message_id, session_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"content": swipes[swipe_index], "active_swipe": swipe_index, "swipe_count": len(swipes)}
+
+
+
+
+
+
+def db_rp_truncate_after(session_id: int, message_id: int) -> bool:
+    """Delete all messages after the given message (seq > target_seq), keeping the target."""
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT seq FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    target_seq = row[0]
+    _cleanup_image_files(conn, session_id, "rp_messages", target_seq + 1)
+    conn.execute("DELETE FROM rp_messages WHERE session_id = ? AND seq > ?", (session_id, target_seq))
+    conn.commit()
+    conn.close()
+    return True
 
 
 def db_rp_count_messages(session_id: int) -> int:
@@ -1161,12 +1284,21 @@ def db_school_add_message(session_id: int, role: str, content: str,
 def db_school_get_messages(session_id: int) -> list[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     rows = conn.execute(
-        "SELECT id, seq, role, content, is_first_mes, analysis_json, image_path, image_prompt, seed FROM school_messages WHERE session_id = ? ORDER BY seq",
+        "SELECT id, seq, role, content, is_first_mes, analysis_json, image_path, image_prompt, seed, swipes, active_swipe FROM school_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
     ).fetchall()
     conn.close()
-    return [{"id": r[0], "seq": r[1], "role": r[2], "content": r[3],
-             "is_first_mes": bool(r[4]), "analysis_json": r[5], "image_path": r[6], "image_prompt": r[7], "seed": r[8]} for r in rows]
+    result = []
+    for r in rows:
+        swipes = None
+        if r[9]:
+            try:
+                swipes = json.loads(r[9])
+            except Exception:
+                pass
+        result.append({"id": r[0], "seq": r[1], "role": r[2], "content": r[3],
+                 "is_first_mes": bool(r[4]), "analysis_json": r[5], "image_path": r[6], "image_prompt": r[7], "seed": r[8], "swipes": swipes, "active_swipe": r[10] if len(r) > 10 else 0})
+    return result
 
 
 def db_school_get_session(session_id: int) -> Optional[dict]:
@@ -1219,6 +1351,102 @@ def db_school_delete_message(session_id: int, message_id: int = None, client_msg
     deleted_seq = row[0]
     _cleanup_image_files(conn, session_id, "school_messages", deleted_seq)
     conn.execute("DELETE FROM school_messages WHERE session_id = ? AND seq >= ?", (session_id, deleted_seq))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def db_school_delete_single_message(session_id: int, message_id: int = None, client_msg_id: str = None) -> bool:
+    """Delete a single message and renumber remaining seq values."""
+    conn = sqlite3.connect(str(DB_PATH))
+    row = None
+    if message_id is not None:
+        row = conn.execute("SELECT seq FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row and client_msg_id is not None:
+        row = conn.execute("SELECT seq FROM school_messages WHERE client_msg_id = ? AND session_id = ?", (client_msg_id, session_id)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    deleted_seq = row[0]
+    # Cleanup image for this single message only
+    img_row = conn.execute("SELECT image_path FROM school_messages WHERE seq = ? AND session_id = ? AND image_path IS NOT NULL", (deleted_seq, session_id)).fetchone()
+    if img_row and img_row[0]:
+        try:
+            full = UPLOAD_DIR / Path(img_row[0]).name
+            if full.exists():
+                full.unlink()
+        except Exception:
+            pass
+    # Delete the single message
+    conn.execute("DELETE FROM school_messages WHERE session_id = ? AND seq = ?", (session_id, deleted_seq))
+    # Renumber seq for remaining messages
+    conn.execute("UPDATE school_messages SET seq = seq - 1 WHERE session_id = ? AND seq > ?", (session_id, deleted_seq))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def db_school_add_swipe(session_id: int, message_id: int, new_content: str) -> dict:
+    """Append a new swipe to a message. Returns {active_swipe, swipe_count}."""
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT content, swipes FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row:
+        conn.close()
+        return {}
+    old_content = row[0]
+    swipes_raw = row[1]
+    if swipes_raw:
+        try:
+            swipes = json.loads(swipes_raw)
+        except Exception:
+            swipes = [old_content]
+    else:
+        swipes = [old_content]
+    swipes.append(new_content)
+    new_index = len(swipes) - 1
+    conn.execute(
+        "UPDATE school_messages SET swipes = ?, active_swipe = ?, content = ? WHERE id = ? AND session_id = ?",
+        (json.dumps(swipes), new_index, new_content, message_id, session_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"active_swipe": new_index, "swipe_count": len(swipes)}
+
+
+def db_school_switch_swipe(session_id: int, message_id: int, swipe_index: int) -> dict:
+    """Switch active swipe. Returns {content, active_swipe, swipe_count} or empty."""
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT swipes FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row or not row[0]:
+        conn.close()
+        return {}
+    try:
+        swipes = json.loads(row[0])
+    except Exception:
+        conn.close()
+        return {}
+    if swipe_index < 0 or swipe_index >= len(swipes):
+        conn.close()
+        return {}
+    conn.execute(
+        "UPDATE school_messages SET active_swipe = ?, content = ? WHERE id = ? AND session_id = ?",
+        (swipe_index, swipes[swipe_index], message_id, session_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"content": swipes[swipe_index], "active_swipe": swipe_index, "swipe_count": len(swipes)}
+
+
+def db_school_truncate_after(session_id: int, message_id: int) -> bool:
+    """Delete all messages after the given message (seq > target_seq), keeping the target."""
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute("SELECT seq FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    target_seq = row[0]
+    _cleanup_image_files(conn, session_id, "school_messages", target_seq + 1)
+    conn.execute("DELETE FROM school_messages WHERE session_id = ? AND seq > ?", (session_id, target_seq))
     conn.commit()
     conn.close()
     return True

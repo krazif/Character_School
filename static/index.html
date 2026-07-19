@@ -67,6 +67,10 @@ header .status.connected { color:var(--green); }
 .msg-actions a:hover { color:var(--red); opacity:1; }
 .msg-actions .msg-word-count { color:var(--text-dim); opacity:0.5; font-size:11px; }
 .msg-actions a.regenerate-link:hover { color:var(--accent); opacity:1; }
+.msg-actions .swipe-controls { display:inline-flex; align-items:center; gap:4px; color:var(--text-dim); opacity:0.5; }
+.msg-actions .swipe-arrow { color:var(--text-dim); text-decoration:none; cursor:pointer; font-size:12px; }
+.msg-actions .swipe-arrow:hover { color:var(--accent); }
+.msg-actions .swipe-counter { font-size:11px; min-width:28px; text-align:center; }
 .msg-delete-link { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0.6; }
 .msg-delete-link:hover { color:var(--red); opacity:1; }
 .msg-number { display:inline-block; font-size:10px; color:var(--text-dim); background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; margin-left:6px; font-weight:600; vertical-align:middle; }
@@ -319,6 +323,11 @@ body.rp-mode .school-only { display:none; }
 .rp-msg .rp-msg-actions a:hover { color:var(--red); opacity:1; }
 .rp-msg .rp-msg-actions .msg-word-count { color:var(--text-dim); opacity:0.5; font-size:11px; }
 .rp-msg .rp-msg-actions a.rp-regenerate-link:hover { color:var(--accent); opacity:1; }
+.rp-msg .rp-msg-actions .swipe-controls { display:inline-flex; align-items:center; gap:4px; color:var(--text-dim); opacity:0.5; }
+.rp-msg .rp-msg-actions .swipe-arrow { color:var(--text-dim); text-decoration:none; cursor:pointer; font-size:12px; }
+.rp-msg:hover .rp-msg-actions .swipe-controls { opacity:0.6; }
+.rp-msg .rp-msg-actions .swipe-arrow:hover { color:var(--accent); }
+.rp-msg .rp-msg-actions .swipe-counter { font-size:11px; min-width:28px; text-align:center; }
 .rp-msg .rp-delete-link { color:var(--text-dim); text-decoration:none; cursor:pointer; }
 .rp-msg:hover .rp-delete-link { opacity:0.6; }
 .rp-msg .rp-delete-link:hover { color:var(--red); opacity:1; }
@@ -1988,9 +1997,29 @@ function connectWS(filename, personaFilename, resumeSessionId) {
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.type === 'character_message') {
-      addMessage('character', data.content, data.analysis, data.is_first_mes, data.message_id, null, data.image_path || null, data.image_prompt || null, data.seed);
+      if (data.regenerated) {
+        // Update existing message (swipe) instead of adding new
+        const target = schoolMessages.find(m => m.messageId === data.message_id);
+        if (target) {
+          target.swipes = target.swipes || [];
+          if (target.swipes.length === 0) target.swipes.push(target.content); // original becomes swipe 0
+          target.swipes.push(data.content);
+          target.content = data.content;
+          target.activeSwipe = (data.swipe_index !== undefined) ? data.swipe_index : target.swipes.length - 1;
+          renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
+        }
+      } else {
+        addMessage('character', data.content, data.analysis, data.is_first_mes, data.message_id, null, data.image_path || null, data.image_prompt || null, data.seed);
+      }
       isWaiting = false;
       updateInputState();
+    } else if (data.type === 'swipe_switched') {
+      const target = schoolMessages.find(m => m.messageId === data.message_id);
+      if (target) {
+        target.content = data.content;
+        target.activeSwipe = data.active_swipe;
+        renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
+      }
     } else if (data.type === 'user_message_stored') {
       // Server confirms the user message was stored and gives us the DB row id.
       // Match by client_msg_id to tag the right entry in the array.
@@ -2070,11 +2099,11 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.messages) {
         data.messages.forEach(m => {
           if (m.role === 'user') {
-            schoolMessages.push({ role: 'user', content: m.content, analysis: null, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed });
+            schoolMessages.push({ role: 'user', content: m.content, analysis: null, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
           } else if (m.role === 'assistant') {
-            schoolMessages.push({ role: 'character', content: m.content, analysis: m.analysis, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed });
+            schoolMessages.push({ role: 'character', content: m.content, analysis: m.analysis, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
           } else if (m.role === 'system') {
-            schoolMessages.push({ role: 'system', content: m.content, analysis: null, isFirst: false, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed });
+            schoolMessages.push({ role: 'system', content: m.content, analysis: null, isFirst: false, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
           }
         });
       }
@@ -2266,7 +2295,7 @@ function addMessage(role, content, analysis, isFirst, messageId, clientId, image
   if (loading) loading.remove();
 
   // Push to array
-  const msg = { role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt, seed };
+  const msg = { role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt, seed, swipes: null, activeSwipe: 0 };
   schoolMessages.push(msg);
 
   // Render
@@ -2457,6 +2486,15 @@ async function sendMessage() {
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if ((!text && !pendingSchoolImage) || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+  // Check for /continue command
+  if (text === '/continue' || text === '/cont') {
+    input.value = '';
+    ws.send(JSON.stringify({type: 'continue_message'}));
+    isWaiting = true;
+    updateInputState();
+    return;
+  }
 
   let imagePath = null;
   if (pendingSchoolImage) {
@@ -3389,11 +3427,11 @@ function handleRPMessage(data) {
     if (data.messages) {
       data.messages.forEach(m => {
         if (m.role === 'user') {
-          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null, personaName: m.persona_name || null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed });
+          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null, personaName: m.persona_name || null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
         } else if (m.role === 'character') {
-          rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed });
+          rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
         } else if (m.role === 'system') {
-          rpMessages.push({ role: 'system', content: m.content, speaker: null, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed });
+          rpMessages.push({ role: 'system', content: m.content, speaker: null, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
         }
       });
     }
@@ -3408,9 +3446,29 @@ function handleRPMessage(data) {
       el.classList.toggle('active', parseInt(el.dataset.sessionId) === rpActiveSessionId);
     });
     } else if (data.type === 'character_message') {
-      addRPMessage('character', data.content, data.character_name, data.message_id, null, data.image_path || null, data.image_prompt || null, data.seed);
+      if (data.regenerated) {
+        // Update existing message (swipe) instead of adding new
+        const target = rpMessages.find(m => m.messageId === data.message_id);
+        if (target) {
+          target.swipes = target.swipes || [];
+          if (target.swipes.length === 0) target.swipes.push(target.content); // original becomes swipe 0
+          target.swipes.push(data.content);
+          target.content = data.content;
+          target.activeSwipe = (data.swipe_index !== undefined) ? data.swipe_index : target.swipes.length - 1;
+          renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+        }
+      } else {
+        addRPMessage('character', data.content, data.character_name, data.message_id, null, data.image_path || null, data.image_prompt || null, data.seed);
+      }
       rpIsWaiting = false;
       updateRPInputState();
+  } else if (data.type === 'swipe_switched') {
+    const target = rpMessages.find(m => m.messageId === data.message_id);
+    if (target) {
+      target.content = data.content;
+      target.activeSwipe = data.active_swipe;
+      renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+    }
   } else if (data.type === 'character_typing') {
     showRPTyping(data.character_name);
   } else if (data.type === 'character_typing_stopped') {
@@ -3575,7 +3633,7 @@ function addRPMessage(role, content, speaker, messageId, clientId, imagePath, im
 
   // Push to array — stamp persona name per-message so old labels don't change when persona switches
   const personaName = role === 'user' ? (currentPersona?.name || null) : null;
-  const msg = { role, content, speaker, messageId, clientId, personaName, imagePath, imagePrompt, seed };
+  const msg = { role, content, speaker, messageId, clientId, personaName, imagePath, imagePrompt, seed, swipes: null, activeSwipe: 0 };
   rpMessages.push(msg);
 
   // Render
@@ -3683,6 +3741,15 @@ async function sendRPMessage() {
   const input = document.getElementById('rpMsgInput');
   const text = input.value.trim();
   if ((!text && !pendingRPImage) || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
+
+  // Check for /continue command
+  if (text === '/continue' || text === '/cont') {
+    input.value = '';
+    rpWS.send(JSON.stringify({type: 'continue_message'}));
+    rpIsWaiting = true;
+    updateRPInputState();
+    return;
+  }
 
   let imagePath = null;
   if (pendingRPImage) {
@@ -5346,6 +5413,30 @@ function buildSchoolMessageDOM(msg, index) {
       wcSpan.className = 'msg-word-count';
       wcSpan.textContent = wordCount + ' words';
       actionsDiv.appendChild(wcSpan);
+      // Swipe controls
+      const swipeCount = (msg.swipes && msg.swipes.length) ? msg.swipes.length : 1;
+      const activeSwipe = msg.activeSwipe || 0;
+      if (swipeCount > 1) {
+        const swipeDiv = document.createElement('span');
+        swipeDiv.className = 'swipe-controls';
+        const leftBtn = document.createElement('a');
+        leftBtn.textContent = '◀';
+        leftBtn.className = 'swipe-arrow';
+        leftBtn.onclick = () => swipeSchoolMessage(index, activeSwipe - 1);
+        if (activeSwipe <= 0) leftBtn.style.opacity = '0.3';
+        swipeDiv.appendChild(leftBtn);
+        const counter = document.createElement('span');
+        counter.className = 'swipe-counter';
+        counter.textContent = (activeSwipe + 1) + '/' + swipeCount;
+        swipeDiv.appendChild(counter);
+        const rightBtn = document.createElement('a');
+        rightBtn.textContent = '▶';
+        rightBtn.className = 'swipe-arrow';
+        rightBtn.onclick = () => swipeSchoolMessage(index, activeSwipe + 1);
+        if (activeSwipe >= swipeCount - 1) rightBtn.style.opacity = '0.3';
+        swipeDiv.appendChild(rightBtn);
+        actionsDiv.appendChild(swipeDiv);
+      }
       const regenLink = document.createElement('a');
       regenLink.className = 'regenerate-link';
       regenLink.textContent = 'regenerate';
@@ -5357,6 +5448,11 @@ function buildSchoolMessageDOM(msg, index) {
     delLink.textContent = 'delete';
     delLink.onclick = () => deleteSchoolMessage(index);
     actionsDiv.appendChild(delLink);
+    const delFromHere = document.createElement('a');
+    delFromHere.className = 'msg-delete-link';
+    delFromHere.textContent = 'delete from here';
+    delFromHere.onclick = () => deleteSchoolMessageFromHere(index);
+    actionsDiv.appendChild(delFromHere);
     div.appendChild(actionsDiv);
   }
   frag.appendChild(div);
@@ -5410,6 +5506,30 @@ function buildRPMessageDOM(msg, index) {
       wcSpan.className = 'msg-word-count';
       wcSpan.textContent = wordCount + ' words';
       actionsDiv.appendChild(wcSpan);
+      // Swipe controls
+      const swipeCount = (msg.swipes && msg.swipes.length) ? msg.swipes.length : 1;
+      const activeSwipe = msg.activeSwipe || 0;
+      if (swipeCount > 1) {
+        const swipeDiv = document.createElement('span');
+        swipeDiv.className = 'swipe-controls';
+        const leftBtn = document.createElement('a');
+        leftBtn.textContent = '◀';
+        leftBtn.className = 'swipe-arrow';
+        leftBtn.onclick = () => swipeRPMessage(index, activeSwipe - 1);
+        if (activeSwipe <= 0) leftBtn.style.opacity = '0.3';
+        swipeDiv.appendChild(leftBtn);
+        const counter = document.createElement('span');
+        counter.className = 'swipe-counter';
+        counter.textContent = (activeSwipe + 1) + '/' + swipeCount;
+        swipeDiv.appendChild(counter);
+        const rightBtn = document.createElement('a');
+        rightBtn.textContent = '▶';
+        rightBtn.className = 'swipe-arrow';
+        rightBtn.onclick = () => swipeRPMessage(index, activeSwipe + 1);
+        if (activeSwipe >= swipeCount - 1) rightBtn.style.opacity = '0.3';
+        swipeDiv.appendChild(rightBtn);
+        actionsDiv.appendChild(swipeDiv);
+      }
       const regenLink = document.createElement('a');
       regenLink.className = 'rp-regenerate-link';
       regenLink.textContent = 'regenerate';
@@ -5421,6 +5541,11 @@ function buildRPMessageDOM(msg, index) {
     delLink.textContent = 'delete';
     delLink.onclick = () => deleteRPMessage(index);
     actionsDiv.appendChild(delLink);
+    const delFromHere = document.createElement('a');
+    delFromHere.className = 'rp-delete-link';
+    delFromHere.textContent = 'delete from here';
+    delFromHere.onclick = () => deleteRPMessageFromHere(index);
+    actionsDiv.appendChild(delFromHere);
     div.appendChild(actionsDiv);
   }
   frag.appendChild(div);
@@ -5432,6 +5557,23 @@ function buildRPMessageDOM(msg, index) {
 }
 
 function deleteSchoolMessage(index) {
+  if (index < 0 || index >= schoolMessages.length) return;
+  const msg = schoolMessages[index];
+  const msgId = msg.messageId;
+  const cid = msg.clientId;
+  if ((msgId || cid) && ws && ws.readyState === WebSocket.OPEN) {
+    const payload = { type: 'delete_single_message' };
+    if (msgId) payload.message_id = msgId;
+    else payload.client_msg_id = cid;
+    ws.send(JSON.stringify(payload));
+  }
+  // Remove only this message
+  schoolMessages.splice(index, 1);
+  schoolVisibleCount.value = Math.min(schoolVisibleCount.value, schoolMessages.length);
+  renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
+}
+
+function deleteSchoolMessageFromHere(index) {
   if (index < 0 || index >= schoolMessages.length) return;
   const msg = schoolMessages[index];
   const msgId = msg.messageId;
@@ -5460,15 +5602,31 @@ function regenerateSchoolMessage(index) {
   if (msg.role !== 'character') return;
   const msgId = msg.messageId;
   if (!msgId || !ws || ws.readyState !== WebSocket.OPEN) return;
-  // Remove this message and all subsequent from UI
-  schoolMessages.splice(index);
+  // Remove subsequent messages but keep the target (swipe will update it)
+  schoolMessages.splice(index + 1);
   schoolVisibleCount.value = Math.min(schoolVisibleCount.value, schoolMessages.length);
   renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
-  // Tell server to delete target+subsequent and regenerate
+  // Tell server to truncate after target and regenerate as swipe
   ws.send(JSON.stringify({ type: 'regenerate_message', message_id: msgId }));
 }
 
 function deleteRPMessage(index) {
+  if (index < 0 || index >= rpMessages.length) return;
+  const msg = rpMessages[index];
+  const msgId = msg.messageId;
+  const cid = msg.clientId;
+  if ((msgId || cid) && rpWS && rpWS.readyState === WebSocket.OPEN) {
+    const payload = { type: 'delete_single_message' };
+    if (msgId) payload.message_id = msgId;
+    else payload.client_msg_id = cid;
+    rpWS.send(JSON.stringify(payload));
+  }
+  rpMessages.splice(index, 1);
+  rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
+  renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+}
+
+function deleteRPMessageFromHere(index) {
   if (index < 0 || index >= rpMessages.length) return;
   const msg = rpMessages[index];
   const msgId = msg.messageId;
@@ -5496,12 +5654,30 @@ function regenerateRPMessage(index) {
   if (msg.role !== 'character') return;
   const msgId = msg.messageId;
   if (!msgId || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
-  // Remove this message and all subsequent from UI
-  rpMessages.splice(index);
+  // Remove subsequent messages but keep the target (swipe will update it)
+  rpMessages.splice(index + 1);
   rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
   renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
-  // Tell server to delete target+subsequent and regenerate
+  // Tell server to truncate after target and regenerate as swipe
   rpWS.send(JSON.stringify({ type: 'regenerate_message', message_id: msgId }));
+}
+
+function swipeSchoolMessage(index, swipeIndex) {
+  if (index < 0 || index >= schoolMessages.length) return;
+  const msg = schoolMessages[index];
+  const msgId = msg.messageId;
+  if (!msgId || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (swipeIndex < 0) return;
+  ws.send(JSON.stringify({ type: 'swipe_message', message_id: msgId, swipe_index: swipeIndex }));
+}
+
+function swipeRPMessage(index, swipeIndex) {
+  if (index < 0 || index >= rpMessages.length) return;
+  const msg = rpMessages[index];
+  const msgId = msg.messageId;
+  if (!msgId || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
+  if (swipeIndex < 0) return;
+  rpWS.send(JSON.stringify({ type: 'swipe_message', message_id: msgId, swipe_index: swipeIndex }));
 }
 
 function clearSchoolChat() {
