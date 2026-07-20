@@ -1195,9 +1195,11 @@ body.rp-mode .school-only { display:none; }
       <span id="editorFilename" style="color:var(--text-dim);font-size:13px;"></span>
       <span class="spacer"></span>
       <button class="btn-reset" onclick="validateCard()">Validate</button>
+      <button class="btn-reset" onclick="importCard()" title="Import JSON to replace all fields">📥 Import</button>
       <button class="btn-reset" onclick="downloadCardPNG(currentFilename)" title="Download as PNG card">🖼️ PNG</button>
       <button class="btn-send" onclick="saveCard()">Save</button>
       <button class="btn-reset" onclick="closeEditor()">Close</button>
+      <input type="file" id="importCardFile" accept=".json,application/json" style="display:none" onchange="handleImportFile(event)" />
     </div>
     <div class="editor-tabs">
       <div class="editor-tab active" onclick="switchTab('core',this)">Core</div>
@@ -2798,6 +2800,36 @@ function renderEditor() {
       d['char_name_mode'] = charModeSelect.value;
     });
   }
+}
+
+function importCard() {
+  document.getElementById('importCardFile').click();
+}
+
+function handleImportFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const imported = JSON.parse(e.target.result);
+      const version = detectCardVersion(imported);
+      editorVersion = version;
+      editorOriginal = imported;
+      editorNormalized = normalizeForEditing(imported);
+      editorData = imported;
+      const badge = document.getElementById('editorVersionBadge');
+      badge.textContent = 'V' + version;
+      badge.className = 'version-badge v' + version;
+      renderEditor();
+      const name = (imported.data || imported).name || '';
+      alert('Imported ' + (name ? '"' + name + '"' : 'card') + ' (V' + version + '). Review and Save to apply.');
+    } catch (err) {
+      alert('Import failed: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = ''; // reset so same file can be re-selected
 }
 
 async function saveCard() {
