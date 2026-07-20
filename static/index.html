@@ -5916,6 +5916,7 @@ function openGenerateSceneModal(mode) {
   document.getElementById('genSceneBtn').textContent = 'Generate';
   document.getElementById('genSceneRegenBtn').style.display = 'none';
   document.getElementById('genSceneInsertBtn').style.display = 'none';
+  document.getElementById('genSceneBgBtn').style.display = 'none';
   // Reset seed: if Auto is on, clear the field (random each time); otherwise roll a seed
   if (document.getElementById('genSceneAutoSeed').checked) {
     document.getElementById('genSceneSeed').value = '';
@@ -6152,6 +6153,7 @@ function renderImageGallery() {
               lastPreviewedImage = null;
               document.getElementById('genScenePreviewWrap').style.display = 'none';
               document.getElementById('genSceneInsertBtn').style.display = 'none';
+              document.getElementById('genSceneBgBtn').style.display = 'none';
             }
             renderImageGallery();
             renderGenSceneHistory();
@@ -6322,6 +6324,7 @@ async function doGenerateScene() {
     // Set as previewed image (no auto-insert to chat)
     lastPreviewedImage = { filename: j.image_path, prompt: promptText, seed: j.seed };
     document.getElementById('genSceneInsertBtn').style.display = '';
+    document.getElementById('genSceneBgBtn').style.display = '';
 
     btn.disabled = false;
     btn.textContent = 'Generate';
@@ -6391,6 +6394,7 @@ async function doRegenerateScene() {
     // Set as previewed image (no auto-insert to chat)
     lastPreviewedImage = { filename: j.image_path, prompt: promptText, seed: j.seed };
     document.getElementById('genSceneInsertBtn').style.display = '';
+    document.getElementById('genSceneBgBtn').style.display = '';
 
     btn.disabled = false;
     btn.textContent = '↻ Regenerate';
@@ -6427,6 +6431,27 @@ function insertPreviewedToChat() {
   // Keep insert button visible in case user wants to insert again
 }
 
+// ── Send previewed ComfyUI image to background panel ──
+function sendPreviewedToBackground() {
+  if (!lastPreviewedImage) return;
+  const { filename } = lastPreviewedImage;
+  const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+  const srcUrl = apiBase + encodeURIComponent(filename);
+
+  // ComfyUI images and bg images share the same UPLOAD_DIR on disk,
+  // so we can use the existing URL directly — no re-upload needed.
+  const list = getBgList();
+  if (!list.includes(srcUrl)) {
+    list.push(srcUrl);
+    setBgList(list);
+  }
+  applyBgImage(srcUrl, null);
+  persistSessionBg(srcUrl);
+  renderBgPanel();
+
+  document.getElementById('genSceneStatus').textContent = '✓ Added to background!';
+}
+
 // ── Gallery thumbnail click: fill fields + show preview ──
 function previewGalleryImage(img) {
   const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
@@ -6453,6 +6478,7 @@ function previewGalleryImage(img) {
   // Set as last previewed image
   lastPreviewedImage = { filename: img.filename, prompt: img.prompt || '', seed: img.seed };
   document.getElementById('genSceneInsertBtn').style.display = '';
+  document.getElementById('genSceneBgBtn').style.display = '';
   document.getElementById('genSceneRegenBtn').style.display = '';
 
   // Update status
@@ -6497,7 +6523,8 @@ function previewGalleryImage(img) {
         <button class="btn-reset" onclick="autoFillGenScenePrompt()" style="font-size:12px;padding:6px 12px">↻ Auto-fill</button>
         <button class="btn-send" id="genSceneBtn" onclick="doGenerateScene()" style="font-size:13px;padding:8px 20px">Generate</button>
         <button class="btn-reset" id="genSceneRegenBtn" onclick="doRegenerateScene()" style="font-size:13px;padding:8px 16px;display:none">↻ Regenerate</button>
-        <button class="btn-send" id="genSceneInsertBtn" onclick="insertPreviewedToChat()" style="font-size:13px;padding:8px 16px;display:none">⬇ Insert to Chat</button>
+        <button class="btn-reset" id="genSceneInsertBtn" onclick="insertPreviewedToChat()" style="font-size:13px;padding:8px 16px;display:none">⬇ Insert to Chat</button>
+        <button class="btn-reset" id="genSceneBgBtn" onclick="sendPreviewedToBackground()" style="font-size:13px;padding:8px 16px;display:none">🖼 Set as Background</button>
       </div>
       <div id="genScenePreviewWrap" style="display:none;text-align:center;margin-top:8px">
         <img id="genScenePreview" style="max-width:100%;max-height:400px;border-radius:8px;border:1px solid var(--border)" />
