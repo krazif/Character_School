@@ -6432,24 +6432,43 @@ function insertPreviewedToChat() {
 }
 
 // ── Send previewed ComfyUI image to background panel ──
-function sendPreviewedToBackground() {
+async function sendPreviewedToBackground() {
   if (!lastPreviewedImage) return;
   const { filename } = lastPreviewedImage;
-  const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
-  const srcUrl = apiBase + encodeURIComponent(filename);
 
-  // ComfyUI images and bg images share the same UPLOAD_DIR on disk,
-  // so we can use the existing URL directly — no re-upload needed.
-  const list = getBgList();
-  if (!list.includes(srcUrl)) {
-    list.push(srcUrl);
-    setBgList(list);
+  try {
+    // Move the file from generated pool to bg pool (renames on disk)
+    const resp = await fetch('/api/images/' + encodeURIComponent(filename) + '/to-background', { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) {
+      document.getElementById('genSceneStatus').textContent = '✗ ' + data.error;
+      return;
+    }
+
+    // Add to bg list, apply, and persist to session
+    const list = getBgList();
+    if (!list.includes(data.url)) {
+      list.push(data.url);
+      setBgList(list);
+    }
+    applyBgImage(data.url, null);
+    persistSessionBg(data.url);
+    renderBgPanel();
+
+    // Reload gallery so the moved image disappears from generated thumbnails
+    loadImageGallery();
+
+    // Clear preview since the source file no longer exists at old path
+    lastPreviewedImage = null;
+    document.getElementById('genScenePreviewWrap').style.display = 'none';
+    document.getElementById('genSceneInsertBtn').style.display = 'none';
+    document.getElementById('genSceneBgBtn').style.display = 'none';
+    document.getElementById('genSceneRegenBtn').style.display = 'none';
+
+    document.getElementById('genSceneStatus').textContent = '✓ Moved to background!';
+  } catch (err) {
+    document.getElementById('genSceneStatus').textContent = '✗ Error: ' + err.message;
   }
-  applyBgImage(srcUrl, null);
-  persistSessionBg(srcUrl);
-  renderBgPanel();
-
-  document.getElementById('genSceneStatus').textContent = '✓ Added to background!';
 }
 
 // ── Gallery thumbnail click: fill fields + show preview ──

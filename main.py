@@ -69,6 +69,29 @@ async def api_bg_delete(filename: str):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/images/{filename}/to-background")
+async def api_image_to_background(filename: str):
+    """Move a generated image to the background pool by renaming it with bg_ prefix.
+    Also renames the sidecar JSON metadata. Returns the new bg URL."""
+    safe = Path(filename).name
+    src = db.UPLOAD_DIR / safe
+    if not src.exists():
+        return JSONResponse({"error": "Image not found"}, status_code=404)
+    ext = src.suffix or ".png"
+    new_name = f"bg_{uuid.uuid4().hex}{ext}"
+    dest = db.UPLOAD_DIR / new_name
+    try:
+        src.rename(dest)
+        # Rename sidecar JSON if it exists
+        meta_src = db.UPLOAD_DIR / (safe + ".json")
+        if meta_src.exists():
+            meta_dest = db.UPLOAD_DIR / (new_name + ".json")
+            meta_src.rename(meta_dest)
+        return JSONResponse({"url": f"/api/bg/{new_name}", "filename": new_name})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/images")
 async def api_list_images():
     """List all uploaded images with metadata from sidecar JSON files."""
