@@ -512,6 +512,15 @@ def init_db():
         conn.execute("ALTER TABLE school_messages ADD COLUMN client_msg_id TEXT")
     except Exception:
         pass
+    # Migration: add bg_image column to rp_sessions and school_sessions
+    try:
+        conn.execute("ALTER TABLE rp_sessions ADD COLUMN bg_image TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE school_sessions ADD COLUMN bg_image TEXT")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -899,7 +908,7 @@ def db_rp_get_messages(session_id: int) -> list[dict]:
 def db_rp_get_session(session_id: int) -> Optional[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute(
-        "SELECT id, title, persona_filename, turn_routing, response_style, stack_config, console_events, lorebooks FROM rp_sessions WHERE id = ?",
+        "SELECT id, title, persona_filename, turn_routing, response_style, stack_config, console_events, lorebooks, bg_image FROM rp_sessions WHERE id = ?",
         (session_id,),
     ).fetchone()
     if not row:
@@ -916,6 +925,7 @@ def db_rp_get_session(session_id: int) -> Optional[dict]:
         "stack_config": row[5] if len(row) > 5 else None,
         "console_events": row[6] if len(row) > 6 else None,
         "lorebooks": row[7] if len(row) > 7 and row[7] else None,
+        "bg_image": row[8] if len(row) > 8 and row[8] else None,
         "characters": [{"card_filename": c[0], "char_name": c[1], "display_order": c[2]} for c in chars],
     }
 
@@ -1094,7 +1104,7 @@ def db_rp_count_messages(session_id: int) -> int:
 
 
 def db_rp_update_settings(session_id: int, turn_routing: str = None, response_style: str = None,
-                           stack_config: str = None, lorebooks: str = None) -> None:
+                           stack_config: str = None, lorebooks: str = None, bg_image: str = None) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     updates = []
     params = []
@@ -1110,6 +1120,9 @@ def db_rp_update_settings(session_id: int, turn_routing: str = None, response_st
     if lorebooks is not None:
         updates.append("lorebooks = ?")
         params.append(lorebooks)
+    if bg_image is not None:
+        updates.append("bg_image = ?")
+        params.append(bg_image)
     if updates:
         updates.append("updated_at = datetime('now')")
         params.append(session_id)
@@ -1311,7 +1324,7 @@ def db_school_get_messages(session_id: int) -> list[dict]:
 def db_school_get_session(session_id: int) -> Optional[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute(
-        "SELECT id, title, card_filename, persona_filename, stack_config, console_events, lorebooks FROM school_sessions WHERE id = ?",
+        "SELECT id, title, card_filename, persona_filename, stack_config, console_events, lorebooks, bg_image FROM school_sessions WHERE id = ?",
         (session_id,),
     ).fetchone()
     conn.close()
@@ -1321,6 +1334,7 @@ def db_school_get_session(session_id: int) -> Optional[dict]:
         "id": row[0], "title": row[1], "card_filename": row[2],
         "persona_filename": row[3], "stack_config": row[4], "console_events": row[5],
         "lorebooks": row[6] if len(row) > 6 and row[6] else None,
+        "bg_image": row[7] if len(row) > 7 and row[7] else None,
     }
 
 
@@ -1480,7 +1494,7 @@ def db_school_update_session_meta(session_id: int, persona_filename: str = None,
 
 
 def db_school_update_settings(session_id: int, stack_config: str = None, response_style: str = None,
-                              lorebooks: str = None) -> None:
+                              lorebooks: str = None, bg_image: str = None) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     if stack_config is not None:
         conn.execute("UPDATE school_sessions SET stack_config = ?, updated_at = datetime('now') WHERE id = ?",
@@ -1491,6 +1505,9 @@ def db_school_update_settings(session_id: int, stack_config: str = None, respons
     if lorebooks is not None:
         conn.execute("UPDATE school_sessions SET lorebooks = ?, updated_at = datetime('now') WHERE id = ?",
                      (lorebooks, session_id))
+    if bg_image is not None:
+        conn.execute("UPDATE school_sessions SET bg_image = ?, updated_at = datetime('now') WHERE id = ?",
+                     (bg_image, session_id))
     conn.commit()
     conn.close()
 

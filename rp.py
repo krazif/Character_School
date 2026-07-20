@@ -211,6 +211,7 @@ async def ws_rp(ws: WebSocket):
                     "console_events": [],
                     "console_events_truncated": False,
                     "system_prompt": _sys_prompt,
+                    "bg_image": None,  # new session — no per-session bg yet
                 })
 
                 # Send first_mes from all characters
@@ -287,6 +288,7 @@ async def ws_rp(ws: WebSocket):
                     "console_events": [],
                     "console_events_truncated": len(json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else []) > 0,
                     "system_prompt": _sys_prompt,
+                    "bg_image": sess.get("bg_image"),
                 })
 
             elif data["type"] == "user_message":
@@ -795,6 +797,12 @@ async def ws_rp(ws: WebSocket):
                     response_style = data.get("response_style", response_style)
                     db.db_rp_update_settings(session_id, turn_routing, response_style)
                     await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, turn_routing, response_style) if character_order else ""})
+
+            elif data["type"] == "set_bg_image":
+                if session_id:
+                    bg_url = data.get("url")  # may be None to clear
+                    db.db_rp_update_settings(session_id, bg_image=bg_url if bg_url else "")
+                    await _safe_send({"type": "bg_image_updated", "bg_image": bg_url or None})
 
             elif data["type"] == "update_stack":
                 if session_id:

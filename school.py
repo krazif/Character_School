@@ -653,6 +653,7 @@ async def ws_chat(ws: WebSocket):
                         "stack_config": stack_cfg,
                         "lorebooks": [],
                         "system_prompt": system_prompt,
+                        "bg_image": None,  # new session — no per-session bg yet
                     })
 
                     # Send first_mes
@@ -728,6 +729,7 @@ async def ws_chat(ws: WebSocket):
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
                     "response_style": school_response_style,
                     "system_prompt": system_prompt,
+                    "bg_image": sess.get("bg_image"),
                 })
 
             elif data["type"] == "user_message":
@@ -1275,6 +1277,12 @@ async def ws_chat(ws: WebSocket):
                 if session_id:
                     db.db_school_update_settings(session_id, response_style=school_response_style)
                 await ws.send_json({"type": "response_style_updated", "style": school_response_style, "system_prompt": system_prompt})
+
+            elif data["type"] == "set_bg_image":
+                if session_id:
+                    bg_url = data.get("url")  # may be None to clear
+                    db.db_school_update_settings(session_id, bg_image=bg_url if bg_url else "")
+                    await ws.send_json({"type": "bg_image_updated", "bg_image": bg_url or None})
 
             elif data["type"] == "get_report":
                 assistant_msgs = db.db_school_get_assistant_messages(session_id)

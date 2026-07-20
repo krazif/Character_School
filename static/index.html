@@ -2066,6 +2066,8 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('btnSchoolGenScene').disabled = false;
       // Show style toggle
       document.getElementById('schoolStyleToggleWrap').style.display = '';
+      // Apply per-session bg or fall back to global
+      applyBgImage(data.bg_image || localStorage.getItem('cs_bg_image') || '', parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85, false);
       // Enable input — first_mes has no analysis, arrives instantly
       isWaiting = false;
       updateInputState();
@@ -2158,6 +2160,10 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.querySelectorAll('.school-session-item').forEach(el => {
         el.classList.toggle('active', parseInt(el.dataset.sessionId) === schoolActiveSessionId);
       });
+      // Apply per-session bg or fall back to global
+      applyBgImage(data.bg_image || localStorage.getItem('cs_bg_image') || '', parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85, false);
+    } else if (data.type === 'bg_image_updated') {
+      // Server confirmed per-session bg update — no action needed
     } else if (data.type === 'stack_updated') {
       // Stack config updated (e.g., auto-summary ran)
       if (data.stack_config) {
@@ -3063,7 +3069,7 @@ function applyTheme(name) {
     s.classList.toggle('selected', s.dataset.theme === name);
   });
 }
-function applyBgImage(url, overlay) {
+function applyBgImage(url, overlay, persistLocal = true) {
   const r = document.documentElement;
   if (url && url.trim()) {
     r.style.setProperty('--bg-image', `url("${url.trim()}")`);
@@ -3073,8 +3079,10 @@ function applyBgImage(url, overlay) {
   if (overlay != null) {
     r.style.setProperty('--bubble-opacity', String(overlay));
   }
-  localStorage.setItem('cs_bg_image', url || '');
-  localStorage.setItem('cs_bg_overlay', String(overlay ?? 0.85));
+  if (persistLocal) {
+    localStorage.setItem('cs_bg_image', url || '');
+    localStorage.setItem('cs_bg_overlay', String(overlay ?? 0.85));
+  }
 }
 
 // ── Background Panel (RP only) ───────────────────────────────────
@@ -3088,6 +3096,16 @@ function toggleBgPanel() {
   const panel = document.getElementById('bgPanel');
   if (panel) panel.classList.toggle('show');
 }
+function persistSessionBg(url) {
+  // Persist bg to active session via WS (both School and RP)
+  if (typeof ws !== 'undefined' && ws.readyState === 1 && schoolActiveSessionId) {
+    ws.send(JSON.stringify({ type: 'set_bg_image', url: url || null }));
+  }
+  if (typeof rpWS !== 'undefined' && rpWS.readyState === 1 && rpActiveSessionId) {
+    rpWS.send(JSON.stringify({ type: 'set_bg_image', url: url || null }));
+  }
+}
+
 function renderBgPanel() {
   const grid = document.getElementById('bgPanelGrid');
   if (!grid) return;
@@ -3101,6 +3119,7 @@ function renderBgPanel() {
   noneEl.title = 'No background';
   noneEl.onclick = () => {
     applyBgImage('', null);
+    persistSessionBg(null);
     renderBgPanel();
   };
   grid.appendChild(noneEl);
@@ -3112,6 +3131,7 @@ function renderBgPanel() {
     el.title = 'Click to apply';
     el.onclick = () => {
       applyBgImage(url, null);
+      persistSessionBg(url);
       renderBgPanel();
     };
     const rm = document.createElement('button');
@@ -3136,6 +3156,7 @@ function addBgFromUpload(file) {
       list.push(data.url);
       setBgList(list);
       applyBgImage(data.url, null);
+      persistSessionBg(data.url);
       renderBgPanel();
     })
     .catch(err => alert('Upload failed: ' + err.message));
@@ -3148,6 +3169,7 @@ function addBgFromUrl() {
   list.push(url);
   setBgList(list);
   applyBgImage(url, null);
+  persistSessionBg(url);
   input.value = '';
   renderBgPanel();
 }
@@ -3158,6 +3180,7 @@ function removeBgImage(index) {
   // If active bg was removed, clear it
   if (localStorage.getItem('cs_bg_image') === removed) {
     applyBgImage('', null);
+    persistSessionBg(null);
   }
   // Delete server-uploaded files from disk (skip data URLs and external URLs)
   if (removed && removed.startsWith('/api/bg/')) {
@@ -3202,16 +3225,14 @@ function buildThemeSwatches() {
   const savedOverlay = parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85;
   // apply immediately (before DOM is fully ready, CSS vars on :root work)
   applyTheme(savedTheme);
-   applyBgImage(savedBg, savedOverlay);
+  applyBgImage(savedBg, savedOverlay);
   // populate settings when DOM is ready
   document.addEventListener('DOMContentLoaded', () => {
     buildThemeSwatches();
     applyTheme(savedTheme); // update swatch selection
     renderBgPanel();
-    const bgInput = null;
     const ovInput = document.getElementById('cfgBgOverlay');
     const ovVal = document.getElementById('bgOverlayVal');
-    if (ovInput) ovInput.value = savedOverlay;
     if (ovInput) ovInput.value = savedOverlay;
     if (ovVal) ovVal.textContent = savedOverlay;
     initConsoleLimit();
@@ -3413,10 +3434,12 @@ function handleRPMessage(data) {
     renderRPSceneBar();
     // Clear virtual scroll state
     clearRPChat();
-    document.getElementById('rpInputArea').style.display = 'flex';
-    rpIsWaiting = false;
-    updateRPInputState();
-    loadRPSessions();
+     document.getElementById('rpInputArea').style.display = 'flex';
+     rpIsWaiting = false;
+     updateRPInputState();
+     // Apply per-session bg or fall back to global
+     applyBgImage(data.bg_image || localStorage.getItem('cs_bg_image') || '', parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85, false);
+     loadRPSessions();
    } else if (data.type === 'session_resumed') {
      rpActiveSessionId = data.session_id;
      rpCharacters = data.characters;
@@ -3488,10 +3511,12 @@ function handleRPMessage(data) {
     document.getElementById('rpInputArea').style.display = 'flex';
     rpIsWaiting = false;
     updateRPInputState();
-    // Highlight active session in sidebar
-    document.querySelectorAll('.rp-session-item').forEach(el => {
-      el.classList.toggle('active', parseInt(el.dataset.sessionId) === rpActiveSessionId);
-    });
+     // Apply per-session bg or fall back to global
+     applyBgImage(data.bg_image || localStorage.getItem('cs_bg_image') || '', parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85, false);
+     // Highlight active session in sidebar
+     document.querySelectorAll('.rp-session-item').forEach(el => {
+       el.classList.toggle('active', parseInt(el.dataset.sessionId) === rpActiveSessionId);
+     });
     } else if (data.type === 'character_message') {
       if (data.regenerated) {
         // Update existing message (swipe) instead of adding new
@@ -3536,15 +3561,17 @@ function handleRPMessage(data) {
     }
   } else if (data.type === 'summary_updated') {
     showRPSummaryBar(data.summary, data.summarized_count);
-  } else if (data.type === 'settings_updated') {
-    rpTurnRouting = data.turn_routing;
-    rpResponseStyle = data.response_style;
-    if (data.system_prompt !== undefined) {
-      rpSystemPrompt = data.system_prompt;
-      if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
-    }
-    renderRPSceneBar();
-  } else if (data.type === 'stack_updated') {
+   } else if (data.type === 'settings_updated') {
+     rpTurnRouting = data.turn_routing;
+     rpResponseStyle = data.response_style;
+     if (data.system_prompt !== undefined) {
+       rpSystemPrompt = data.system_prompt;
+       if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
+     }
+     renderRPSceneBar();
+   } else if (data.type === 'bg_image_updated') {
+     // Server confirmed per-session bg update — no action needed, UI already applied
+   } else if (data.type === 'stack_updated') {
     rpStackConfig = data.stack_config;
     if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
