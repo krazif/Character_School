@@ -204,7 +204,6 @@ async def ws_rp(ws: WebSocket):
                         [cards[fn] for fn in character_order],
                         persona, turn_routing, response_style,
                         pov=pov, inner_monologue=inner_monologue,
-                        model=db.CHAT_MODEL, enable_thinking=db.CHAT_ENABLE_THINKING,
                     )
                 except Exception:
                     _sys_prompt = ""
@@ -280,7 +279,6 @@ async def ws_rp(ws: WebSocket):
                         [cards[fn] for fn in character_order],
                         persona, turn_routing, response_style,
                         pov=pov, inner_monologue=inner_monologue,
-                        model=db.CHAT_MODEL, enable_thinking=db.CHAT_ENABLE_THINKING,
                     )
                 except Exception:
                     _sys_prompt = ""
@@ -338,7 +336,6 @@ async def ws_rp(ws: WebSocket):
                             persona, turn_routing, response_style,
                             directed_character=character_names.get(directed_to) if directed_to else None,
                             pov=pov, inner_monologue=inner_monologue,
-                            model=db.CHAT_MODEL, enable_thinking=db.CHAT_ENABLE_THINKING,
                         )
 
                         # Build LLM messages from stack config
@@ -389,7 +386,7 @@ async def ws_rp(ws: WebSocket):
                         kwargs = dict(
                             model=db.CHAT_MODEL, messages=llm_messages,
                             temperature=db.CHAT_TEMPERATURE, max_tokens=effective_max_tokens,
-                            extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+                            extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
                         )
                         if db.CHAT_TOP_P is not None:
                             kwargs["top_p"] = db.CHAT_TOP_P
@@ -532,7 +529,6 @@ async def ws_rp(ws: WebSocket):
                                 persona, turn_routing, response_style,
                                 directed_character=character_names.get(directed_to) if directed_to else None,
                                 pov=pov, inner_monologue=inner_monologue,
-                                model=db.CHAT_MODEL, enable_thinking=db.CHAT_ENABLE_THINKING,
                             )
 
                             all_msgs = db.db_rp_get_messages(session_id)
@@ -580,7 +576,7 @@ async def ws_rp(ws: WebSocket):
                             kwargs = dict(
                                 model=db.CHAT_MODEL, messages=llm_messages,
                                 temperature=db.CHAT_TEMPERATURE, max_tokens=effective_max_tokens,
-                                extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+                                extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
                             )
                             if db.CHAT_TOP_P is not None:
                                 kwargs["top_p"] = db.CHAT_TOP_P
@@ -713,7 +709,6 @@ async def ws_rp(ws: WebSocket):
                                 persona, turn_routing, response_style,
                                 directed_character=character_names.get(directed_to) if directed_to else None,
                                 pov=pov, inner_monologue=inner_monologue,
-                                model=db.CHAT_MODEL, enable_thinking=db.CHAT_ENABLE_THINKING,
                             )
 
                             all_msgs = db.db_rp_get_messages(session_id)
@@ -759,7 +754,7 @@ async def ws_rp(ws: WebSocket):
                             kwargs = dict(
                                 model=db.CHAT_MODEL, messages=llm_messages,
                                 temperature=db.CHAT_TEMPERATURE, max_tokens=effective_max_tokens,
-                                extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+                                extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
                             )
                             if db.CHAT_TOP_P is not None:
                                 kwargs["top_p"] = db.CHAT_TOP_P
@@ -841,7 +836,7 @@ async def ws_rp(ws: WebSocket):
                     inner_monologue = data.get("inner_monologue", inner_monologue)
                     auto_continue = data.get("auto_continue", auto_continue)
                     db.db_rp_update_settings(session_id, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue, auto_continue=auto_continue)
-                    await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue, model=db.CHAT_MODEL, enable_thinking=db.CHAT_ENABLE_THINKING) if character_order else ""})
+                    await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
 
             elif data["type"] == "set_bg_image":
                 if session_id:

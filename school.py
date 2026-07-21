@@ -589,8 +589,7 @@ async def ws_chat(ws: WebSocket):
         nonlocal system_prompt, analysis_prompt
         _user_name = persona.get("name", "User") if persona else "User"
         system_prompt = engine.build_system_prompt(card, user_name=_user_name, response_style=school_response_style,
-                                                   pov=school_pov, inner_monologue=school_inner_monologue,
-                                                   model=db.CHAT_MODEL, enable_thinking=db.CHAT_ENABLE_THINKING)
+                                                   pov=school_pov, inner_monologue=school_inner_monologue)
         analysis_prompt = engine.build_analysis_prompt(card)
         if persona:
             system_prompt = system_prompt + "\n\n" + engine.build_persona_context(persona)
@@ -826,7 +825,7 @@ async def ws_chat(ws: WebSocket):
                             messages=llm_messages,
                             temperature=db.CHAT_TEMPERATURE,
                             max_tokens=effective_max_tokens,
-                            extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+                            extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
                         )
                         if db.CHAT_TOP_P is not None:
                             kwargs["top_p"] = db.CHAT_TOP_P
@@ -1053,7 +1052,7 @@ async def ws_chat(ws: WebSocket):
                                 messages=llm_messages,
                                 temperature=db.CHAT_TEMPERATURE,
                                 max_tokens=effective_max_tokens,
-                                extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+                                extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
                             )
                             if db.CHAT_TOP_P is not None:
                                 kwargs["top_p"] = db.CHAT_TOP_P
@@ -1202,7 +1201,7 @@ async def ws_chat(ws: WebSocket):
                                 messages=llm_messages,
                                 temperature=db.CHAT_TEMPERATURE,
                                 max_tokens=effective_max_tokens,
-                                extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+                                extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
                             )
                             if db.CHAT_TOP_P is not None:
                                 kwargs["top_p"] = db.CHAT_TOP_P
@@ -1526,7 +1525,7 @@ async def generate_character(req: Request):
             messages=messages,
             temperature=0.9,
             max_tokens=4000,
-            extra_body={"enable_thinking": db.CHAT_ENABLE_THINKING},
+            extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
         )
         raw = completion.choices[0].message.content or ""
 
