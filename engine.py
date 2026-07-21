@@ -261,7 +261,7 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
         parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
     # Response style directive (simplified — caps + auto-continue handle enforcement)
     if response_style == 'short':
-        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Keep it short. Prefer dialogue and action over description.]")
+        parts.append("\n\n[IMPORTANT — Keep your response length under 150 words. Never end on handover cues; finish naturally.]")
     elif response_style == 'moderate':
         parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Moderate length. Balance dialogue, action beats, and description.]")
     elif response_style == 'long':
@@ -477,7 +477,7 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
 
     # Response style (simplified — caps + auto-continue handle enforcement)
     if response_style == 'short':
-        parts.append("[IMPORTANT — RESPONSE LENGTH: Keep it short. Prefer dialogue and action over description.]")
+        parts.append("[IMPORTANT — Keep your response length under 150 words. Never end on handover cues; finish naturally.]")
     elif response_style == 'moderate':
         parts.append("[IMPORTANT — RESPONSE LENGTH: Moderate length. Balance dialogue, action beats, and description.]")
     elif response_style == 'long':
