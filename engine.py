@@ -1042,7 +1042,7 @@ def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
     Tight caps force the LLM to finish naturally; auto-continue handles overflow.
     ~1.3 tokens/word for English (DeepSeek V4 Pro is ~3.4 tok/word for prose).
     short: ~150 words → 400 tokens max; moderate: ~300 words → 800 tokens max."""
-    caps = {'short': 500, 'moderate': 800}
+    caps = {'short': 280, 'moderate': 560}
     return caps.get(response_style, default)
 
 
@@ -1059,7 +1059,7 @@ async def maybe_auto_continue(
     finish_reason = initial_resp.choices[0].finish_reason
 
     cont_count = 0
-    while (auto_continue and response_style != "short"
+    while (auto_continue
            and finish_reason == "length" and cont_count < max_continuations):
         cont_count += 1
         cont_kwargs = dict(kwargs)
