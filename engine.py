@@ -263,11 +263,11 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
     if response_style == 'short':
         parts.append("\n\n[IMPORTANT — Keep your response length under 150 words. Never end on handover cues; finish naturally.]")
     elif response_style == 'moderate':
-        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Moderate length. Balance dialogue, action beats, and description.]")
+        parts.append("\n\n[IMPORTANT — Keep your response length between 150–300 words. Never end on handover cues; finish naturally.]")
     elif response_style == 'long':
-        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Write a full, detailed paragraph — include dialogue, actions, internal thoughts, body language, and emotional detail.]")
+        parts.append("\n\n[IMPORTANT — Keep your response length above 300 words. Include dialogue, actions, internal thoughts, body language, and emotional detail. Never end on handover cues; finish naturally.]")
     elif response_style == 'flexible':
-        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Choose your length naturally based on the scene.]")
+        parts.append("\n\n[IMPORTANT — Choose your response length naturally based on the scene. Keep it concise (up to 150 words) for dialogue and action; write longer (above 150 words) for scene transitions, establishing shots, and plot developments. Never end on handover cues; finish naturally.]")
     # POV / perspective directive
     _pov = _pov_directive(pov)
     if _pov:
@@ -479,11 +479,11 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     if response_style == 'short':
         parts.append("[IMPORTANT — Keep your response length under 150 words. Never end on handover cues; finish naturally.]")
     elif response_style == 'moderate':
-        parts.append("[IMPORTANT — RESPONSE LENGTH: Moderate length. Balance dialogue, action beats, and description.]")
+        parts.append("[IMPORTANT — Keep your response length between 150–300 words. Never end on handover cues; finish naturally.]")
     elif response_style == 'long':
-        parts.append("[IMPORTANT — RESPONSE LENGTH: Write a full, detailed paragraph — include dialogue, actions, internal thoughts, body language, and emotional detail.]")
+        parts.append("[IMPORTANT — Keep your response length above 300 words. Include dialogue, actions, internal thoughts, body language, and emotional detail. Never end on handover cues; finish naturally.]")
     elif response_style == 'flexible':
-        parts.append("[IMPORTANT — RESPONSE LENGTH: Choose your length naturally based on the scene.]")
+        parts.append("[IMPORTANT — Choose your response length naturally based on the scene. Keep it concise (up to 150 words) for dialogue and action; write longer (above 150 words) for scene transitions, establishing shots, and plot developments. Never end on handover cues; finish naturally.]")
     parts.append("")
 
     # POV / perspective directive
@@ -1038,12 +1038,10 @@ Return ONLY the JSON object."""},
 
 
 def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
-    """Map response_style to a max_tokens cap that matches the word-count target.
-    Tight caps force the LLM to finish naturally; auto-continue handles overflow.
-    ~1.3 tokens/word for English (DeepSeek V4 Pro is ~3.4 tok/word for prose).
-    short: ~150 words → 400 tokens max; moderate: ~300 words → 800 tokens max."""
-    caps = {'short': 280, 'moderate': 560}
-    return caps.get(response_style, default)
+    """Legacy: response styles now use prompt-level directives (Marinara-style).
+    max_tokens is controlled globally via endpoint preset settings.
+    Kept for backward compat but no longer used for per-style caps."""
+    return default
 
 
 async def maybe_auto_continue(

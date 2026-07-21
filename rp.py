@@ -370,8 +370,7 @@ async def ws_rp(ws: WebSocket):
                         else:
                             await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
 
-                        style_cap = engine.response_style_max_tokens(response_style, db.CHAT_MAX_TOKENS)
-                        effective_max_tokens = min(db.CHAT_MAX_TOKENS, style_cap)
+                        effective_max_tokens = db.CHAT_MAX_TOKENS
 
                         # Console: log request
                         await _safe_send({
@@ -561,8 +560,8 @@ async def ws_rp(ws: WebSocket):
                             else:
                                 await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
 
-                            style_cap = engine.response_style_max_tokens(response_style, db.CHAT_MAX_TOKENS)
-                            effective_max_tokens = min(db.CHAT_MAX_TOKENS, style_cap)
+                            effective_max_tokens = db.CHAT_MAX_TOKENS
+                            effective_max_tokens = db.CHAT_MAX_TOKENS
 
                             await _safe_send({
                                 "type": "console_event", "event": "request", "llm": "character",
@@ -748,8 +747,8 @@ async def ws_rp(ws: WebSocket):
                             else:
                                 await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
 
-                            style_cap = engine.response_style_max_tokens(response_style, db.CHAT_MAX_TOKENS)
-                            effective_max_tokens = min(db.CHAT_MAX_TOKENS, style_cap)
+                            effective_max_tokens = db.CHAT_MAX_TOKENS
+                            effective_max_tokens = db.CHAT_MAX_TOKENS
 
                             await _safe_send({
                                 "type": "console_event", "event": "request", "llm": "character",
