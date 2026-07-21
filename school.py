@@ -589,7 +589,8 @@ async def ws_chat(ws: WebSocket):
         nonlocal system_prompt, analysis_prompt
         _user_name = persona.get("name", "User") if persona else "User"
         system_prompt = engine.build_system_prompt(card, user_name=_user_name, response_style=school_response_style,
-                                                   pov=school_pov, inner_monologue=school_inner_monologue)
+                                                   pov=school_pov, inner_monologue=school_inner_monologue,
+                                                   model=db.CHAT_MODEL, enable_thinking=db.CHAT_ENABLE_THINKING)
         analysis_prompt = engine.build_analysis_prompt(card)
         if persona:
             system_prompt = system_prompt + "\n\n" + engine.build_persona_context(persona)

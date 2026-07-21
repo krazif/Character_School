@@ -205,8 +205,21 @@ def _inner_monologue_directive(enabled: bool) -> str:
     return ""
 
 
+def _gemma_no_think_directive() -> str:
+    """Return a no-think directive for Gemma models (which ignore enable_thinking param).
+    Gemma 4 uses <|think|> tokens internally; Ollama's OpenAI-compatible API silently
+    ignores the enable_thinking extra_body field, so we inject a prompt-level directive."""
+    return "[IMPORTANT — Do not use thinking tags, reasoning blocks, or internal monologue markers. Respond directly without <think> tags or any preamble. Output only character dialogue and action.]"
+
+
+def _needs_gemma_no_think(model: str, enable_thinking: bool) -> bool:
+    """Check if a Gemma-specific no-think directive is needed."""
+    return (not enable_thinking) and model and "gemma" in model.lower()
+
+
 def build_system_prompt(card: dict, user_name: str = "User", response_style: str = None,
-                        pov: str = None, inner_monologue: bool = False) -> str:
+                        pov: str = None, inner_monologue: bool = False,
+                        model: str = None, enable_thinking: bool = True) -> str:
     """Build the system prompt for the character LLM from any version card."""
     d = card.get("data", card)
     version = detect_card_version(card)
@@ -253,6 +266,9 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
     _im = _inner_monologue_directive(inner_monologue)
     if _im:
         parts.append(f"\n\n{_im}")
+    # Gemma no-think directive (when thinking is disabled and model is Gemma)
+    if _needs_gemma_no_think(model, enable_thinking):
+        parts.append(f"\n\n{_gemma_no_think_directive()}")
     return "\n".join(parts)
 
 
@@ -366,7 +382,8 @@ def get_first_mes(card: dict, user_name: str = "User") -> Optional[str]:
 def build_rp_system_prompt(cards: list[dict], persona: dict = None,
                            turn_routing: str = 'auto', response_style: str = 'moderate',
                            directed_character: str = None,
-                           pov: str = None, inner_monologue: bool = False) -> str:
+                           pov: str = None, inner_monologue: bool = False,
+                           model: str = None, enable_thinking: bool = True) -> str:
     """Build system prompt for multi-character RP."""
     parts = []
     parts.append("You are roleplaying as a character in a shared scene. The user is a participant in the scene.")
@@ -472,6 +489,10 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     _im = _inner_monologue_directive(inner_monologue)
     if _im:
         parts.append(_im)
+        parts.append("")
+    # Gemma no-think directive (when thinking is disabled and model is Gemma)
+    if _needs_gemma_no_think(model, enable_thinking):
+        parts.append(_gemma_no_think_directive())
         parts.append("")
 
     # Persona
