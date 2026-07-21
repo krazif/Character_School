@@ -1178,6 +1178,15 @@ async def ws_chat(ws: WebSocket):
                                         "content": lb_injection, "timestamp": engine._now_iso(),
                                     })
 
+                            # ── /continue: transform stack to extend last response ──
+                            last_char_content = ""
+                            for m in reversed(all_msgs):
+                                if m.get("role") == "assistant":
+                                    last_char_content = m.get("content", "")
+                                    break
+                            if last_char_content:
+                                llm_messages = engine.build_continue_messages(llm_messages, last_char_content)
+
                             await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
 
                             style_cap = engine.response_style_max_tokens(school_response_style, db.CHAT_MAX_TOKENS)

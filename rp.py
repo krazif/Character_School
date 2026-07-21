@@ -733,6 +733,15 @@ async def ws_rp(ws: WebSocket):
                                         "content": lb_injection, "timestamp": engine._now_iso(),
                                     })
 
+                            # ── /continue: transform stack to extend last response ──
+                            last_char_content = ""
+                            for m in reversed(all_msgs):
+                                if m.get("role") == "character":
+                                    last_char_content = m.get("content", "")
+                                    break
+                            if last_char_content:
+                                llm_messages = engine.build_continue_messages(llm_messages, last_char_content)
+
                             if not _ws_state[0]: return
                             if directed_to and directed_to in character_names:
                                 await _safe_send({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})

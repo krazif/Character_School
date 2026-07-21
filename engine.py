@@ -1101,6 +1101,26 @@ async def maybe_auto_continue(
     return raw_content, finish_reason
 
 
+def build_continue_messages(llm_messages: list, last_content: str) -> list:
+    """Transform a message stack for /continue: pop the last assistant message
+    from the tail, re-append it explicitly, then add a continuation directive
+    so the LLM picks up where it left off instead of regenerating."""
+    msgs = list(llm_messages)
+    # Find and remove the last assistant message from the tail
+    last_assistant_idx = None
+    for i in range(len(msgs) - 1, -1, -1):
+        if msgs[i].get("role") == "assistant":
+            last_assistant_idx = i
+            break
+    if last_assistant_idx is not None:
+        msgs = msgs[:last_assistant_idx] + msgs[last_assistant_idx + 1:]
+    # Re-append the last character content as an assistant turn
+    msgs.append({"role": "assistant", "content": last_content})
+    # Add continuation directive
+    msgs.append({"role": "user", "content": "[IMPORTANT — Continue your previous message. Do not repeat what you already said. Pick up exactly where you left off and continue naturally.]"})
+    return msgs
+
+
 def estimate_tokens(messages):
     """Rough token estimate: ~4 chars per token + 4 per message.
     Matches the frontend heuristic in estimateTokens()."""
