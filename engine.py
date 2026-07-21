@@ -213,12 +213,18 @@ def _is_gemma(model: str) -> bool:
 def build_extra_body(model: str, enable_thinking: bool) -> dict:
     """Build the extra_body for LLM calls, branching on model family.
 
-    Gemma (via Ollama) requires {'think': False} to disable thinking;
-    it silently ignores 'enable_thinking'. Other models (DeepSeek, Qwen)
-    use the standard 'enable_thinking' parameter.
+    Ollama's OpenAI-compatible /v1/chat/completions endpoint maps
+    reasoning_effort to the internal Think field:
+      "high"/"medium"/"low" → thinking ON
+      "none"                → thinking OFF
+    The native "think" param and "options.think" are silently ignored on
+    the compat endpoint. Gemma models go through Ollama; non-Gemma models
+    (DeepSeek, Qwen via OpenRouter etc.) use the standard enable_thinking.
     """
-    if not enable_thinking and _is_gemma(model):
-        return {"think": False}
+    if _is_gemma(model):
+        if not enable_thinking:
+            return {"reasoning_effort": "none"}
+        return {}  # Ollama auto-enables thinking for capable models
     return {"enable_thinking": enable_thinking}
 
 
