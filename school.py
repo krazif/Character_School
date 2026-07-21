@@ -582,6 +582,7 @@ async def ws_chat(ws: WebSocket):
     school_response_style = "moderate"
     school_pov = None
     school_inner_monologue = False
+    school_auto_continue = True  # auto-continue truncated responses (finish_reason=length)
 
     def _rebuild_prompts():
         """Rebuild system_prompt and analysis_prompt from card+persona."""
@@ -630,6 +631,9 @@ async def ws_chat(ws: WebSocket):
 
                     _rebuild_prompts()
 
+                    # Read auto_continue from client (defaults to True)
+                    school_auto_continue = data.get("auto_continue", True)
+
                     # Parse stack config from client or use default
                     stack_config_json = data.get("stack_config")
                     stack_config_str = json.dumps(stack_config_json) if stack_config_json else None
@@ -641,8 +645,10 @@ async def ws_chat(ws: WebSocket):
 
                     # Create school session
                     session_id = db.db_school_create_session(
-                        card_filename, persona_filename, stack_config_str, title=_title
+                        card_filename, persona_filename, stack_config_str, title=_title,
                     )
+                    # Persist auto_continue on new session
+                    db.db_school_update_settings(session_id, auto_continue=school_auto_continue)
 
                     # Get the effective stack config
                     sess = db.db_school_get_session(session_id)
@@ -659,6 +665,7 @@ async def ws_chat(ws: WebSocket):
                         "response_style": school_response_style,
                         "pov": school_pov,
                         "inner_monologue": school_inner_monologue,
+                        "auto_continue": school_auto_continue,
                         "bg_image": None,  # new session — no per-session bg yet
                     })
 
@@ -710,6 +717,7 @@ async def ws_chat(ws: WebSocket):
                 school_response_style = sess.get("response_style") or "moderate"
                 school_pov = sess.get("pov")
                 school_inner_monologue = sess.get("inner_monologue", False)
+                school_auto_continue = sess.get("auto_continue", True)
                 _rebuild_prompts()  # rebuild with restored style
 
                 messages = db.db_school_get_messages(session_id)
@@ -738,6 +746,7 @@ async def ws_chat(ws: WebSocket):
                     "response_style": school_response_style,
                     "pov": school_pov,
                     "inner_monologue": school_inner_monologue,
+                    "auto_continue": school_auto_continue,
                     "system_prompt": system_prompt,
                     "bg_image": sess.get("bg_image"),
                 })
@@ -843,6 +852,12 @@ async def ws_chat(ws: WebSocket):
                             "finish_reason": resp.choices[0].finish_reason,
                             "timestamp": engine._now_iso(),
                         })
+
+                        # ── Auto-continue if truncated (finish_reason=length) ──
+                        char_content, _final_fr = await engine.maybe_auto_continue(
+                            db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
+                            send_fn=ws.send_json,
+                        )
 
                         # Store in school DB (no auto-analysis)
                         msg_id = db.db_school_add_message(
@@ -1064,6 +1079,12 @@ async def ws_chat(ws: WebSocket):
                                 "timestamp": engine._now_iso(),
                             })
 
+                            # ── Auto-continue if truncated ──
+                            char_content, _final_fr = await engine.maybe_auto_continue(
+                                db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
+                                send_fn=ws.send_json,
+                            )
+
                             swipe_info = db.db_school_add_swipe(session_id, target_id, char_content)
 
                             await ws.send_json({
@@ -1207,6 +1228,12 @@ async def ws_chat(ws: WebSocket):
                                 "timestamp": engine._now_iso(),
                             })
 
+                            # ── Auto-continue if truncated ──
+                            char_content, _final_fr = await engine.maybe_auto_continue(
+                                db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
+                                send_fn=ws.send_json,
+                            )
+
                             msg_id = db.db_school_add_message(
                                 session_id, "assistant", char_content,
                                 is_first_mes=False, analysis_json=None
@@ -1282,22 +1309,26 @@ async def ws_chat(ws: WebSocket):
 
             elif data["type"] == "set_response_style":
                 school_response_style = data.get("style", "moderate")
+                school_auto_continue = data.get("auto_continue", school_auto_continue)
                 if card:
                     _rebuild_prompts()
                 if session_id:
                     db.db_school_update_settings(session_id, response_style=school_response_style)
-                await ws.send_json({"type": "response_style_updated", "style": school_response_style, "pov": school_pov, "inner_monologue": school_inner_monologue, "system_prompt": system_prompt})
+                    db.db_school_update_settings(session_id, auto_continue=school_auto_continue)
+                await ws.send_json({"type": "response_style_updated", "style": school_response_style, "pov": school_pov, "inner_monologue": school_inner_monologue, "auto_continue": school_auto_continue, "system_prompt": system_prompt})
 
             elif data["type"] == "update_settings":
                 if data.get("pov") is not None:
                     school_pov = data.get("pov")
                 if data.get("inner_monologue") is not None:
                     school_inner_monologue = data.get("inner_monologue")
+                if data.get("auto_continue") is not None:
+                    school_auto_continue = data.get("auto_continue")
                 if card:
                     _rebuild_prompts()
                 if session_id:
-                    db.db_school_update_settings(session_id, pov=school_pov, inner_monologue=school_inner_monologue)
-                await ws.send_json({"type": "settings_updated", "pov": school_pov, "inner_monologue": school_inner_monologue, "system_prompt": system_prompt})
+                    db.db_school_update_settings(session_id, pov=school_pov, inner_monologue=school_inner_monologue, auto_continue=school_auto_continue)
+                await ws.send_json({"type": "settings_updated", "pov": school_pov, "inner_monologue": school_inner_monologue, "auto_continue": school_auto_continue, "system_prompt": system_prompt})
 
             elif data["type"] == "set_bg_image":
                 if session_id:

@@ -236,15 +236,15 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
     val = get_card_field(d, "mes_example", version)
     if val:
         parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
-    # Response style directive (Marinara-style word-count targets)
+    # Response style directive (simplified — caps + auto-continue handle enforcement)
     if response_style == 'short':
-        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: SHORT] Write a maximum of 150 words. This is a hard limit. Finish your response within 150 words — do NOT start a sentence you cannot finish. End naturally with a complete sentence. Prefer dialogue and action. No internal monologue. No long descriptions.")
+        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Keep it short. Prefer dialogue and action over description.]")
     elif response_style == 'moderate':
-        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: MODERATE] Write between 150-300 words. Finish your response within 300 words — do NOT start a sentence you cannot finish. Balance dialogue, action beats, and description.")
+        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Moderate length. Balance dialogue, action beats, and description.]")
     elif response_style == 'long':
-        parts.append("\n\nRESPONSE LENGTH: LONG. Write a full paragraph response — include dialogue, actions, internal thoughts, body language, and emotional detail.")
+        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Write a full, detailed paragraph — include dialogue, actions, internal thoughts, body language, and emotional detail.]")
     elif response_style == 'flexible':
-        parts.append("\n\nRESPONSE LENGTH: FLEXIBLE. Choose your response length based on the scene — a brief reply for quick dialogue exchanges, or a longer paragraph when the plot progresses or emotions run high.")
+        parts.append("\n\n[IMPORTANT — RESPONSE LENGTH: Choose your length naturally based on the scene.]")
     # POV / perspective directive
     _pov = _pov_directive(pov)
     if _pov:
@@ -452,15 +452,15 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
             parts.append("- Only respond as the directed character. Do not write dialogue for other characters.")
     parts.append("")
 
-    # Response style (Marinara-style word-count targets)
+    # Response style (simplified — caps + auto-continue handle enforcement)
     if response_style == 'short':
-        parts.append("[IMPORTANT — RESPONSE LENGTH: SHORT] Write a maximum of 150 words. This is a hard limit. Finish your response within 150 words — do NOT start a sentence you cannot finish. End naturally with a complete sentence. Prefer dialogue and action. No internal monologue. No long descriptions.")
+        parts.append("[IMPORTANT — RESPONSE LENGTH: Keep it short. Prefer dialogue and action over description.]")
     elif response_style == 'moderate':
-        parts.append("[IMPORTANT — RESPONSE LENGTH: MODERATE] Write between 150-300 words. Finish your response within 300 words — do NOT start a sentence you cannot finish. Balance dialogue, action beats, and description.")
+        parts.append("[IMPORTANT — RESPONSE LENGTH: Moderate length. Balance dialogue, action beats, and description.]")
     elif response_style == 'long':
-        parts.append("RESPONSE LENGTH: LONG. Write a full paragraph response — include dialogue, actions, internal thoughts, body language, and emotional detail.")
+        parts.append("[IMPORTANT — RESPONSE LENGTH: Write a full, detailed paragraph — include dialogue, actions, internal thoughts, body language, and emotional detail.]")
     elif response_style == 'flexible':
-        parts.append("RESPONSE LENGTH: FLEXIBLE. Choose your response length based on the scene — a brief reply for quick dialogue exchanges, or a longer paragraph when the plot progresses or emotions run high.")
+        parts.append("[IMPORTANT — RESPONSE LENGTH: Choose your length naturally based on the scene.]")
     parts.append("")
 
     # POV / perspective directive
@@ -1016,9 +1016,66 @@ Return ONLY the JSON object."""},
 
 def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
     """Map response_style to a max_tokens cap that matches the word-count target.
-    Roughly 1.5 tokens per word + small buffer."""
-    caps = {'short': 700, 'moderate': 1200}
+    Tight caps force the LLM to finish naturally; auto-continue handles overflow.
+    ~1.3 tokens/word for English (DeepSeek V4 Pro is ~3.4 tok/word for prose).
+    short: ~150 words → 600 tokens max (generous for token-hungry models like Gemma 4); moderate: ~300 words → 800 tokens max."""
+    caps = {'short': 600, 'moderate': 800}
     return caps.get(response_style, default)
+
+
+async def maybe_auto_continue(
+    client, kwargs: dict, initial_resp, auto_continue: bool,
+    response_style: str, send_fn=None, max_continuations: int = 3,
+) -> tuple:
+    """If initial response was truncated (finish_reason=length), auto-continue
+    by appending partial content as an assistant message and re-calling the API.
+    Logs each continuation via send_fn as console_event.
+    Does NOT re-log the initial response (call site handles that).
+    Returns (concatenated_content, final_finish_reason)."""
+    raw_content = initial_resp.choices[0].message.content or ""
+    finish_reason = initial_resp.choices[0].finish_reason
+
+    cont_count = 0
+    while (auto_continue and response_style != "short"
+           and finish_reason == "length" and cont_count < max_continuations):
+        cont_count += 1
+        cont_kwargs = dict(kwargs)
+        cont_kwargs["messages"] = list(kwargs["messages"]) + [
+            {"role": "assistant", "content": raw_content}
+        ]
+
+        if send_fn:
+            try:
+                await send_fn({
+                    "type": "console_event", "event": "auto_continue",
+                    "content": f"Auto-continuing ({cont_count}/{max_continuations}) — previous response was truncated, continuing…",
+                    "timestamp": _now_iso(),
+                })
+            except Exception:
+                pass
+
+        cont_resp = await client.chat.completions.create(**cont_kwargs)
+        cont_content = cont_resp.choices[0].message.content or ""
+        cont_finish = cont_resp.choices[0].finish_reason
+        cont_usage = cont_resp.usage
+
+        if send_fn:
+            try:
+                await send_fn({
+                    "type": "console_event", "event": "response", "llm": "character",
+                    "model": kwargs.get("model", ""), "content": cont_content,
+                    "usage": {"prompt_tokens": cont_usage.prompt_tokens,
+                              "completion_tokens": cont_usage.completion_tokens,
+                              "total_tokens": cont_usage.total_tokens} if cont_usage else None,
+                    "finish_reason": cont_finish, "timestamp": _now_iso(),
+                })
+            except Exception:
+                pass
+
+        raw_content += cont_content
+        finish_reason = cont_finish
+
+    return raw_content, finish_reason
 
 
 def estimate_tokens(messages):

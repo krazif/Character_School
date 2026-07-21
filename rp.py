@@ -124,6 +124,7 @@ async def ws_rp(ws: WebSocket):
     response_style = 'moderate'
     pov = None
     inner_monologue = False
+    auto_continue = True  # auto-continue truncated responses (finish_reason=length)
     current_gen_task = None  # background generation task (for stop support)
     _ws_state = [True]  # [is_alive] — mutable container to avoid nonlocal issues
 
@@ -161,6 +162,7 @@ async def ws_rp(ws: WebSocket):
                 response_style = data.get("response_style", "moderate")
                 pov = data.get("pov")
                 inner_monologue = data.get("inner_monologue", False)
+                auto_continue = data.get("auto_continue", True)
 
                 cards = {}
                 character_names = {}
@@ -211,7 +213,7 @@ async def ws_rp(ws: WebSocket):
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
                     "turn_routing": turn_routing, "response_style": response_style,
-                    "pov": pov, "inner_monologue": inner_monologue,
+                    "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue,
                     "stack_config": stack_config_json or db.DEFAULT_STACK_CONFIG,
                     "lorebooks": [],
                     "console_events": [],
@@ -244,6 +246,7 @@ async def ws_rp(ws: WebSocket):
                 response_style = sess["response_style"]
                 pov = sess.get("pov")
                 inner_monologue = sess.get("inner_monologue", False)
+                auto_continue = sess.get("auto_continue", True)
                 persona_filename = sess["persona_filename"]
 
                 cards = {}
@@ -291,7 +294,7 @@ async def ws_rp(ws: WebSocket):
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
                     "turn_routing": turn_routing, "response_style": response_style,
-                    "pov": pov, "inner_monologue": inner_monologue,
+                    "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue,
                     "stack_config": stack_cfg,
                     "lorebooks": session_lorebooks,
                     "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name"), "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt"), "seed": m.get("seed"), "swipes": m.get("swipes"), "active_swipe": m.get("active_swipe", 0)} for m in messages],
@@ -405,6 +408,13 @@ async def ws_rp(ws: WebSocket):
                             "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
                             "finish_reason": resp.choices[0].finish_reason, "timestamp": engine._now_iso(),
                         })
+
+                        # ── Auto-continue if truncated (finish_reason=length) ──
+                        if not _ws_state[0]: return
+                        raw_content, _final_fr = await engine.maybe_auto_continue(
+                            db.chat_client, kwargs, resp, auto_continue, response_style,
+                            send_fn=_safe_send,
+                        )
 
                         parsed = engine.parse_rp_response(raw_content, character_names, character_order)
 
@@ -589,6 +599,13 @@ async def ws_rp(ws: WebSocket):
                                 "finish_reason": resp.choices[0].finish_reason, "timestamp": engine._now_iso(),
                             })
 
+                            # ── Auto-continue if truncated ──
+                            if not _ws_state[0]: return
+                            raw_content, _final_fr = await engine.maybe_auto_continue(
+                                db.chat_client, kwargs, resp, auto_continue, response_style,
+                                send_fn=_safe_send,
+                            )
+
                             parsed = engine.parse_rp_response(raw_content, character_names, character_order)
 
                             if directed_to and directed_to in character_names:
@@ -760,6 +777,13 @@ async def ws_rp(ws: WebSocket):
                                 "finish_reason": resp.choices[0].finish_reason, "timestamp": engine._now_iso(),
                             })
 
+                            # ── Auto-continue if truncated ──
+                            if not _ws_state[0]: return
+                            raw_content, _final_fr = await engine.maybe_auto_continue(
+                                db.chat_client, kwargs, resp, auto_continue, response_style,
+                                send_fn=_safe_send,
+                            )
+
                             parsed = engine.parse_rp_response(raw_content, character_names, character_order)
 
                             if directed_to and directed_to in character_names:
@@ -810,8 +834,9 @@ async def ws_rp(ws: WebSocket):
                     response_style = data.get("response_style", response_style)
                     pov = data.get("pov", pov)
                     inner_monologue = data.get("inner_monologue", inner_monologue)
-                    db.db_rp_update_settings(session_id, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue)
-                    await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
+                    auto_continue = data.get("auto_continue", auto_continue)
+                    db.db_rp_update_settings(session_id, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue, auto_continue=auto_continue)
+                    await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
 
             elif data["type"] == "set_bg_image":
                 if session_id:

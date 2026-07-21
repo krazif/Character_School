@@ -619,6 +619,7 @@ body.rp-mode .school-only { display:none; }
         <div class="rp-toggle-btn" id="schoolStyleBtn" onclick="schoolCycleStyle()" title="Response length">Moderate</div>
         <select id="schoolPovSelect" class="rp-pov-select" onchange="schoolUpdateSetting('pov', this.value || null)" title="Perspective"></select>
         <div class="rp-toggle-btn" id="schoolImToggle" onclick="schoolUpdateSetting('inner_monologue', !schoolInnerMonologue)" title="Inner monologue">💭 OFF</div>
+        <div class="rp-toggle-btn active" id="schoolAcToggle" onclick="schoolUpdateSetting('auto_continue', !schoolAutoContinue)" title="Auto-continue truncated responses">🔄 ON</div>
       </div>
     </div>
     <div class="chat-messages" id="chatMessages">
@@ -2060,6 +2061,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolResponseStyle = data.response_style || 'moderate';
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
+      schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
       updateSchoolStyleButton();
       // Clear virtual scroll state
       clearSchoolChat();
@@ -2079,6 +2081,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       // Restore POV + inner monologue from session
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
+      schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
       updateSchoolStyleButton();
       // Apply per-session bg or fall back to global
       applyBgImage(data.bg_image || localStorage.getItem('cs_bg_image') || '', parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85, false);
@@ -2117,6 +2120,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolResponseStyle = data.response_style || 'moderate';
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
+      schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
       updateSchoolStyleButton();
       consoleEventCount = 0;
       schoolConsoleEvents = [];
@@ -2160,6 +2164,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       }
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
+      schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
       updateSchoolStyleButton();
       isWaiting = false;
       updateInputState();
@@ -2313,6 +2318,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolResponseStyle = data.style || 'moderate';
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
+      schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
       if (data.system_prompt !== undefined) {
         schoolSystemPrompt = data.system_prompt;
         if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
@@ -2321,6 +2327,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
     } else if (data.type === 'settings_updated') {
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
+      schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
       if (data.system_prompt !== undefined) {
         schoolSystemPrompt = data.system_prompt;
         if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
@@ -3294,6 +3301,7 @@ let rpTurnRouting = 'auto';
 let rpResponseStyle = 'moderate';
 let rpPov = null;
 let rpInnerMonologue = false;
+let rpAutoContinue = true;  // auto-continue truncated responses
 let rpLorebooks = []; // active lorebook filenames for RP session
 let schoolLorebooks = []; // active lorebook filenames for school session
 const rpStyleLabels = {short:'Short', moderate:'Moderate', long:'Long', flexible:'Flexible'};
@@ -3305,6 +3313,7 @@ const povTitles = {null:'Default (inherit from card)', 'first':'First person (I/
 let schoolResponseStyle = 'moderate';
 let schoolPov = null;
 let schoolInnerMonologue = false;
+let schoolAutoContinue = true;  // auto-continue truncated responses
 let rpStackConfig = null;
 let rpSystemPrompt = '';  // system prompt text from server for token estimation
 let stackDragSrc = null;
@@ -3468,6 +3477,7 @@ function handleRPMessage(data) {
     rpResponseStyle = data.response_style;
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
+    rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
     rpStackConfig = data.stack_config || null;
     if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     rpLorebooks = data.lorebooks || [];
@@ -3502,6 +3512,7 @@ function handleRPMessage(data) {
     rpResponseStyle = data.response_style;
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
+    rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
      rpStackConfig = data.stack_config || null;
      if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
      rpLorebooks = data.lorebooks || [];
@@ -3614,6 +3625,7 @@ function handleRPMessage(data) {
       rpResponseStyle = data.response_style;
       rpPov = data.pov || null;
       rpInnerMonologue = data.inner_monologue || false;
+      rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
       if (data.system_prompt !== undefined) {
         rpSystemPrompt = data.system_prompt;
         if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
@@ -3722,6 +3734,9 @@ function renderRPSceneBar() {
 
   // Inner monologue toggle
   html += `<div class="rp-toggle-btn ${rpInnerMonologue?'active':''}" onclick="rpUpdateSetting('inner_monologue', ${!rpInnerMonologue})" title="Inner monologue (Thoughts block)">💭 ${rpInnerMonologue ? 'ON' : 'OFF'}</div>`;
+
+  // Auto-continue toggle
+  html += `<div class="rp-toggle-btn ${rpAutoContinue?'active':''}" onclick="rpUpdateSetting('auto_continue', ${!rpAutoContinue})" title="Auto-continue truncated responses">🔄 ${rpAutoContinue ? 'ON' : 'OFF'}</div>`;
 
   // Stack Builder button
   html += `<div class="rp-toggle-btn" onclick="openStackBuilder()" title="Customize prompt stack">🔗 Prompts Stack</div>`;
@@ -3979,6 +3994,7 @@ function rpUpdateSetting(key, value) {
   // update local state immediately for responsive UI
   if (key === 'pov') rpPov = value || null;
   else if (key === 'inner_monologue') rpInnerMonologue = !!value;
+  else if (key === 'auto_continue') rpAutoContinue = !!value;
   else if (key === 'response_style') rpResponseStyle = value;
   else if (key === 'turn_routing') rpTurnRouting = value;
   renderRPSceneBar();
@@ -3995,7 +4011,7 @@ function schoolCycleStyle() {
   schoolResponseStyle = rpStyleOrder[(idx + 1) % rpStyleOrder.length];
   updateSchoolStyleButton();
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({type: 'set_response_style', style: schoolResponseStyle}));
+    ws.send(JSON.stringify({type: 'set_response_style', style: schoolResponseStyle, auto_continue: schoolAutoContinue}));
   }
 }
 
@@ -4030,11 +4046,18 @@ function updateSchoolStyleButton() {
     imBtn.textContent = `💭 ${schoolInnerMonologue ? 'ON' : 'OFF'}`;
     imBtn.classList.toggle('active', schoolInnerMonologue);
   }
+  // Update auto-continue toggle
+  const acBtn = document.getElementById('schoolAcToggle');
+  if (acBtn) {
+    acBtn.textContent = `🔄 ${schoolAutoContinue ? 'ON' : 'OFF'}`;
+    acBtn.classList.toggle('active', schoolAutoContinue);
+  }
 }
 
 function schoolUpdateSetting(key, value) {
   if (key === 'pov') schoolPov = value || null;
   else if (key === 'inner_monologue') schoolInnerMonologue = !!value;
+  else if (key === 'auto_continue') schoolAutoContinue = !!value;
   updateSchoolStyleButton();
   if (ws && ws.readyState === WebSocket.OPEN) {
     const update = {type: 'update_settings'};
