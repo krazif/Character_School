@@ -953,9 +953,9 @@ def db_rp_get_session(session_id: int) -> Optional[dict]:
         "console_events": row[6] if len(row) > 6 else None,
         "lorebooks": row[7] if len(row) > 7 and row[7] else None,
         "bg_image": row[8] if len(row) > 8 and row[8] else None,
-            "pov": row[8] if len(row) > 8 and row[8] else None,
-            "inner_monologue": bool(row[9]) if len(row) > 9 and row[9] else False,
-            "auto_continue": bool(row[10]) if len(row) > 10 and row[10] else False,
+            "pov": row[9] if len(row) > 9 and row[9] else None,
+            "inner_monologue": bool(row[10]) if len(row) > 10 and row[10] else False,
+            "auto_continue": bool(row[11]) if len(row) > 11 and row[11] else False,
             "characters": [{"card_filename": c[0], "char_name": c[1], "display_order": c[2]} for c in chars],
     }
 

@@ -1332,11 +1332,13 @@ async def ws_chat(ws: WebSocket):
                     school_inner_monologue = data.get("inner_monologue")
                 if data.get("auto_continue") is not None:
                     school_auto_continue = data.get("auto_continue")
+                if data.get("response_style") is not None:
+                    school_response_style = data.get("response_style")
                 if card:
                     _rebuild_prompts()
                 if session_id:
-                    db.db_school_update_settings(session_id, pov=school_pov, inner_monologue=school_inner_monologue, auto_continue=school_auto_continue)
-                await ws.send_json({"type": "settings_updated", "pov": school_pov, "inner_monologue": school_inner_monologue, "auto_continue": school_auto_continue, "system_prompt": system_prompt})
+                    db.db_school_update_settings(session_id, pov=school_pov, inner_monologue=school_inner_monologue, auto_continue=school_auto_continue, response_style=school_response_style)
+                await ws.send_json({"type": "settings_updated", "pov": school_pov, "inner_monologue": school_inner_monologue, "auto_continue": school_auto_continue, "response_style": school_response_style, "system_prompt": system_prompt})
 
             elif data["type"] == "set_bg_image":
                 if session_id:

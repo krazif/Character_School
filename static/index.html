@@ -616,7 +616,7 @@ body.rp-mode .school-only { display:none; }
       <button class="btn-reset" id="btnSchoolLore" onclick="openLorebookManager('school')" disabled style="background:var(--surface2);border:1px solid var(--border)">📖 Lorebooks</button>
       <button class="btn-reset" id="btnSchoolGenScene" onclick="openGenerateSceneModal('school')" disabled style="background:var(--surface2);border:1px solid var(--border)">🎨 Generate Scene</button>
       <div class="style-toggle-wrap" id="schoolStyleToggleWrap" style="display:none">
-        <div class="rp-toggle-btn" id="schoolStyleBtn" onclick="schoolCycleStyle()" title="Response length">Moderate</div>
+        <select class="rp-pov-select" id="schoolStyleSelect" onchange="schoolUpdateSetting('response_style', this.value)" title="Response length"></select>
         <select id="schoolPovSelect" class="rp-pov-select" onchange="schoolUpdateSetting('pov', this.value || null)" title="Perspective"></select>
         <div class="rp-toggle-btn" id="schoolImToggle" onclick="schoolUpdateSetting('inner_monologue', !schoolInnerMonologue)" title="Inner monologue">💭 OFF</div>
         <div class="rp-toggle-btn active" id="schoolAcToggle" onclick="schoolUpdateSetting('auto_continue', !schoolAutoContinue)" title="Auto-continue truncated responses">🔄 ON</div>
@@ -2328,6 +2328,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
       schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
+      if (data.response_style) schoolResponseStyle = data.response_style;
       if (data.system_prompt !== undefined) {
         schoolSystemPrompt = data.system_prompt;
         if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
@@ -3339,8 +3340,10 @@ function switchMode(mode) {
     loadRPSessions();
     // Populate persona select in setup
     populateRPPersonaSelect();
+    if (rpCharacters.length) renderRPSceneBar();
   } else if (mode === 'school') {
     loadSchoolSessions();
+    if (schoolActiveSessionId) updateSchoolStyleButton();
   }
 }
 
@@ -3720,9 +3723,12 @@ function renderRPSceneBar() {
 
   // Settings toggles
   html += `<div class="rp-toggle-btn ${rpTurnRouting==='auto'?'active':''}" onclick="rpUpdateSetting('turn_routing','${rpTurnRouting==='auto'?'directed':'auto'}')">${rpTurnRouting === 'auto' ? 'Auto' : 'Directed'}</div>`;
-  const _styleIdx = rpStyleOrder.indexOf(rpResponseStyle);
-  const _nextStyle = rpStyleOrder[(_styleIdx + 1) % rpStyleOrder.length];
-  html += `<div class="rp-toggle-btn ${rpResponseStyle!=='long'?'active':''}" onclick="rpUpdateSetting('response_style','${_nextStyle}')" title="${rpStyleTokens[rpResponseStyle]}">${rpStyleLabels[rpResponseStyle]} (${rpStyleTokens[rpResponseStyle]})</div>`;
+  // Response style dropdown
+  html += `<select class="rp-pov-select" onchange="rpUpdateSetting('response_style', this.value)" title="Response length">`;
+  rpStyleOrder.forEach(st => {
+    html += `<option value="${st}" ${rpResponseStyle===st?'selected':''}>${rpStyleLabels[st]} (${rpStyleTokens[st]})</option>`;
+  });
+  html += `</select>`;
 
   // POV selector dropdown
   html += `<select class="rp-pov-select" onchange="rpUpdateSetting('pov', this.value || null)" title="${povTitles[rpPov]||'Perspective'}">`;
@@ -4006,21 +4012,19 @@ function rpUpdateSetting(key, value) {
 }
 
 // ─── School Response Style ──────────────────────
-function schoolCycleStyle() {
-  const idx = rpStyleOrder.indexOf(schoolResponseStyle);
-  schoolResponseStyle = rpStyleOrder[(idx + 1) % rpStyleOrder.length];
-  updateSchoolStyleButton();
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({type: 'set_response_style', style: schoolResponseStyle, auto_continue: schoolAutoContinue}));
-  }
-}
-
 function updateSchoolStyleButton() {
-  const btn = document.getElementById('schoolStyleBtn');
-  if (btn) {
-    btn.textContent = rpStyleLabels[schoolResponseStyle];
-    btn.title = `Response length: ${rpStyleLabels[schoolResponseStyle]} (${rpStyleTokens[schoolResponseStyle]})`;
-    btn.classList.toggle('active', schoolResponseStyle !== 'long');
+  // Populate and update response style dropdown
+  const styleSel = document.getElementById('schoolStyleSelect');
+  if (styleSel) {
+    if (styleSel.options.length === 0) {
+      rpStyleOrder.forEach(st => {
+        const opt = document.createElement('option');
+        opt.value = st;
+        opt.textContent = `${rpStyleLabels[st]} (${rpStyleTokens[st]})`;
+        styleSel.appendChild(opt);
+      });
+    }
+    styleSel.value = schoolResponseStyle || 'moderate';
   }
   // Update POV dropdown
   const povSelect = document.getElementById('schoolPovSelect');
@@ -4058,6 +4062,7 @@ function schoolUpdateSetting(key, value) {
   if (key === 'pov') schoolPov = value || null;
   else if (key === 'inner_monologue') schoolInnerMonologue = !!value;
   else if (key === 'auto_continue') schoolAutoContinue = !!value;
+  else if (key === 'response_style') schoolResponseStyle = value;
   updateSchoolStyleButton();
   if (ws && ws.readyState === WebSocket.OPEN) {
     const update = {type: 'update_settings'};
