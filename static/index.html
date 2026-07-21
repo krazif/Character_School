@@ -420,9 +420,13 @@ body.rp-mode .school-only { display:none; }
 .rp-setup-row { display:flex; gap:16px; }
 .rp-setup-row > * { flex:1; }
 .rp-toggle-group { display:flex; gap:4px; }
-.rp-toggle-btn { flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface2); color:var(--text-dim); cursor:pointer; font-size:13px; text-align:center; transition:all 0.15s; }
-.rp-toggle-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(88,166,255,0.08); }
-.rp-toggle-btn:hover { color:var(--text); }
+ .rp-toggle-btn { flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface2); color:var(--text-dim); cursor:pointer; font-size:13px; text-align:center; transition:all 0.15s; white-space:nowrap; }
+ .rp-toggle-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(88,166,255,0.08); }
+ .rp-toggle-btn:hover { color:var(--text); }
+ .rp-pov-select { padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface2); color:var(--text); cursor:pointer; font-size:13px; outline:none; transition:all 0.15s; flex:0 0 auto; }
+ .rp-pov-select:hover { border-color:var(--accent); }
+ .rp-pov-select:focus { border-color:var(--accent); }
+ .rp-pov-select option { background:var(--surface2); color:var(--text); }
 .rp-num-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:13px; }
 .rp-num-input:focus { outline:none; border-color:var(--accent); }
 .rp-setup-footer { padding:12px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
@@ -613,6 +617,8 @@ body.rp-mode .school-only { display:none; }
       <button class="btn-reset" id="btnSchoolGenScene" onclick="openGenerateSceneModal('school')" disabled style="background:var(--surface2);border:1px solid var(--border)">🎨 Generate Scene</button>
       <div class="style-toggle-wrap" id="schoolStyleToggleWrap" style="display:none">
         <div class="rp-toggle-btn" id="schoolStyleBtn" onclick="schoolCycleStyle()" title="Response length">Moderate</div>
+        <select id="schoolPovSelect" class="rp-pov-select" onchange="schoolUpdateSetting('pov', this.value || null)" title="Perspective"></select>
+        <div class="rp-toggle-btn" id="schoolImToggle" onclick="schoolUpdateSetting('inner_monologue', !schoolInnerMonologue)" title="Inner monologue">💭 OFF</div>
       </div>
     </div>
     <div class="chat-messages" id="chatMessages">
@@ -2051,6 +2057,10 @@ function connectWS(filename, personaFilename, resumeSessionId) {
         schoolStackConfig._systemPromptText = schoolSystemPrompt;
       }
       schoolLorebooks = data.lorebooks || [];
+      schoolResponseStyle = data.response_style || 'moderate';
+      schoolPov = data.pov || null;
+      schoolInnerMonologue = data.inner_monologue || false;
+      updateSchoolStyleButton();
       // Clear virtual scroll state
       clearSchoolChat();
       // Clear console for new session
@@ -2066,6 +2076,10 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('btnSchoolGenScene').disabled = false;
       // Show style toggle
       document.getElementById('schoolStyleToggleWrap').style.display = '';
+      // Restore POV + inner monologue from session
+      schoolPov = data.pov || null;
+      schoolInnerMonologue = data.inner_monologue || false;
+      updateSchoolStyleButton();
       // Apply per-session bg or fall back to global
       applyBgImage(data.bg_image || localStorage.getItem('cs_bg_image') || '', parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85, false);
       // Enable input — first_mes has no analysis, arrives instantly
@@ -2100,6 +2114,10 @@ function connectWS(filename, personaFilename, resumeSessionId) {
         schoolStackConfig._systemPromptText = schoolSystemPrompt;
       }
       schoolLorebooks = data.lorebooks || [];
+      schoolResponseStyle = data.response_style || 'moderate';
+      schoolPov = data.pov || null;
+      schoolInnerMonologue = data.inner_monologue || false;
+      updateSchoolStyleButton();
       consoleEventCount = 0;
       schoolConsoleEvents = [];
       document.getElementById('consoleCount').textContent = '0';
@@ -2139,8 +2157,10 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       document.getElementById('schoolStyleToggleWrap').style.display = '';
       if (data.response_style) {
         schoolResponseStyle = data.response_style;
-        updateSchoolStyleButton();
       }
+      schoolPov = data.pov || null;
+      schoolInnerMonologue = data.inner_monologue || false;
+      updateSchoolStyleButton();
       isWaiting = false;
       updateInputState();
       // Update char name display
@@ -2289,6 +2309,23 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       hideSchoolTyping();
       updateInputState();
       addMessage('system', '⏹ Generation stopped', null, false, null, null, null);
+    } else if (data.type === 'response_style_updated') {
+      schoolResponseStyle = data.style || 'moderate';
+      schoolPov = data.pov || null;
+      schoolInnerMonologue = data.inner_monologue || false;
+      if (data.system_prompt !== undefined) {
+        schoolSystemPrompt = data.system_prompt;
+        if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
+      }
+      updateSchoolStyleButton();
+    } else if (data.type === 'settings_updated') {
+      schoolPov = data.pov || null;
+      schoolInnerMonologue = data.inner_monologue || false;
+      if (data.system_prompt !== undefined) {
+        schoolSystemPrompt = data.system_prompt;
+        if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
+      }
+      updateSchoolStyleButton();
     }
   };
 
@@ -3255,12 +3292,19 @@ let rpCharacters = [];      // [{filename, name}]
 let rpPersonaFilename = null;
 let rpTurnRouting = 'auto';
 let rpResponseStyle = 'moderate';
+let rpPov = null;
+let rpInnerMonologue = false;
 let rpLorebooks = []; // active lorebook filenames for RP session
 let schoolLorebooks = []; // active lorebook filenames for school session
 const rpStyleLabels = {short:'Short', moderate:'Moderate', long:'Long', flexible:'Flexible'};
 const rpStyleOrder = ['short','moderate','long','flexible'];
 const rpStyleTokens = {short:'<150 words', moderate:'150-300 words', long:'>300 words', flexible:'dynamic'};
+const povLabels = {null:'Auto', 'first':'1st', 'second':'2nd', 'third':'3rd'};
+const povOrder = ['first','second','third'];
+const povTitles = {null:'Default (inherit from card)', 'first':'First person (I/me)', 'second':'Second person (you)', 'third':'Third person (she/he/they)'};
 let schoolResponseStyle = 'moderate';
+let schoolPov = null;
+let schoolInnerMonologue = false;
 let rpStackConfig = null;
 let rpSystemPrompt = '';  // system prompt text from server for token estimation
 let stackDragSrc = null;
@@ -3422,6 +3466,8 @@ function handleRPMessage(data) {
     }
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
+    rpPov = data.pov || null;
+    rpInnerMonologue = data.inner_monologue || false;
     rpStackConfig = data.stack_config || null;
     if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     rpLorebooks = data.lorebooks || [];
@@ -3454,6 +3500,8 @@ function handleRPMessage(data) {
     }
     rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
+    rpPov = data.pov || null;
+    rpInnerMonologue = data.inner_monologue || false;
      rpStackConfig = data.stack_config || null;
      if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
      rpLorebooks = data.lorebooks || [];
@@ -3561,14 +3609,16 @@ function handleRPMessage(data) {
     }
   } else if (data.type === 'summary_updated') {
     showRPSummaryBar(data.summary, data.summarized_count);
-   } else if (data.type === 'settings_updated') {
-     rpTurnRouting = data.turn_routing;
-     rpResponseStyle = data.response_style;
-     if (data.system_prompt !== undefined) {
-       rpSystemPrompt = data.system_prompt;
-       if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
-     }
-     renderRPSceneBar();
+    } else if (data.type === 'settings_updated') {
+      rpTurnRouting = data.turn_routing;
+      rpResponseStyle = data.response_style;
+      rpPov = data.pov || null;
+      rpInnerMonologue = data.inner_monologue || false;
+      if (data.system_prompt !== undefined) {
+        rpSystemPrompt = data.system_prompt;
+        if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
+      }
+      renderRPSceneBar();
    } else if (data.type === 'bg_image_updated') {
      // Server confirmed per-session bg update — no action needed, UI already applied
    } else if (data.type === 'stack_updated') {
@@ -3661,6 +3711,17 @@ function renderRPSceneBar() {
   const _styleIdx = rpStyleOrder.indexOf(rpResponseStyle);
   const _nextStyle = rpStyleOrder[(_styleIdx + 1) % rpStyleOrder.length];
   html += `<div class="rp-toggle-btn ${rpResponseStyle!=='long'?'active':''}" onclick="rpUpdateSetting('response_style','${_nextStyle}')" title="${rpStyleTokens[rpResponseStyle]}">${rpStyleLabels[rpResponseStyle]} (${rpStyleTokens[rpResponseStyle]})</div>`;
+
+  // POV selector dropdown
+  html += `<select class="rp-pov-select" onchange="rpUpdateSetting('pov', this.value || null)" title="${povTitles[rpPov]||'Perspective'}">`;
+  html += `<option value="" ${!rpPov?'selected':''}>${povLabels[null]}</option>`;
+  povOrder.forEach(pv => {
+    html += `<option value="${pv}" ${rpPov===pv?'selected':''}>${povLabels[pv]}</option>`;
+  });
+  html += `</select>`;
+
+  // Inner monologue toggle
+  html += `<div class="rp-toggle-btn ${rpInnerMonologue?'active':''}" onclick="rpUpdateSetting('inner_monologue', ${!rpInnerMonologue})" title="Inner monologue (Thoughts block)">💭 ${rpInnerMonologue ? 'ON' : 'OFF'}</div>`;
 
   // Stack Builder button
   html += `<div class="rp-toggle-btn" onclick="openStackBuilder()" title="Customize prompt stack">🔗 Prompts Stack</div>`;
@@ -3915,6 +3976,12 @@ function onRPDirectChange() {
 }
 
 function rpUpdateSetting(key, value) {
+  // update local state immediately for responsive UI
+  if (key === 'pov') rpPov = value || null;
+  else if (key === 'inner_monologue') rpInnerMonologue = !!value;
+  else if (key === 'response_style') rpResponseStyle = value;
+  else if (key === 'turn_routing') rpTurnRouting = value;
+  renderRPSceneBar();
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {
     const update = {type: 'update_settings'};
     update[key] = value;
@@ -3934,10 +4001,46 @@ function schoolCycleStyle() {
 
 function updateSchoolStyleButton() {
   const btn = document.getElementById('schoolStyleBtn');
-  if (!btn) return;
-  btn.textContent = rpStyleLabels[schoolResponseStyle];
-  btn.title = `Response length: ${rpStyleLabels[schoolResponseStyle]} (${rpStyleTokens[schoolResponseStyle]})`;
-  btn.classList.toggle('active', schoolResponseStyle !== 'long');
+  if (btn) {
+    btn.textContent = rpStyleLabels[schoolResponseStyle];
+    btn.title = `Response length: ${rpStyleLabels[schoolResponseStyle]} (${rpStyleTokens[schoolResponseStyle]})`;
+    btn.classList.toggle('active', schoolResponseStyle !== 'long');
+  }
+  // Update POV dropdown
+  const povSelect = document.getElementById('schoolPovSelect');
+  if (povSelect) {
+    // Populate options if empty
+    if (povSelect.options.length === 0) {
+      const autoOpt = document.createElement('option');
+      autoOpt.value = '';
+      autoOpt.textContent = povLabels[null];
+      povSelect.appendChild(autoOpt);
+      povOrder.forEach(pv => {
+        const opt = document.createElement('option');
+        opt.value = pv;
+        opt.textContent = povLabels[pv];
+        povSelect.appendChild(opt);
+      });
+    }
+    povSelect.value = schoolPov || '';
+  }
+  // Update inner monologue toggle
+  const imBtn = document.getElementById('schoolImToggle');
+  if (imBtn) {
+    imBtn.textContent = `💭 ${schoolInnerMonologue ? 'ON' : 'OFF'}`;
+    imBtn.classList.toggle('active', schoolInnerMonologue);
+  }
+}
+
+function schoolUpdateSetting(key, value) {
+  if (key === 'pov') schoolPov = value || null;
+  else if (key === 'inner_monologue') schoolInnerMonologue = !!value;
+  updateSchoolStyleButton();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const update = {type: 'update_settings'};
+    update[key] = value;
+    ws.send(JSON.stringify(update));
+  }
 }
 
 // ─── RP Console ─────────────────────────────────

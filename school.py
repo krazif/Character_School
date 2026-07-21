@@ -580,12 +580,15 @@ async def ws_chat(ws: WebSocket):
     session_id = None
     current_gen_task = None
     school_response_style = "moderate"
+    school_pov = None
+    school_inner_monologue = False
 
     def _rebuild_prompts():
         """Rebuild system_prompt and analysis_prompt from card+persona."""
         nonlocal system_prompt, analysis_prompt
         _user_name = persona.get("name", "User") if persona else "User"
-        system_prompt = engine.build_system_prompt(card, user_name=_user_name, response_style=school_response_style)
+        system_prompt = engine.build_system_prompt(card, user_name=_user_name, response_style=school_response_style,
+                                                   pov=school_pov, inner_monologue=school_inner_monologue)
         analysis_prompt = engine.build_analysis_prompt(card)
         if persona:
             system_prompt = system_prompt + "\n\n" + engine.build_persona_context(persona)
@@ -653,6 +656,9 @@ async def ws_chat(ws: WebSocket):
                         "stack_config": stack_cfg,
                         "lorebooks": [],
                         "system_prompt": system_prompt,
+                        "response_style": school_response_style,
+                        "pov": school_pov,
+                        "inner_monologue": school_inner_monologue,
                         "bg_image": None,  # new session — no per-session bg yet
                     })
 
@@ -702,6 +708,8 @@ async def ws_chat(ws: WebSocket):
 
                 # Restore response style from DB
                 school_response_style = sess.get("response_style") or "moderate"
+                school_pov = sess.get("pov")
+                school_inner_monologue = sess.get("inner_monologue", False)
                 _rebuild_prompts()  # rebuild with restored style
 
                 messages = db.db_school_get_messages(session_id)
@@ -728,6 +736,8 @@ async def ws_chat(ws: WebSocket):
                                  for m in messages],
                     "console_events": json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else [],
                     "response_style": school_response_style,
+                    "pov": school_pov,
+                    "inner_monologue": school_inner_monologue,
                     "system_prompt": system_prompt,
                     "bg_image": sess.get("bg_image"),
                 })
@@ -1276,7 +1286,18 @@ async def ws_chat(ws: WebSocket):
                     _rebuild_prompts()
                 if session_id:
                     db.db_school_update_settings(session_id, response_style=school_response_style)
-                await ws.send_json({"type": "response_style_updated", "style": school_response_style, "system_prompt": system_prompt})
+                await ws.send_json({"type": "response_style_updated", "style": school_response_style, "pov": school_pov, "inner_monologue": school_inner_monologue, "system_prompt": system_prompt})
+
+            elif data["type"] == "update_settings":
+                if data.get("pov") is not None:
+                    school_pov = data.get("pov")
+                if data.get("inner_monologue") is not None:
+                    school_inner_monologue = data.get("inner_monologue")
+                if card:
+                    _rebuild_prompts()
+                if session_id:
+                    db.db_school_update_settings(session_id, pov=school_pov, inner_monologue=school_inner_monologue)
+                await ws.send_json({"type": "settings_updated", "pov": school_pov, "inner_monologue": school_inner_monologue, "system_prompt": system_prompt})
 
             elif data["type"] == "set_bg_image":
                 if session_id:

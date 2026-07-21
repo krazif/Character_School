@@ -187,7 +187,26 @@ def substitute_macros(text: str, char_name: str, user_name: str = "User") -> str
     return text.replace("{{char}}", char_name).replace("{{user}}", user_name)
 
 
-def build_system_prompt(card: dict, user_name: str = "User", response_style: str = None) -> str:
+def _pov_directive(pov: str) -> str:
+    """Return an IMPORTANT-tagged POV/perspective directive for the LLM."""
+    if pov == 'first':
+        return "[IMPORTANT — PERSPECTIVE: FIRST PERSON] Write from your own perspective using 'I' and 'me' for yourself. Refer to the user as 'you' or by their name. All actions, observations, and narration must be from your first-person viewpoint."
+    elif pov == 'second':
+        return "[IMPORTANT — PERSPECTIVE: SECOND PERSON] Address the user directly using 'you'. Describe the user's actions in second person. Write your own actions and dialogue as your character speaking/acting — the 'you' refers to the user, not yourself."
+    elif pov == 'third':
+        return "[IMPORTANT — PERSPECTIVE: THIRD PERSON] Write in third person narrative. Use your character name or she/he/they pronouns for yourself. Use 'you' for the user. Narrate actions and dialogue as an observer describing your character."
+    return ""  # None = no directive (inherit from card content)
+
+
+def _inner_monologue_directive(enabled: bool) -> str:
+    """Return an IMPORTANT-tagged inner monologue directive for the LLM."""
+    if enabled:
+        return "[IMPORTANT — INNER MONOLOGUE: ON] At the end of your response, include your character's private thoughts prefixed with 'Thoughts:' on a new line. This must reflect what you are secretly thinking — your true feelings, suspicions, desires, or calculations — which may differ from what you say or do outwardly. The Thoughts block is mandatory in every response."
+    return ""
+
+
+def build_system_prompt(card: dict, user_name: str = "User", response_style: str = None,
+                        pov: str = None, inner_monologue: bool = False) -> str:
     """Build the system prompt for the character LLM from any version card."""
     d = card.get("data", card)
     version = detect_card_version(card)
@@ -226,6 +245,14 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
         parts.append("\n\nRESPONSE LENGTH: LONG. Write a full paragraph response — include dialogue, actions, internal thoughts, body language, and emotional detail.")
     elif response_style == 'flexible':
         parts.append("\n\nRESPONSE LENGTH: FLEXIBLE. Choose your response length based on the scene — a brief reply for quick dialogue exchanges, or a longer paragraph when the plot progresses or emotions run high.")
+    # POV / perspective directive
+    _pov = _pov_directive(pov)
+    if _pov:
+        parts.append(f"\n\n{_pov}")
+    # Inner monologue directive
+    _im = _inner_monologue_directive(inner_monologue)
+    if _im:
+        parts.append(f"\n\n{_im}")
     return "\n".join(parts)
 
 
@@ -338,7 +365,8 @@ def get_first_mes(card: dict, user_name: str = "User") -> Optional[str]:
 # ─── RP Prompt Building ───────────────────────────────────────────
 def build_rp_system_prompt(cards: list[dict], persona: dict = None,
                            turn_routing: str = 'auto', response_style: str = 'moderate',
-                           directed_character: str = None) -> str:
+                           directed_character: str = None,
+                           pov: str = None, inner_monologue: bool = False) -> str:
     """Build system prompt for multi-character RP."""
     parts = []
     parts.append("You are roleplaying as a character in a shared scene. The user is a participant in the scene.")
@@ -434,6 +462,17 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     elif response_style == 'flexible':
         parts.append("RESPONSE LENGTH: FLEXIBLE. Choose your response length based on the scene — a brief reply for quick dialogue exchanges, or a longer paragraph when the plot progresses or emotions run high.")
     parts.append("")
+
+    # POV / perspective directive
+    _pov = _pov_directive(pov)
+    if _pov:
+        parts.append(_pov)
+        parts.append("")
+    # Inner monologue directive
+    _im = _inner_monologue_directive(inner_monologue)
+    if _im:
+        parts.append(_im)
+        parts.append("")
 
     # Persona
     if persona:

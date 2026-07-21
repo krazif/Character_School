@@ -521,6 +521,24 @@ def init_db():
         conn.execute("ALTER TABLE school_sessions ADD COLUMN bg_image TEXT")
     except Exception:
         pass
+    # Migration: add pov and inner_monologue columns to rp_sessions
+    try:
+        conn.execute("ALTER TABLE rp_sessions ADD COLUMN pov TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE rp_sessions ADD COLUMN inner_monologue INTEGER DEFAULT 0")
+    except Exception:
+        pass
+    # Migration: add pov and inner_monologue columns to school_sessions
+    try:
+        conn.execute("ALTER TABLE school_sessions ADD COLUMN pov TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE school_sessions ADD COLUMN inner_monologue INTEGER DEFAULT 0")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -908,7 +926,7 @@ def db_rp_get_messages(session_id: int) -> list[dict]:
 def db_rp_get_session(session_id: int) -> Optional[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute(
-        "SELECT id, title, persona_filename, turn_routing, response_style, stack_config, console_events, lorebooks, bg_image FROM rp_sessions WHERE id = ?",
+        "SELECT id, title, persona_filename, turn_routing, response_style, stack_config, console_events, lorebooks, bg_image, pov, inner_monologue FROM rp_sessions WHERE id = ?",
         (session_id,),
     ).fetchone()
     if not row:
@@ -926,6 +944,8 @@ def db_rp_get_session(session_id: int) -> Optional[dict]:
         "console_events": row[6] if len(row) > 6 else None,
         "lorebooks": row[7] if len(row) > 7 and row[7] else None,
         "bg_image": row[8] if len(row) > 8 and row[8] else None,
+        "pov": row[9] if len(row) > 9 and row[9] else None,
+        "inner_monologue": bool(row[10]) if len(row) > 10 and row[10] else False,
         "characters": [{"card_filename": c[0], "char_name": c[1], "display_order": c[2]} for c in chars],
     }
 
@@ -1104,7 +1124,8 @@ def db_rp_count_messages(session_id: int) -> int:
 
 
 def db_rp_update_settings(session_id: int, turn_routing: str = None, response_style: str = None,
-                           stack_config: str = None, lorebooks: str = None, bg_image: str = None) -> None:
+                           stack_config: str = None, lorebooks: str = None, bg_image: str = None,
+                           pov: str = None, inner_monologue: bool = None) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     updates = []
     params = []
@@ -1123,6 +1144,12 @@ def db_rp_update_settings(session_id: int, turn_routing: str = None, response_st
     if bg_image is not None:
         updates.append("bg_image = ?")
         params.append(bg_image)
+    if pov is not None:
+        updates.append("pov = ?")
+        params.append(pov)
+    if inner_monologue is not None:
+        updates.append("inner_monologue = ?")
+        params.append(1 if inner_monologue else 0)
     if updates:
         updates.append("updated_at = datetime('now')")
         params.append(session_id)
@@ -1220,10 +1247,11 @@ def db_rp_fork_session(session_id: int) -> Optional[dict]:
     cur = conn.execute(
         """INSERT INTO rp_sessions
            (title, persona_filename, turn_routing, response_style,
-             stack_config, console_events, lorebooks)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+             stack_config, console_events, lorebooks, pov, inner_monologue, bg_image)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (fork_title, sess['persona_filename'], sess['turn_routing'], sess['response_style'],
-         sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks')),
+         sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks'),
+         sess.get('pov'), sess.get('inner_monologue', 0), sess.get('bg_image')),
     )
     new_sid = cur.lastrowid
     # Copy characters
@@ -1324,7 +1352,7 @@ def db_school_get_messages(session_id: int) -> list[dict]:
 def db_school_get_session(session_id: int) -> Optional[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     row = conn.execute(
-        "SELECT id, title, card_filename, persona_filename, stack_config, console_events, lorebooks, bg_image FROM school_sessions WHERE id = ?",
+        "SELECT id, title, card_filename, persona_filename, stack_config, console_events, lorebooks, bg_image, pov, inner_monologue FROM school_sessions WHERE id = ?",
         (session_id,),
     ).fetchone()
     conn.close()
@@ -1335,6 +1363,8 @@ def db_school_get_session(session_id: int) -> Optional[dict]:
         "persona_filename": row[3], "stack_config": row[4], "console_events": row[5],
         "lorebooks": row[6] if len(row) > 6 and row[6] else None,
         "bg_image": row[7] if len(row) > 7 and row[7] else None,
+        "pov": row[8] if len(row) > 8 and row[8] else None,
+        "inner_monologue": bool(row[9]) if len(row) > 9 and row[9] else False,
     }
 
 
@@ -1494,7 +1524,8 @@ def db_school_update_session_meta(session_id: int, persona_filename: str = None,
 
 
 def db_school_update_settings(session_id: int, stack_config: str = None, response_style: str = None,
-                              lorebooks: str = None, bg_image: str = None) -> None:
+                              lorebooks: str = None, bg_image: str = None,
+                              pov: str = None, inner_monologue: bool = None) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     if stack_config is not None:
         conn.execute("UPDATE school_sessions SET stack_config = ?, updated_at = datetime('now') WHERE id = ?",
@@ -1508,6 +1539,12 @@ def db_school_update_settings(session_id: int, stack_config: str = None, respons
     if bg_image is not None:
         conn.execute("UPDATE school_sessions SET bg_image = ?, updated_at = datetime('now') WHERE id = ?",
                      (bg_image, session_id))
+    if pov is not None:
+        conn.execute("UPDATE school_sessions SET pov = ?, updated_at = datetime('now') WHERE id = ?",
+                     (pov, session_id))
+    if inner_monologue is not None:
+        conn.execute("UPDATE school_sessions SET inner_monologue = ?, updated_at = datetime('now') WHERE id = ?",
+                     (1 if inner_monologue else 0, session_id))
     conn.commit()
     conn.close()
 
@@ -1548,10 +1585,11 @@ def db_school_fork_session(session_id: int) -> Optional[dict]:
     conn = sqlite3.connect(str(DB_PATH))
     fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
     cur = conn.execute(
-        """INSERT INTO school_sessions (title, card_filename, persona_filename, stack_config, console_events, lorebooks)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO school_sessions (title, card_filename, persona_filename, stack_config, console_events, lorebooks, pov, inner_monologue, bg_image)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (fork_title, sess['card_filename'], sess['persona_filename'],
-         sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks')),
+         sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks'),
+         sess.get('pov'), sess.get('inner_monologue', 0), sess.get('bg_image')),
     )
     new_sid = cur.lastrowid
     msgs = conn.execute(
