@@ -387,7 +387,7 @@ def get_first_mes(card: dict, user_name: str = "User") -> Optional[str]:
 
 # ─── RP Prompt Building ───────────────────────────────────────────
 def build_rp_system_prompt(cards: list[dict], persona: dict = None,
-                           turn_routing: str = 'auto', response_style: str = 'moderate',
+                           response_style: str = 'moderate',
                            directed_character: str = None,
                            pov: str = None, inner_monologue: bool = False) -> str:
     """Build system prompt for multi-character RP."""
@@ -401,14 +401,16 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     _user_name = persona.get("name", "User") if persona else "User"
 
     if directed_character:
-        # Directed mode: full detail for the target character, brief listing for others
+        # Directed mode: full detail for the target character, name-only for others
         directed_lower = directed_character.lower()
+        directed_name = directed_character  # fallback if name match fails
         for card in cards:
             d = card.get("data", card)
             version = detect_card_version(card)
             name = d.get("name", "Unknown")
             char_name = resolve_char_name(card)
             if name.lower() == directed_lower:
+                directed_name = name
                 parts.append(f"=== YOU ARE {name} ===")
                 val = get_card_field(d, "system_prompt", version)
                 if val:
@@ -427,10 +429,8 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
                     parts.append(f"ALWAYS REMEMBER: {substitute_macros(val, char_name, _user_name)}")
                 parts.append("")
             else:
-                # Brief context only — just enough to know who else is in the scene
-                desc = get_card_field(d, "description", version) or ""
-                short = desc[:200] + "..." if len(desc) > 200 else desc
-                parts.append(f"OTHER CHARACTER IN SCENE: {name}" + (f" — {short}" if short else ""))
+                # Name only — no description snippet to prevent personality bleed
+                parts.append(f"OTHER CHARACTER IN SCENE: {name}")
         parts.append("")
     else:
         # Auto mode: full detail for all characters
@@ -457,22 +457,20 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
                 parts.append(f"ALWAYS REMEMBER: {substitute_macros(val, char_name, _user_name)}")
             parts.append("")
 
-    # Turn routing
+    # Response format
     parts.append("RESPONSE FORMAT:")
-    parts.append("- Start your response with [CharacterName]: followed by the character's dialogue and actions.")
-    parts.append("- Example: [Lisa]: *looks up from her book* What did you say?")
-    if turn_routing == 'auto':
+    if directed_character:
+        # Directed mode: 1-on-1 style, no [CharacterName]: prefix
+        parts.append(f"- You are {directed_name}. Write your dialogue and actions directly, without any [CharacterName]: prefix.")
+        parts.append(f"- Do NOT write dialogue for any other character.")
+        parts.append(f"- Stay fully in character — your voice, your personality.")
+        parts.append(f"- If another character would react, you may briefly note it in your POV, but do not write their dialogue.")
+    else:
+        # Auto mode: LLM picks who responds
+        parts.append("- Start your response with [CharacterName]: followed by the character's dialogue and actions.")
+        parts.append("- Example: [Lisa]: *looks up from her book* What did you say?")
         parts.append("- You choose which single character responds. Respond as the one most appropriate for this moment.")
         parts.append("- Do not write dialogue for other characters — only the one you choose.")
-    else:  # directed
-        if directed_character:
-            parts.append(f"** CRITICAL: You must respond ONLY as {directed_character}. **")
-            parts.append(f"- Write {directed_character}'s dialogue and actions only.")
-            parts.append(f"- Do NOT write dialogue for any other character.")
-            parts.append(f"- Stay fully in {directed_character}'s voice and personality.")
-            parts.append(f"- If another character would react, you may briefly note it in {directed_character}'s POV, but do not write their dialogue.")
-        else:
-            parts.append("- Only respond as the directed character. Do not write dialogue for other characters.")
     parts.append("")
 
     # Response style (simplified — caps + auto-continue handle enforcement)

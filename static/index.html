@@ -1092,13 +1092,6 @@ body.rp-mode .school-only { display:none; }
       </div>
       <div class="rp-setup-row">
         <div class="rp-setup-section">
-          <label>Turn Routing</label>
-          <div class="rp-toggle-group">
-            <div class="rp-toggle-btn active" id="rpToggleAuto" onclick="rpToggleSetting('turn','auto')">Auto (LLM picks)</div>
-            <div class="rp-toggle-btn" id="rpToggleDirected" onclick="rpToggleSetting('turn','directed')">Directed (you pick)</div>
-          </div>
-        </div>
-        <div class="rp-setup-section">
           <label>Response Style</label>
           <div class="rp-toggle-group">
             <div class="rp-toggle-btn active" id="rpToggleModerate" onclick="rpToggleSetting('style','moderate')">Moderate (150-300 words)</div>
@@ -3298,7 +3291,6 @@ let rpWS = null;
 let rpActiveSessionId = null;
 let rpCharacters = [];      // [{filename, name}]
 let rpPersonaFilename = null;
-let rpTurnRouting = 'auto';
 let rpResponseStyle = 'moderate';
 let rpPov = null;
 let rpInnerMonologue = false;
@@ -3321,7 +3313,6 @@ let stackDragSrc = null;
 let rpIsWaiting = false;
 let rpCardsList = [];       // cached card list for picker
 let rpSetupChars = [];      // selected filenames in setup
-let rpSetupTurn = 'auto';
 let rpSetupStyle = 'moderate';
 let rpConsoleEvents = 0;
 let rpCurrentMode = 'school';
@@ -3407,11 +3398,7 @@ function toggleRPCharPick(filename, el) {
 }
 
 function rpToggleSetting(group, value) {
-  if (group === 'turn') {
-    rpSetupTurn = value;
-    document.getElementById('rpToggleAuto').classList.toggle('active', value === 'auto');
-    document.getElementById('rpToggleDirected').classList.toggle('active', value === 'directed');
-  } else if (group === 'style') {
+  if (group === 'style') {
     rpSetupStyle = value;
     document.getElementById('rpToggleModerate').classList.toggle('active', value === 'moderate');
     document.getElementById('rpToggleLong').classList.toggle('active', value === 'long');
@@ -3427,7 +3414,6 @@ function startRPSession() {
   connectRPWS({
     characters: rpSetupChars,
     persona_filename: persona,
-    turn_routing: rpSetupTurn,
     response_style: rpSetupStyle,
   });
 }
@@ -3476,7 +3462,6 @@ function handleRPMessage(data) {
     } else {
       currentPersona = null;
     }
-    rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
@@ -3511,7 +3496,6 @@ function handleRPMessage(data) {
     } else {
       currentPersona = null;
     }
-    rpTurnRouting = data.turn_routing;
     rpResponseStyle = data.response_style;
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
@@ -3624,7 +3608,6 @@ function handleRPMessage(data) {
   } else if (data.type === 'summary_updated') {
     showRPSummaryBar(data.summary, data.summarized_count);
     } else if (data.type === 'settings_updated') {
-      rpTurnRouting = data.turn_routing;
       rpResponseStyle = data.response_style;
       rpPov = data.pov || null;
       rpInnerMonologue = data.inner_monologue || false;
@@ -3721,8 +3704,6 @@ function renderRPSceneBar() {
   }
   html += '</div><span class="spacer"></span>';
 
-  // Settings toggles
-  html += `<div class="rp-toggle-btn ${rpTurnRouting==='auto'?'active':''}" onclick="rpUpdateSetting('turn_routing','${rpTurnRouting==='auto'?'directed':'auto'}')">${rpTurnRouting === 'auto' ? 'Auto' : 'Directed'}</div>`;
   // Response style dropdown
   html += `<select class="rp-pov-select" onchange="rpUpdateSetting('response_style', this.value)" title="Response length">`;
   rpStyleOrder.forEach(st => {
@@ -3772,13 +3753,15 @@ function renderRPSceneBar() {
     personaSel.style.display = personasList.length > 0 ? 'block' : 'none';
   }
 
-  // Directed mode: show character selector
+  // Directed character selector — always visible with Auto as first option
   const directSel = document.getElementById('rpDirectSelect');
-  if (rpTurnRouting === 'directed') {
+  if (directSel) {
     directSel.style.display = 'block';
-    directSel.innerHTML = '<option value="">→ Who?</option>' + rpCharacters.map(c => `<option value="${escapeHtml(c.filename)}">${escapeHtml(c.name)}</option>`).join('');
-  } else {
-    directSel.style.display = 'none';
+    let dhtml = '<option value="">Auto (LLM picks)</option>';
+    rpCharacters.forEach(c => {
+      dhtml += `<option value="${escapeHtml(c.filename)}">${escapeHtml(c.name)}</option>`;
+    });
+    directSel.innerHTML = dhtml;
   }
 }
 
@@ -3921,7 +3904,7 @@ async function sendRPMessage() {
   const clientId = 'rp_' + (++_clientMsgCounter) + '_' + Date.now();
   addRPMessage('user', text, null, null, clientId, imagePath);
 
-  const directedTo = rpTurnRouting === 'directed' ? document.getElementById('rpDirectSelect').value : null;
+  const directedTo = document.getElementById('rpDirectSelect')?.value || null;
   rpWS.send(JSON.stringify({type: 'user_message', content: text, directed_to: directedTo || null, client_msg_id: clientId, image_path: imagePath}));
 
   input.value = '';
@@ -4002,7 +3985,6 @@ function rpUpdateSetting(key, value) {
   else if (key === 'inner_monologue') rpInnerMonologue = !!value;
   else if (key === 'auto_continue') rpAutoContinue = !!value;
   else if (key === 'response_style') rpResponseStyle = value;
-  else if (key === 'turn_routing') rpTurnRouting = value;
   renderRPSceneBar();
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {
     const update = {type: 'update_settings'};
@@ -4172,13 +4154,12 @@ async function loadRPSessions() {
     list.innerHTML = sessions.map(s => {
       const active = s.id === rpActiveSessionId ? ' active' : '';
       const date = s.updated_at ? new Date(s.updated_at + 'Z').toLocaleDateString() : '';
-      const routing = s.turn_routing === 'auto' ? 'Auto' : 'Directed';
       const style = rpStyleLabels[s.response_style] || 'Moderate';
       return `<div class="rp-session-item${active}" data-session-id="${s.id}" onclick="resumeRPSession(${s.id})">
         <span class="del-btn" onclick="event.stopPropagation(); deleteRPSession(${s.id})">✕</span>
         <span class="fork-btn" onclick="event.stopPropagation(); forkRPSession(${s.id})" title="Fork this session">🧬</span>
         <div class="title">${escapeHtml(s.title || 'Untitled')}</div>
-        <div class="meta">${routing} · ${style} · ${date}</div>
+        <div class="meta">${style} · ${date}</div>
       </div>`;
     }).join('');
   } catch (e) {

@@ -120,10 +120,6 @@ async def ws_rp(ws: WebSocket):
     character_order = []  # list of filenames
     persona = None
     persona_filename = None
-    turn_routing = 'auto'
-    response_style = 'moderate'
-    pov = None
-    inner_monologue = False
     auto_continue = True  # auto-continue truncated responses (finish_reason=length)
     current_gen_task = None  # background generation task (for stop support)
     _ws_state = [True]  # [is_alive] — mutable container to avoid nonlocal issues
@@ -158,7 +154,6 @@ async def ws_rp(ws: WebSocket):
             elif data["type"] == "start":
                 char_filenames = data.get("characters", [])
                 persona_filename = data.get("persona_filename")
-                turn_routing = data.get("turn_routing", "auto")
                 response_style = data.get("response_style", "moderate")
                 pov = data.get("pov")
                 inner_monologue = data.get("inner_monologue", False)
@@ -196,13 +191,13 @@ async def ws_rp(ws: WebSocket):
                 stack_config_json = data.get("stack_config")
                 stack_config_str = json.dumps(stack_config_json) if stack_config_json else None
 
-                session_id = db.db_rp_create_session(char_list, persona_filename, turn_routing, response_style, stack_config_str)
+                session_id = db.db_rp_create_session(char_list, persona_filename, 'auto', response_style, stack_config_str)
 
                 # Build system prompt for token estimation in stack builder
                 try:
                     _sys_prompt = engine.build_rp_system_prompt(
                         [cards[fn] for fn in character_order],
-                        persona, turn_routing, response_style,
+                        persona, response_style,
                         pov=pov, inner_monologue=inner_monologue,
                     )
                 except Exception:
@@ -212,7 +207,7 @@ async def ws_rp(ws: WebSocket):
                     "type": "session_started", "session_id": session_id,
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
-                    "turn_routing": turn_routing, "response_style": response_style,
+                    "response_style": response_style,
                     "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue,
                     "stack_config": stack_config_json or db.DEFAULT_STACK_CONFIG,
                     "lorebooks": [],
@@ -242,7 +237,6 @@ async def ws_rp(ws: WebSocket):
                     continue
 
                 session_id = resume_id
-                turn_routing = sess["turn_routing"]
                 response_style = sess["response_style"]
                 pov = sess.get("pov")
                 inner_monologue = sess.get("inner_monologue", False)
@@ -277,7 +271,7 @@ async def ws_rp(ws: WebSocket):
                 try:
                     _sys_prompt = engine.build_rp_system_prompt(
                         [cards[fn] for fn in character_order],
-                        persona, turn_routing, response_style,
+                        persona, response_style,
                         pov=pov, inner_monologue=inner_monologue,
                     )
                 except Exception:
@@ -293,7 +287,7 @@ async def ws_rp(ws: WebSocket):
                     "type": "session_resumed", "session_id": session_id,
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
-                    "turn_routing": turn_routing, "response_style": response_style,
+                    "response_style": response_style,
                     "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue,
                     "stack_config": stack_cfg,
                     "lorebooks": session_lorebooks,
@@ -333,7 +327,7 @@ async def ws_rp(ws: WebSocket):
                         # Build system prompt
                         system_prompt = engine.build_rp_system_prompt(
                             [cards[fn] for fn in character_order],
-                            persona, turn_routing, response_style,
+                            persona, response_style,
                             directed_character=character_names.get(directed_to) if directed_to else None,
                             pov=pov, inner_monologue=inner_monologue,
                         )
@@ -418,19 +412,9 @@ async def ws_rp(ws: WebSocket):
                         parsed = engine.parse_rp_response(raw_content, character_names, character_order)
 
                         if directed_to and directed_to in character_names:
-                            # Directed mode: force to the selected character
+                            # Directed mode: raw output IS the response, no [Name]: prefix expected
                             directed_name = character_names[directed_to]
-                            if parsed:
-                                # Take only the directed character's response
-                                filtered = [p for p in parsed if p["filename"] == directed_to]
-                                if filtered:
-                                    parsed = filtered[:1]
-                                else:
-                                    import re as _re
-                                    stripped = _re.sub(r'^\[[^\]]+\]:\s*', '', raw_content).strip()
-                                    parsed = [{"filename": directed_to, "name": directed_name, "content": stripped}]
-                            else:
-                                parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
+                            parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
                         elif parsed:
                             # Auto mode: take only the first character the LLM chose
                             parsed = parsed[:1]
@@ -525,7 +509,7 @@ async def ws_rp(ws: WebSocket):
 
                             system_prompt = engine.build_rp_system_prompt(
                                 [cards[fn] for fn in character_order],
-                                persona, turn_routing, response_style,
+                                persona, response_style,
                                 directed_character=character_names.get(directed_to) if directed_to else None,
                                 pov=pov, inner_monologue=inner_monologue,
                             )
@@ -608,17 +592,9 @@ async def ws_rp(ws: WebSocket):
                             parsed = engine.parse_rp_response(raw_content, character_names, character_order)
 
                             if directed_to and directed_to in character_names:
+                                # Directed mode: raw output IS the response
                                 directed_name = character_names[directed_to]
-                                if parsed:
-                                    filtered = [p for p in parsed if p["filename"] == directed_to]
-                                    if filtered:
-                                        parsed = filtered[:1]
-                                    else:
-                                        import re as _re
-                                        stripped = _re.sub(r'^\[[^\]]+\]:\s*', '', raw_content).strip()
-                                        parsed = [{"filename": directed_to, "name": directed_name, "content": stripped}]
-                                else:
-                                    parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
+                                parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
                             elif parsed:
                                 parsed = parsed[:1]
                             else:
@@ -705,7 +681,7 @@ async def ws_rp(ws: WebSocket):
 
                             system_prompt = engine.build_rp_system_prompt(
                                 [cards[fn] for fn in character_order],
-                                persona, turn_routing, response_style,
+                                persona, response_style,
                                 directed_character=character_names.get(directed_to) if directed_to else None,
                                 pov=pov, inner_monologue=inner_monologue,
                             )
@@ -795,17 +771,9 @@ async def ws_rp(ws: WebSocket):
                             parsed = engine.parse_rp_response(raw_content, character_names, character_order)
 
                             if directed_to and directed_to in character_names:
+                                # Directed mode: raw output IS the response
                                 directed_name = character_names[directed_to]
-                                if parsed:
-                                    filtered = [p for p in parsed if p["filename"] == directed_to]
-                                    if filtered:
-                                        parsed = filtered[:1]
-                                    else:
-                                        import re as _re
-                                        stripped = _re.sub(r'^\[[^\]]+\]:\s*', '', raw_content).strip()
-                                        parsed = [{"filename": directed_to, "name": directed_name, "content": stripped}]
-                                else:
-                                    parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
+                                parsed = [{"filename": directed_to, "name": directed_name, "content": raw_content.strip()}]
                             elif parsed:
                                 parsed = parsed[:1]
                             else:
@@ -838,13 +806,12 @@ async def ws_rp(ws: WebSocket):
 
             elif data["type"] == "update_settings":
                 if session_id:
-                    turn_routing = data.get("turn_routing", turn_routing)
                     response_style = data.get("response_style", response_style)
                     pov = data.get("pov", pov)
                     inner_monologue = data.get("inner_monologue", inner_monologue)
                     auto_continue = data.get("auto_continue", auto_continue)
-                    db.db_rp_update_settings(session_id, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue, auto_continue=auto_continue)
-                    await _safe_send({"type": "settings_updated", "turn_routing": turn_routing, "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, turn_routing, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
+                    db.db_rp_update_settings(session_id, response_style, pov=pov, inner_monologue=inner_monologue, auto_continue=auto_continue)
+                    await _safe_send({"type": "settings_updated", "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
 
             elif data["type"] == "set_bg_image":
                 if session_id:
