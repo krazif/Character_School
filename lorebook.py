@@ -228,13 +228,6 @@ def load_lorebooks_for_session(lorebook_filenames: list[str]) -> list[dict]:
         except FileNotFoundError:
             pass
     return result
-    data = {
-        "name": name,
-        "description": description,
-        "entries": {},
-    }
-    save_lorebook(filename, data)
-    return {"filename": filename, "name": name, "description": description, "entry_count": 0}
 
 
 def _unique_filename(safe_name: str) -> str:

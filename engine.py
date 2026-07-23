@@ -2,6 +2,7 @@
 Character School — engine layer (pure logic, no FastAPI).
 Split from server.py.
 """
+import asyncio
 import json
 import re
 import base64
@@ -56,17 +57,6 @@ def get_card_field(d: dict, field: str, version: int = 2) -> str:
         if v3_name in d:
             return content_to_string(d[v3_name])
     return content_to_string(d.get(field))
-import asyncio
-import re
-import sqlite3
-from pathlib import Path
-from typing import Optional
-from json_repair import repair_json
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
-from openai import AsyncOpenAI
 
 
 # ─── Persona Management ───────────────────────────────────────────
