@@ -452,6 +452,7 @@ async def ws_chat(ws: WebSocket):
     school_pov = None
     school_inner_monologue = False
     school_auto_continue = True  # auto-continue truncated responses (finish_reason=length)
+    school_character_agency = False  # character agency analysis toggle
 
     def _rebuild_prompts():
         """Rebuild system_prompt and analysis_prompt from card+persona."""
@@ -459,7 +460,7 @@ async def ws_chat(ws: WebSocket):
         _user_name = persona.get("name", "User") if persona else "User"
         system_prompt = engine.build_system_prompt(card, user_name=_user_name, response_style=school_response_style,
                                                    pov=school_pov, inner_monologue=school_inner_monologue)
-        analysis_prompt = engine.build_analysis_prompt(card)
+        analysis_prompt = engine.build_analysis_prompt(card, agency_enabled=school_character_agency)
         if persona:
             system_prompt = system_prompt + "\n\n" + engine.build_persona_context(persona)
             analysis_prompt = analysis_prompt + "\n\n" + engine.build_analysis_persona_context(persona)
@@ -535,6 +536,7 @@ async def ws_chat(ws: WebSocket):
                         "pov": school_pov,
                         "inner_monologue": school_inner_monologue,
                         "auto_continue": school_auto_continue,
+                        "character_agency": school_character_agency,
                         "bg_image": None,  # new session — no per-session bg yet
                     })
 
@@ -587,6 +589,7 @@ async def ws_chat(ws: WebSocket):
                 school_pov = sess.get("pov")
                 school_inner_monologue = sess.get("inner_monologue", False)
                 school_auto_continue = sess.get("auto_continue", True)
+                school_character_agency = sess.get("character_agency", False)
                 _rebuild_prompts()  # rebuild with restored style
 
                 messages = db.db_school_get_messages(session_id)
@@ -616,6 +619,7 @@ async def ws_chat(ws: WebSocket):
                     "pov": school_pov,
                     "inner_monologue": school_inner_monologue,
                     "auto_continue": school_auto_continue,
+                    "character_agency": school_character_agency,
                     "system_prompt": system_prompt,
                     "bg_image": sess.get("bg_image"),
                 })
@@ -1203,11 +1207,13 @@ async def ws_chat(ws: WebSocket):
                     school_auto_continue = data.get("auto_continue")
                 if data.get("response_style") is not None:
                     school_response_style = data.get("response_style")
+                if data.get("character_agency") is not None:
+                    school_character_agency = data.get("character_agency")
                 if card:
                     _rebuild_prompts()
                 if session_id:
-                    db.db_school_update_settings(session_id, pov=school_pov, inner_monologue=school_inner_monologue, auto_continue=school_auto_continue, response_style=school_response_style)
-                await ws.send_json({"type": "settings_updated", "pov": school_pov, "inner_monologue": school_inner_monologue, "auto_continue": school_auto_continue, "response_style": school_response_style, "system_prompt": system_prompt})
+                    db.db_school_update_settings(session_id, pov=school_pov, inner_monologue=school_inner_monologue, auto_continue=school_auto_continue, response_style=school_response_style, character_agency=school_character_agency)
+                await ws.send_json({"type": "settings_updated", "pov": school_pov, "inner_monologue": school_inner_monologue, "auto_continue": school_auto_continue, "response_style": school_response_style, "character_agency": school_character_agency, "system_prompt": system_prompt})
 
             elif data["type"] == "set_bg_image":
                 if session_id:
@@ -1256,6 +1262,10 @@ async def ws_chat(ws: WebSocket):
                     )
 
                     await ws.send_json({"type": "analysis_typing_stopped"})
+
+                    # Strip character_agency from analysis if toggle is off
+                    if not school_character_agency and isinstance(analysis, dict):
+                        analysis.pop("character_agency", None)
 
                     if analysis:
                         # Store on the latest character message for report use
