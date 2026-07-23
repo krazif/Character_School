@@ -494,7 +494,6 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
 
 def parse_rp_response(raw_content: str, character_names: dict, character_order: list) -> list[dict]:
     """Parse [CharacterName]: content format from LLM response."""
-    import re
     responses = []
 
     # Build a mapping of name -> filename (case-insensitive)

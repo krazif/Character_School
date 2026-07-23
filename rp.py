@@ -1148,8 +1148,10 @@ async def reset_database():
         conn.execute("DELETE FROM rp_messages")
         conn.execute("DELETE FROM rp_characters")
         conn.execute("DELETE FROM rp_sessions")
+        conn.execute("DELETE FROM school_messages")
+        conn.execute("DELETE FROM school_sessions")
         # Reset auto-increment counters
-        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('sessions','messages','rp_sessions','rp_characters','rp_messages')")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('sessions','messages','rp_sessions','rp_characters','rp_messages','school_sessions','school_messages')")
         conn.commit()
         conn.execute("VACUUM")
         conn.commit()

@@ -275,7 +275,7 @@ async def auto_generate_image_prompt(messages: list[dict], send_fn=None, force: 
             "type": "console_event", "event": "request", "llm": "imagegen_auto",
             "model": db.IMAGEGEN_AUTO_MODEL, "label": "Auto Image Prompt",
             "temperature": db.IMAGEGEN_AUTO_TEMPERATURE, "max_tokens": db.IMAGEGEN_AUTO_MAX_TOKENS,
-            "messages": llm_messages, "timestamp": db._now_iso() if hasattr(db, "_now_iso") else _now_iso(),
+            "messages": llm_messages, "timestamp": _now_iso(),
         })
 
     try:
