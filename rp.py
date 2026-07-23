@@ -183,7 +183,7 @@ async def ws_rp(ws: WebSocket):
                 if persona_filename:
                     try:
                         persona = engine.load_persona(persona_filename)
-                    except:
+                    except Exception:
                         persona = None
                 else:
                     persona = None
@@ -253,13 +253,13 @@ async def ws_rp(ws: WebSocket):
                         cards[fn] = card
                         character_names[fn] = c["char_name"]
                         character_order.append(fn)
-                    except:
+                    except Exception:
                         pass
 
                 if persona_filename:
                     try:
                         persona = engine.load_persona(persona_filename)
-                    except:
+                    except Exception:
                         persona = None
                 else:
                     persona = None
@@ -281,7 +281,7 @@ async def ws_rp(ws: WebSocket):
                 session_lorebooks = []
                 if sess.get("lorebooks"):
                     try: session_lorebooks = json.loads(sess["lorebooks"])
-                    except: pass
+                    except Exception: pass
 
                 await _safe_send({
                     "type": "session_resumed", "session_id": session_id,
@@ -342,7 +342,7 @@ async def ws_rp(ws: WebSocket):
                         lb_filenames = []
                         if sess.get("lorebooks"):
                             try: lb_filenames = json.loads(sess["lorebooks"])
-                            except: pass
+                            except Exception: pass
                         if lb_filenames:
                             lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
                             lb_injection = lorebook.build_lorebook_injection(
@@ -524,7 +524,7 @@ async def ws_rp(ws: WebSocket):
                             lb_filenames = []
                             if sess.get("lorebooks"):
                                 try: lb_filenames = json.loads(sess["lorebooks"])
-                                except: pass
+                                except Exception: pass
                             if lb_filenames:
                                 lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
                                 lb_injection = lorebook.build_lorebook_injection(
@@ -694,7 +694,7 @@ async def ws_rp(ws: WebSocket):
                             lb_filenames = []
                             if sess.get("lorebooks"):
                                 try: lb_filenames = json.loads(sess["lorebooks"])
-                                except: pass
+                                except Exception: pass
                             if lb_filenames:
                                 lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
                                 lb_injection = lorebook.build_lorebook_injection(
@@ -873,7 +873,7 @@ async def ws_rp(ws: WebSocket):
                 if persona_filename:
                     try:
                         persona = engine.load_persona(persona_filename)
-                    except:
+                    except Exception:
                         persona = None
                 else:
                     persona = None
@@ -957,7 +957,7 @@ async def ws_rp(ws: WebSocket):
         traceback.print_exc()
         try:
             await _safe_send({"type": "error", "message": str(e)})
-        except:
+        except Exception:
             pass
     finally:
         _ws_state[0] = False

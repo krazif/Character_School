@@ -575,7 +575,7 @@ async def ws_chat(ws: WebSocket):
                 if persona_filename:
                     try:
                         persona = engine.load_persona(persona_filename)
-                    except:
+                    except Exception:
                         persona = None
                 else:
                     persona = None
@@ -596,7 +596,7 @@ async def ws_chat(ws: WebSocket):
                 school_lb = []
                 if sess.get("lorebooks"):
                     try: school_lb = json.loads(sess["lorebooks"])
-                    except: pass
+                    except Exception: pass
 
                 await ws.send_json({
                     "type": "session_resumed",
@@ -654,7 +654,7 @@ async def ws_chat(ws: WebSocket):
                         lb_filenames = []
                         if sess.get("lorebooks"):
                             try: lb_filenames = json.loads(sess["lorebooks"])
-                            except: pass
+                            except Exception: pass
                         if lb_filenames:
                             lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
                             lb_injection = lorebook.build_lorebook_injection(
@@ -883,7 +883,7 @@ async def ws_chat(ws: WebSocket):
                             lb_filenames = []
                             if sess.get("lorebooks"):
                                 try: lb_filenames = json.loads(sess["lorebooks"])
-                                except: pass
+                                except Exception: pass
                             if lb_filenames:
                                 lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
                                 lb_injection = lorebook.build_lorebook_injection(
@@ -1032,7 +1032,7 @@ async def ws_chat(ws: WebSocket):
                             lb_filenames = []
                             if sess.get("lorebooks"):
                                 try: lb_filenames = json.loads(sess["lorebooks"])
-                                except: pass
+                                except Exception: pass
                             if lb_filenames:
                                 lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
                                 lb_injection = lorebook.build_lorebook_injection(
@@ -1276,7 +1276,7 @@ async def ws_chat(ws: WebSocket):
     except Exception as e:
         try:
             await ws.send_json({"type": "error", "message": str(e)})
-        except:
+        except Exception:
             pass
 
 GEN_V2_SYSTEM = """You are a character card generator. You create rich, compelling character cards for roleplay.

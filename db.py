@@ -1255,42 +1255,47 @@ def db_rp_fork_session(session_id: int) -> Optional[dict]:
     if not sess:
         return None
     conn = sqlite3.connect(str(DB_PATH))
-    # Copy session row with (fork) suffix
-    fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
-    cur = conn.execute(
-        """INSERT INTO rp_sessions
+    try:
+        # Copy session row with (fork) suffix
+        fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
+        cur = conn.execute(
+            """INSERT INTO rp_sessions
            (title, persona_filename, turn_routing, response_style,
              stack_config, console_events, lorebooks, pov, inner_monologue, bg_image, auto_continue)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (fork_title, sess['persona_filename'], sess['turn_routing'], sess['response_style'],
-         sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks'),
-         sess.get('pov'), sess.get('inner_monologue', 0), sess.get('bg_image'),
-         1 if sess.get('auto_continue') else 0),
-    )
-    new_sid = cur.lastrowid
-    # Copy characters
-    chars = conn.execute(
-        "SELECT card_filename, char_name, display_order FROM rp_characters WHERE session_id = ? ORDER BY display_order",
-        (session_id,),
-    ).fetchall()
-    for c in chars:
-        conn.execute(
-            "INSERT INTO rp_characters (session_id, card_filename, char_name, display_order) VALUES (?, ?, ?, ?)",
-            (new_sid, c[0], c[1], c[2]),
+            (fork_title, sess['persona_filename'], sess['turn_routing'], sess['response_style'],
+             sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks'),
+             sess.get('pov'), sess.get('inner_monologue', 0), sess.get('bg_image'),
+             1 if sess.get('auto_continue') else 0),
         )
-    # Copy messages (preserving seq, role, speaker, content, persona_name)
-    msgs = conn.execute(
-        "SELECT seq, role, speaker, content, persona_name, image_path, image_prompt, client_msg_id, seed, swipes, active_swipe FROM rp_messages WHERE session_id = ? ORDER BY seq",
-        (session_id,),
-    ).fetchall()
-    for m in msgs:
-        conn.execute(
-            "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path, image_prompt, client_msg_id, seed, swipes, active_swipe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (new_sid, m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10]),
-        )
-    conn.commit()
-    conn.close()
-    return {'new_session_id': new_sid, 'title': fork_title}
+        new_sid = cur.lastrowid
+        # Copy characters
+        chars = conn.execute(
+            "SELECT card_filename, char_name, display_order FROM rp_characters WHERE session_id = ? ORDER BY display_order",
+            (session_id,),
+        ).fetchall()
+        for c in chars:
+            conn.execute(
+                "INSERT INTO rp_characters (session_id, card_filename, char_name, display_order) VALUES (?, ?, ?, ?)",
+                (new_sid, c[0], c[1], c[2]),
+            )
+        # Copy messages (preserving seq, role, speaker, content, persona_name)
+        msgs = conn.execute(
+            "SELECT seq, role, speaker, content, persona_name, image_path, image_prompt, client_msg_id, seed, swipes, active_swipe FROM rp_messages WHERE session_id = ? ORDER BY seq",
+            (session_id,),
+        ).fetchall()
+        for m in msgs:
+            conn.execute(
+                "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path, image_prompt, client_msg_id, seed, swipes, active_swipe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (new_sid, m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10]),
+            )
+        conn.commit()
+        return {'new_session_id': new_sid, 'title': fork_title}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def db_rp_set_persona(session_id: int, persona_filename: str) -> None:
@@ -1603,28 +1608,33 @@ def db_school_fork_session(session_id: int) -> Optional[dict]:
     if not sess:
         return None
     conn = sqlite3.connect(str(DB_PATH))
-    fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
-    cur = conn.execute(
-        """INSERT INTO school_sessions (title, card_filename, persona_filename, stack_config, console_events, lorebooks, pov, inner_monologue, bg_image, auto_continue, response_style)
+    try:
+        fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
+        cur = conn.execute(
+            """INSERT INTO school_sessions (title, card_filename, persona_filename, stack_config, console_events, lorebooks, pov, inner_monologue, bg_image, auto_continue, response_style)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (fork_title, sess['card_filename'], sess['persona_filename'],
-         sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks'),
-         sess.get('pov'), sess.get('inner_monologue', 0), sess.get('bg_image'),
-         1 if sess.get('auto_continue') else 0, sess.get('response_style')),
-    )
-    new_sid = cur.lastrowid
-    msgs = conn.execute(
-        "SELECT seq, role, content, is_first_mes, analysis_json, image_path, image_prompt, client_msg_id, seed, swipes, active_swipe FROM school_messages WHERE session_id = ? ORDER BY seq",
-        (session_id,),
-    ).fetchall()
-    for m in msgs:
-        conn.execute(
-            "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json, image_path, image_prompt, client_msg_id, seed, swipes, active_swipe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (new_sid, m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10]),
+            (fork_title, sess['card_filename'], sess['persona_filename'],
+             sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks'),
+             sess.get('pov'), sess.get('inner_monologue', 0), sess.get('bg_image'),
+             1 if sess.get('auto_continue') else 0, sess.get('response_style')),
         )
-    conn.commit()
-    conn.close()
-    return {'new_session_id': new_sid, 'title': fork_title}
+        new_sid = cur.lastrowid
+        msgs = conn.execute(
+            "SELECT seq, role, content, is_first_mes, analysis_json, image_path, image_prompt, client_msg_id, seed, swipes, active_swipe FROM school_messages WHERE session_id = ? ORDER BY seq",
+            (session_id,),
+        ).fetchall()
+        for m in msgs:
+            conn.execute(
+                "INSERT INTO school_messages (session_id, seq, role, content, is_first_mes, analysis_json, image_path, image_prompt, client_msg_id, seed, swipes, active_swipe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (new_sid, m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10]),
+            )
+        conn.commit()
+        return {'new_session_id': new_sid, 'title': fork_title}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def db_school_set_persona(session_id: int, persona_filename: str) -> None:
@@ -1657,50 +1667,50 @@ def db_school_to_rp(session_id: int) -> Optional[int]:
     d = card.get('data', card)
     char_name = d.get('name', Path(sess['card_filename']).stem)
 
-    # Get response_style from school session
-    conn = sqlite3.connect(str(DB_PATH))
-    row = conn.execute(
-        "SELECT response_style FROM school_sessions WHERE id = ?", (session_id,)
-    ).fetchone()
-    response_style = row[0] if row and row[0] else 'moderate'
-
-    # Get messages
+    # Fetch data needed before opening write transaction
+    response_style = sess.get('response_style') or 'moderate'
     msgs = db_school_get_messages(session_id)
 
-    # Create RP session
-    title = sess.get('title', char_name)
-    cur = conn.execute(
-        """INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style,
+    conn = sqlite3.connect(str(DB_PATH))
+    try:
+        # Create RP session
+        title = sess.get('title', char_name)
+        cur = conn.execute(
+            """INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style,
            stack_config, console_events, lorebooks, bg_image, pov, inner_monologue, auto_continue)
            VALUES (?, ?, 'auto', ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (title, sess.get('persona_filename'), response_style,
-         sess.get('stack_config'), sess.get('console_events'),
-         sess.get('lorebooks'), sess.get('bg_image'), sess.get('pov'),
-         sess.get('inner_monologue', 0), 1 if sess.get('auto_continue') else 0),
-    )
-    rp_sid = cur.lastrowid
+            (title, sess.get('persona_filename'), response_style,
+             sess.get('stack_config'), sess.get('console_events'),
+             sess.get('lorebooks'), sess.get('bg_image'), sess.get('pov'),
+             sess.get('inner_monologue', 0), 1 if sess.get('auto_continue') else 0),
+        )
+        rp_sid = cur.lastrowid
 
-    # Add single character
-    conn.execute(
-        "INSERT INTO rp_characters (session_id, card_filename, char_name, display_order) VALUES (?, ?, ?, 0)",
-        (rp_sid, sess['card_filename'], char_name),
-    )
-
-    # Copy messages — map assistant→character, strip analysis_json
-    for m in msgs:
-        role = m['role']
-        speaker = None
-        if role == 'assistant':
-            role = 'character'
-            speaker = char_name
-        _swipes = json.dumps(m['swipes']) if m.get('swipes') else None
+        # Add single character
         conn.execute(
-            "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path, image_prompt, seed, swipes, active_swipe, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (rp_sid, m['seq'], role, speaker, m['content'], m.get('persona_name'),
-             m.get('image_path'), m.get('image_prompt'), m.get('seed'),
-             _swipes, m.get('active_swipe') or 0, m.get('client_msg_id')),
+            "INSERT INTO rp_characters (session_id, card_filename, char_name, display_order) VALUES (?, ?, ?, 0)",
+            (rp_sid, sess['card_filename'], char_name),
         )
 
-    conn.commit()
-    conn.close()
-    return rp_sid
+        # Copy messages — map assistant→character, strip analysis_json
+        for m in msgs:
+            role = m['role']
+            speaker = None
+            if role == 'assistant':
+                role = 'character'
+                speaker = char_name
+            _swipes = json.dumps(m['swipes']) if m.get('swipes') else None
+            conn.execute(
+                "INSERT INTO rp_messages (session_id, seq, role, speaker, content, persona_name, image_path, image_prompt, seed, swipes, active_swipe, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (rp_sid, m['seq'], role, speaker, m['content'], m.get('persona_name'),
+                 m.get('image_path'), m.get('image_prompt'), m.get('seed'),
+                 _swipes, m.get('active_swipe') or 0, m.get('client_msg_id')),
+            )
+
+        conn.commit()
+        return rp_sid
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

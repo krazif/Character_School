@@ -991,7 +991,7 @@ Return ONLY the JSON object."""},
         if brace_start >= 0 and brace_end > brace_start:
             content = content[brace_start:brace_end+1]
         report = json.loads(repair_json(content))
-    except:
+    except Exception:
         report = {
             "character_name": char_name,
             "overall_verdict": "error",

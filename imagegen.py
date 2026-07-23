@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 
 import db
+from engine import _now_iso
 
 router = APIRouter()
 
@@ -360,11 +361,6 @@ async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_
     # Insert into session via callback
     if image_add_fn:
         await image_add_fn(image_path, prompt, result.get("seed"))
-
-
-def _now_iso() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).isoformat()
 
 
 # ─── REST endpoints ────────────────────────────────────────────────
