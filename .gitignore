@@ -32,3 +32,6 @@ Thumbs.db
 
 # Uploaded images
 uploads/
+
+# Agent instructions (local only)
+AGENTS.md
