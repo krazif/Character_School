@@ -2146,7 +2146,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       if (data.messages) {
         data.messages.forEach(m => {
           if (m.role === 'user') {
-            schoolMessages.push({ role: 'user', content: m.content, analysis: null, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
+            schoolMessages.push({ role: 'user', content: m.content, analysis: null, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0, personaName: currentPersona?.name || null });
           } else if (m.role === 'assistant') {
             schoolMessages.push({ role: 'character', content: m.content, analysis: m.analysis, isFirst: m.is_first_mes, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
           } else if (m.role === 'system') {
@@ -2368,8 +2368,9 @@ function addMessage(role, content, analysis, isFirst, messageId, clientId, image
   const loading = document.getElementById('firstMesLoading');
   if (loading) loading.remove();
 
-  // Push to array
-  const msg = { role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt, seed, swipes: null, activeSwipe: 0 };
+  // Push to array — stamp persona name per-message so old labels don't change when persona switches
+  const personaName = role === 'user' ? (currentPersona?.name || null) : null;
+  const msg = { role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt, seed, swipes: null, activeSwipe: 0, personaName };
   schoolMessages.push(msg);
 
   // Render
@@ -5733,7 +5734,7 @@ function buildSchoolMessageDOM(msg, index) {
   const label = document.createElement('span');
   label.className = 'msg-label';
   div.appendChild(document.createTextNode(' '));
-  label.textContent = msg.role === 'user' ? (currentPersona?.name || 'You') : (currentCard?.data?.name || 'Character');
+  label.textContent = msg.role === 'user' ? (msg.personaName || 'You') : (currentCard?.data?.name || 'Character');
   div.appendChild(label);
   // Content
   const contentDiv = document.createElement('div');
