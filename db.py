@@ -875,6 +875,22 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
             if c > 0:
                 block_markers.append({"block": btype, "label": label, "start": s, "count": c})
 
+    # ─── Qwen/strict-template compat: flatten mid-stack system → user ───
+    # Some model chat templates (notably Qwen) reject system messages
+    # that don't appear at position 0 ("System message must be at the
+    # beginning").  Convert any non-first system message to user role so
+    # it passes through cleanly.  Content already prefixed with
+    # "SCENE SUMMARY:" is left as-is (self-describing); everything else
+    # gets a [System Note] prefix to distinguish it from in-character
+    # user speech.  Safe for all models — user-role injection is the
+    # standard pattern used by SillyTavern author's notes, etc.
+    for _i in range(1, len(llm_messages)):
+        if llm_messages[_i].get("role") == "system":
+            llm_messages[_i]["role"] = "user"
+            _c = llm_messages[_i]["content"]
+            if not _c.startswith(("SCENE SUMMARY:", "[System", "[Scene")):
+                llm_messages[_i]["content"] = f"[System Note]\n{_c}"
+
     return llm_messages, block_markers
 
 
