@@ -620,7 +620,6 @@ body.rp-mode .school-only { display:none; }
         <select id="schoolPovSelect" class="rp-pov-select" onchange="schoolUpdateSetting('pov', this.value || null)" title="Perspective"></select>
         <div class="rp-toggle-btn" id="schoolImToggle" onclick="schoolUpdateSetting('inner_monologue', !schoolInnerMonologue)" title="Inner monologue">💭 OFF</div>
         <div class="rp-toggle-btn active" id="schoolAcToggle" onclick="schoolUpdateSetting('auto_continue', !schoolAutoContinue)" title="Auto-continue truncated responses">🔄 ON</div>
-        <div class="rp-toggle-btn" id="schoolAgencyToggle" onclick="schoolUpdateSetting('character_agency', !schoolCharacterAgency)" title="Character agency analysis — detect when character yields to user against their established personality">🛡️ OFF</div>
       </div>
     </div>
     <div class="chat-messages" id="chatMessages">
@@ -2056,7 +2055,6 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
       schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-      schoolCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
       updateSchoolStyleButton();
       // Clear virtual scroll state
       clearSchoolChat();
@@ -2077,7 +2075,6 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
       schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-      schoolCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
       updateSchoolStyleButton();
       // Apply per-session bg or fall back to global
       applyBgImage(data.bg_image || localStorage.getItem('cs_bg_image') || '', parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85, false);
@@ -2117,7 +2114,6 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
       schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-      schoolCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
       updateSchoolStyleButton();
       consoleEventCount = 0;
       schoolConsoleEvents = [];
@@ -2162,7 +2158,6 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
       schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-      schoolCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
       updateSchoolStyleButton();
       isWaiting = false;
       updateInputState();
@@ -2317,7 +2312,6 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
       schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-      schoolCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
       if (data.system_prompt !== undefined) {
         schoolSystemPrompt = data.system_prompt;
         if (schoolStackConfig) schoolStackConfig._systemPromptText = schoolSystemPrompt;
@@ -2327,7 +2321,6 @@ function connectWS(filename, personaFilename, resumeSessionId) {
       schoolPov = data.pov || null;
       schoolInnerMonologue = data.inner_monologue || false;
       schoolAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-      schoolCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
       if (data.response_style) schoolResponseStyle = data.response_style;
       if (data.system_prompt !== undefined) {
         schoolSystemPrompt = data.system_prompt;
@@ -2463,16 +2456,6 @@ function updateAnalysis(analysis, content) {
   // Training data pull
   if (analysis.training_data_pull) {
     html += `<div class="label" style="margin-top:8px">Training Data Pull</div><div class="value" style="font-size:12px;color:var(--orange)">${escapeHtml(analysis.training_data_pull)}</div>`;
-  }
-
-  // Character agency
-  if (analysis.character_agency) {
-    const ag = analysis.character_agency;
-    const agColor = ag.score === 'maintained' ? 'var(--green)' : ag.score === 'yielded' ? 'var(--red)' : 'var(--yellow)';
-    html += `<div class="label" style="margin-top:8px">Agency</div><div class="value" style="color:${agColor};font-weight:600;text-transform:uppercase">${escapeHtml(ag.score || '')}</div>`;
-    if (ag.reason) html += `<div style="font-size:12px;color:var(--text-dim);margin-top:2px">${escapeHtml(ag.reason)}</div>`;
-    if (ag.boundary_broken) html += `<div style="font-size:12px;color:var(--red);margin-top:2px">Boundary: ${escapeHtml(ag.boundary_broken)}</div>`;
-    if (ag.user_pressure && ag.user_pressure !== 'none') html += `<div style="font-size:12px;color:var(--text-dim);margin-top:1px">Pressure: ${escapeHtml(ag.user_pressure)}</div>`;
   }
 
   // ── Fixes ──
@@ -3030,26 +3013,6 @@ function showReport(report) {
     html += `<div class="report-section"><h3>Leakage Summary</h3><p>${escapeHtml(report.leakage_summary)}</p></div>`;
   }
 
-  // Character agency summary
-  if (report.raw_stats && report.raw_stats.agency_scores) {
-    const ag = report.raw_stats.agency_scores;
-    const total = (ag.maintained||0) + (ag.yielded||0) + (ag.compromised||0);
-    if (total > 0) {
-      html += `<div class="report-section"><h3>Character Agency</h3>`;
-      html += `<p>Maintained: <span style="color:var(--green)">${ag.maintained||0}</span> / Yielded: <span style="color:var(--red)">${ag.yielded||0}</span> / Compromised: <span style="color:var(--yellow)">${ag.compromised||0}</span></p>`;
-      if (report.raw_stats.agency_breaks && report.raw_stats.agency_breaks.length > 0) {
-        html += `<p style="margin-top:8px"><b>Agency breaks:</b></p>`;
-        report.raw_stats.agency_breaks.forEach(b => {
-          const bColor = b.score === 'yielded' ? 'var(--red)' : 'var(--yellow)';
-          html += `<p style="font-size:13px"><span style="color:${bColor}">●</span> Msg ${b.message}: ${escapeHtml(b.reason)}`;
-          if (b.boundary) html += ` <i>(boundary: ${escapeHtml(b.boundary)})</i>`;
-          html += `</p>`;
-        });
-      }
-      html += `</div>`;
-    }
-  }
-
   if (report.training_data_conflicts && report.training_data_conflicts.length > 0) {
     html += `<div class="report-section"><h3>Training Data Conflicts</h3>`;
     report.training_data_conflicts.forEach(c => html += `<p>• ${escapeHtml(c)}</p>`);
@@ -3332,7 +3295,6 @@ let rpResponseStyle = 'moderate';
 let rpPov = null;
 let rpInnerMonologue = false;
 let rpAutoContinue = true;  // auto-continue truncated responses
-let rpCharacterAgency = false;  // character agency toggle (stored, not used in RP analysis yet)
 let rpLorebooks = []; // active lorebook filenames for RP session
 let schoolLorebooks = []; // active lorebook filenames for school session
 const rpStyleLabels = {short:'Short', moderate:'Moderate', long:'Long', flexible:'Flexible'};
@@ -3345,7 +3307,6 @@ let schoolResponseStyle = 'moderate';
 let schoolPov = null;
 let schoolInnerMonologue = false;
 let schoolAutoContinue = true;  // auto-continue truncated responses
-let schoolCharacterAgency = false;  // character agency analysis toggle
 let rpStackConfig = null;
 let rpSystemPrompt = '';  // system prompt text from server for token estimation
 let stackDragSrc = null;
@@ -3505,7 +3466,6 @@ function handleRPMessage(data) {
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
     rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-    rpCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
     rpStackConfig = data.stack_config || null;
     if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     rpLorebooks = data.lorebooks || [];
@@ -3540,7 +3500,6 @@ function handleRPMessage(data) {
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
     rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-    rpCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
      rpStackConfig = data.stack_config || null;
      if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
      rpLorebooks = data.lorebooks || [];
@@ -3653,7 +3612,6 @@ function handleRPMessage(data) {
       rpPov = data.pov || null;
       rpInnerMonologue = data.inner_monologue || false;
       rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
-      rpCharacterAgency = data.character_agency !== undefined ? data.character_agency : false;
       if (data.system_prompt !== undefined) {
         rpSystemPrompt = data.system_prompt;
         if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
@@ -3766,9 +3724,6 @@ function renderRPSceneBar() {
 
   // Auto-continue toggle
   html += `<div class="rp-toggle-btn ${rpAutoContinue?'active':''}" onclick="rpUpdateSetting('auto_continue', ${!rpAutoContinue})" title="Auto-continue truncated responses">🔄 ${rpAutoContinue ? 'ON' : 'OFF'}</div>`;
-
-  // Character agency toggle
-  html += `<div class="rp-toggle-btn ${rpCharacterAgency?'active':''}" onclick="rpUpdateSetting('character_agency', ${!rpCharacterAgency})" title="Character agency analysis — detect when character yields to user against their established personality">🛡️ ${rpCharacterAgency ? 'ON' : 'OFF'}</div>`;
 
   // Stack Builder button
   html += `<div class="rp-toggle-btn" onclick="openStackBuilder()" title="Customize prompt stack">🔗 Prompts Stack</div>`;
@@ -4029,7 +3984,6 @@ function rpUpdateSetting(key, value) {
   if (key === 'pov') rpPov = value || null;
   else if (key === 'inner_monologue') rpInnerMonologue = !!value;
   else if (key === 'auto_continue') rpAutoContinue = !!value;
-  else if (key === 'character_agency') rpCharacterAgency = !!value;
   else if (key === 'response_style') rpResponseStyle = value;
   renderRPSceneBar();
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {
@@ -4084,19 +4038,12 @@ function updateSchoolStyleButton() {
     acBtn.textContent = `🔄 ${schoolAutoContinue ? 'ON' : 'OFF'}`;
     acBtn.classList.toggle('active', schoolAutoContinue);
   }
-  // Update character agency toggle
-  const agencyBtn = document.getElementById('schoolAgencyToggle');
-  if (agencyBtn) {
-    agencyBtn.textContent = `🛡️ ${schoolCharacterAgency ? 'ON' : 'OFF'}`;
-    agencyBtn.classList.toggle('active', schoolCharacterAgency);
-  }
 }
 
 function schoolUpdateSetting(key, value) {
   if (key === 'pov') schoolPov = value || null;
   else if (key === 'inner_monologue') schoolInnerMonologue = !!value;
   else if (key === 'auto_continue') schoolAutoContinue = !!value;
-  else if (key === 'character_agency') schoolCharacterAgency = !!value;
   else if (key === 'response_style') schoolResponseStyle = value;
   updateSchoolStyleButton();
   if (ws && ws.readyState === WebSocket.OPEN) {

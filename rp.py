@@ -121,7 +121,6 @@ async def ws_rp(ws: WebSocket):
     persona = None
     persona_filename = None
     auto_continue = True  # auto-continue truncated responses (finish_reason=length)
-    character_agency = False  # character agency analysis toggle (stored, not used in RP yet)
     current_gen_task = None  # background generation task (for stop support)
     _ws_state = [True]  # [is_alive] — mutable container to avoid nonlocal issues
 
@@ -159,7 +158,6 @@ async def ws_rp(ws: WebSocket):
                 pov = data.get("pov")
                 inner_monologue = data.get("inner_monologue", False)
                 auto_continue = data.get("auto_continue", True)
-                character_agency = data.get("character_agency", False)
 
                 cards = {}
                 character_names = {}
@@ -211,7 +209,6 @@ async def ws_rp(ws: WebSocket):
                     "persona": persona_filename,
                     "response_style": response_style,
                     "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue,
-                    "character_agency": character_agency,
                     "stack_config": stack_config_json or db.DEFAULT_STACK_CONFIG,
                     "lorebooks": [],
                     "console_events": [],
@@ -244,7 +241,6 @@ async def ws_rp(ws: WebSocket):
                 pov = sess.get("pov")
                 inner_monologue = sess.get("inner_monologue", False)
                 auto_continue = sess.get("auto_continue", True)
-                character_agency = sess.get("character_agency", False)
                 persona_filename = sess["persona_filename"]
 
                 cards = {}
@@ -293,7 +289,6 @@ async def ws_rp(ws: WebSocket):
                     "persona": persona_filename,
                     "response_style": response_style,
                     "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue,
-                    "character_agency": character_agency,
                     "stack_config": stack_cfg,
                     "lorebooks": session_lorebooks,
                     "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name"), "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt"), "seed": m.get("seed"), "swipes": m.get("swipes"), "active_swipe": m.get("active_swipe", 0)} for m in messages],
@@ -815,9 +810,8 @@ async def ws_rp(ws: WebSocket):
                     pov = data.get("pov", pov)
                     inner_monologue = data.get("inner_monologue", inner_monologue)
                     auto_continue = data.get("auto_continue", auto_continue)
-                    character_agency = data.get("character_agency", character_agency)
-                    db.db_rp_update_settings(session_id, response_style, pov=pov, inner_monologue=inner_monologue, auto_continue=auto_continue, character_agency=character_agency)
-                    await _safe_send({"type": "settings_updated", "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "character_agency": character_agency, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
+                    db.db_rp_update_settings(session_id, response_style, pov=pov, inner_monologue=inner_monologue, auto_continue=auto_continue)
+                    await _safe_send({"type": "settings_updated", "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
 
             elif data["type"] == "set_bg_image":
                 if session_id:

@@ -269,9 +269,8 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
     return "\n".join(parts)
 
 
-def build_analysis_prompt(card: dict, agency_enabled: bool = False) -> str:
-    """Build the system prompt for the analysis LLM.
-    If agency_enabled is True, include character_agency field in the JSON schema."""
+def build_analysis_prompt(card: dict) -> str:
+    """Build the system prompt for the analysis LLM."""
     d = card.get("data", card)
     version = detect_card_version(card)
     char_name = resolve_char_name(card)
@@ -281,21 +280,6 @@ def build_analysis_prompt(card: dict, agency_enabled: bool = False) -> str:
         val = get_card_field(d, field, version)
         if val:
             rules_text.append(f"--- {field.upper()} ---\n{substitute_macros(val, char_name)}")
-
-    # Build agency schema section (conditional)
-    agency_schema = ""
-    if agency_enabled:
-        agency_schema = """  "character_agency": {{
-    "score": "maintained / yielded / compromised",
-    "reason": "one sentence explaining why the character maintained or yielded their agency",
-    "user_pressure": "none / polite / insistent / coercive",
-    "boundary_broken": "what specific boundary was violated, or null if maintained"
-  }},
-"""
-    agency_rule = ""
-    if agency_enabled:
-        agency_rule = """13. CHARACTER AGENCY: Evaluate whether the character maintained their own agency in this response. Did they comply with the user's request in a way that contradicts their established personality, boundaries, or values? "maintained" = held their ground appropriately (including when agreement IS the right in-character response). "yielded" = abandoned their position without good in-character reason. "compromised" = partially gave in. Also rate the user's pressure level. If the character yielded, name the specific boundary that was broken.
-"""
 
     return f"""You are a QA analysis engine for character card testing. You run alongside a live chat session where a human user is interacting with an LLM playing a character. Your job is to analyze each character response in real-time and check it against the character's rules.
 
@@ -327,7 +311,7 @@ For each character response, analyze it and return a JSON object with these fiel
   "fragility": "strong / fragile / broken",
   "fragility_notes": "how close the rules came to breaking",
   "training_data_pull": "what LLM training defaults were fighting against the rules, if any",
-{agency_schema}  "overall": "pass / partial / fail",
+  "overall": "pass / partial / fail",
   "summary": "one-line summary of this response's compliance",
   "fixes": [
     {{
@@ -377,7 +361,7 @@ RULES FOR ANALYSIS:
     - "placement": EXACTLY where in that field (same rules as fixes.placement — quote nearby existing text)
     - "suggested_text": the actual ready-to-paste text the card author should insert — NOT a description of what to write, but the actual text itself, written in the card's voice and style
     - "rationale": why this enhancement helps
-    If no enhancements needed, return empty array.{agency_rule}"""
+    If no enhancements needed, return empty array."""
 
 
 def get_first_mes(card: dict, user_name: str = "User") -> Optional[str]:
@@ -884,8 +868,6 @@ async def generate_report(analysis_prompt: str, responses: list[str],
     all_banned = []
     all_leakage = []
     fragility_scores = {"strong": 0, "fragile": 0, "broken": 0}
-    agency_scores = {"maintained": 0, "yielded": 0, "compromised": 0}
-    agency_breaks = []  # messages where character yielded or compromised
 
     for i, a in enumerate(analyses):
         if a.get("rule_violations"):
@@ -898,19 +880,6 @@ async def generate_report(analysis_prompt: str, responses: list[str],
         frag = a.get("fragility", "strong")
         if frag in fragility_scores:
             fragility_scores[frag] += 1
-        # Agency aggregation
-        agency = a.get("character_agency", {})
-        score = agency.get("score")
-        if score in agency_scores:
-            agency_scores[score] += 1
-        if score in ("yielded", "compromised"):
-            agency_breaks.append({
-                "message": i+1,
-                "score": score,
-                "reason": agency.get("reason", ""),
-                "boundary": agency.get("boundary_broken"),
-                "user_pressure": agency.get("user_pressure"),
-            })
 
     # Ask analysis LLM for a comprehensive summary
     all_data = json.dumps({
@@ -918,8 +887,7 @@ async def generate_report(analysis_prompt: str, responses: list[str],
         "analyses": analyses,
         "stats": {"total": total, "passes": passes, "fails": fails, "partials": partials,
                   "fragility": fragility_scores, "violations": all_violations,
-                  "banned_words": all_banned, "leakage": all_leakage,
-                  "agency": agency_scores, "agency_breaks": agency_breaks}
+                  "banned_words": all_banned, "leakage": all_leakage}
     }, indent=2)
 
     report_messages = [
@@ -1041,8 +1009,6 @@ Return ONLY the JSON object."""},
         "all_violations": all_violations,
         "all_banned_words": all_banned,
         "all_leakage": all_leakage,
-        "agency_scores": agency_scores,
-        "agency_breaks": agency_breaks,
     }
 
     # Include persona info in report
