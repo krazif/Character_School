@@ -792,7 +792,13 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
             if m["role"] == "user":
                 llm_messages.append({"role": "user", "content": content})
             elif m["role"] == "character":
-                llm_messages.append({"role": "assistant", "content": f"[{m['speaker']}]: {content}"})
+                # Strip any leading [Speaker]: prefix from content to prevent
+                # double-prefixing (model may have included it in raw output)
+                clean = content
+                sp = m.get("speaker")
+                if sp:
+                    clean = re.sub(r'^\[?' + re.escape(sp) + r'\]?:\s*', '', clean)
+                llm_messages.append({"role": "assistant", "content": f"[{m['speaker']}]: {clean}"})
             elif m["role"] == "assistant":
                 llm_messages.append({"role": "assistant", "content": content})
             elif m["role"] == "system":
