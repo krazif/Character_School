@@ -94,6 +94,16 @@ header .status.connected { color:var(--green); }
 .chat-input .image-preview-wrap { position:relative; display:none; }
 .chat-input .image-preview { height:44px; width:44px; border-radius:8px; object-fit:cover; border:1px solid var(--border); cursor:pointer; }
 .chat-input .image-preview-remove { position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%; background:var(--red); color:#fff; border:none; font-size:10px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+
+/* Author's Note bar — collapsible inject between chat area and input */
+.author-note-bar { padding:0 16px; border-top:1px solid var(--border); background:var(--surface); overflow:hidden; transition:max-height 0.2s ease, padding 0.2s ease; max-height:0; }
+.author-note-bar.expanded { max-height:120px; padding:8px 16px; }
+.author-note-toggle { display:flex; align-items:center; gap:4px; cursor:pointer; font-size:12px; color:var(--text-dim); padding:4px 0; user-select:none; }
+.author-note-toggle:hover { color:var(--accent); }
+.author-note-field { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:13px; resize:none; height:44px; font-family:inherit; display:none; }
+.author-note-field:focus { outline:none; border-color:var(--accent); }
+.author-note-bar.expanded .author-note-field { display:block; }
+.author-note-bar.expanded .author-note-toggle { padding:0 0 6px 0; }
 .chat-input button { padding:10px 20px; border:none; border-radius:8px; font-size:14px; cursor:pointer; font-weight:500; }
  .btn-send { background:var(--accent); color:#fff; }
  .btn-send:disabled { opacity:0.5; cursor:not-allowed; }
@@ -625,6 +635,11 @@ body.rp-mode .school-only { display:none; }
     <div class="chat-messages" id="chatMessages">
       <div class="analysis-empty">Select a character from the left to start testing.<br><br>You'll chat as the counterparty. The character responds via LLM. Each response is analyzed in real-time against the card's rules.</div>
     </div>
+    <!-- Author's Note (School) -->
+    <div class="author-note-bar" id="schoolAuthorNoteBar">
+      <div class="author-note-toggle" onclick="toggleSchoolAuthorNote()">📝 Author's Note <span id="schoolAuthorNoteArrow">▸</span></div>
+      <textarea class="author-note-field" id="schoolAuthorNoteInput" placeholder="Scene direction, character resistance, OOC notes... (appended to your message as [Author's Note: ...])" onkeydown="handleAuthorNoteKey(event, 'school')"></textarea>
+    </div>
     <div class="chat-input">
       <button class="btn-attach" id="schoolAttachBtn" onclick="document.getElementById('schoolImageUpload').click()" disabled title="Attach image">🖼️</button>
       <input type="file" id="schoolImageUpload" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="onSchoolImageSelected(event)" />
@@ -664,6 +679,11 @@ body.rp-mode .school-only { display:none; }
     </div>
     <div class="rp-chat-messages" id="rpChatMessages">
       <div class="analysis-empty" id="rpChatEmpty">Start a new RP session to begin.</div>
+    </div>
+    <!-- Author's Note (RP) -->
+    <div class="author-note-bar" id="rpAuthorNoteBar" style="display:none">
+      <div class="author-note-toggle" onclick="toggleRPAuthorNote()">📝 Author's Note <span id="rpAuthorNoteArrow">▸</span></div>
+      <textarea class="author-note-field" id="rpAuthorNoteInput" placeholder="Scene direction, character resistance, OOC notes... (appended to your message as [Author's Note: ...])" onkeydown="handleAuthorNoteKey(event, 'rp')"></textarea>
     </div>
     <div class="chat-input" id="rpInputArea" style="display:none">
       <button class="btn-attach" id="rpAttachBtn" onclick="document.getElementById('rpImageUpload').click()" disabled title="Attach image">🖼️</button>
@@ -2561,9 +2581,17 @@ async function sendMessage() {
   }
 
   const clientId = 'um_' + (++_clientMsgCounter) + '_' + Date.now();
-  _lastUserMsgDiv = addMessage('user', text, null, false, null, clientId, imagePath);
-  ws.send(JSON.stringify({type: 'user_message', content: text, client_msg_id: clientId, image_path: imagePath}));
+  // ── Author's Note: append to message if non-empty ──
+  const noteEl = document.getElementById('schoolAuthorNoteInput');
+  let noteText = noteEl ? noteEl.value.trim() : '';
+  let sendContent = text;
+  if (noteText) {
+    sendContent = text + "\n\n[Author's Note: " + noteText + ']';
+  }
+  _lastUserMsgDiv = addMessage('user', sendContent, null, false, null, clientId, imagePath);
+  ws.send(JSON.stringify({type: 'user_message', content: sendContent, client_msg_id: clientId, image_path: imagePath}));
   input.value = '';
+  if (noteEl) noteEl.value = '';
 
   // Image-only: no LLM wait state
   if (text || !imagePath) {
@@ -2594,6 +2622,8 @@ function updateInputState() {
   document.getElementById('msgInput').disabled = isWaiting;
   document.getElementById('btnStop').style.display = isWaiting ? '' : 'none';
   document.getElementById('schoolAttachBtn').disabled = isWaiting || !schoolActiveSessionId;
+  const noteEl = document.getElementById('schoolAuthorNoteInput');
+  if (noteEl) noteEl.disabled = isWaiting;
   if (!isWaiting) document.getElementById('msgInput').focus();
 }
 
@@ -3479,6 +3509,7 @@ function handleRPMessage(data) {
     // Clear virtual scroll state
     clearRPChat();
      document.getElementById('rpInputArea').style.display = 'flex';
+     document.getElementById('rpAuthorNoteBar').style.display = '';
      rpIsWaiting = false;
      updateRPInputState();
      // Apply per-session bg or fall back to global
@@ -3555,6 +3586,7 @@ function handleRPMessage(data) {
     renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
     initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
     document.getElementById('rpInputArea').style.display = 'flex';
+    document.getElementById('rpAuthorNoteBar').style.display = '';
     rpIsWaiting = false;
     updateRPInputState();
      // Apply per-session bg or fall back to global
@@ -3902,12 +3934,20 @@ async function sendRPMessage() {
   }
 
   const clientId = 'rp_' + (++_clientMsgCounter) + '_' + Date.now();
-  addRPMessage('user', text, null, null, clientId, imagePath);
+  // ── Author's Note: append to message if non-empty ──
+  const noteEl = document.getElementById('rpAuthorNoteInput');
+  let noteText = noteEl ? noteEl.value.trim() : '';
+  let sendContent = text;
+  if (noteText) {
+    sendContent = text + "\n\n[Author's Note: " + noteText + ']';
+  }
+  addRPMessage('user', sendContent, null, null, clientId, imagePath);
 
   const directedTo = document.getElementById('rpDirectSelect')?.value || null;
-  rpWS.send(JSON.stringify({type: 'user_message', content: text, directed_to: directedTo || null, client_msg_id: clientId, image_path: imagePath}));
+  rpWS.send(JSON.stringify({type: 'user_message', content: sendContent, directed_to: directedTo || null, client_msg_id: clientId, image_path: imagePath}));
 
   input.value = '';
+  if (noteEl) noteEl.value = '';
   // Image-only: no LLM wait state
   if (text || !imagePath) {
     rpIsWaiting = true;
@@ -3927,7 +3967,42 @@ function updateRPInputState() {
   document.getElementById('rpMsgInput').disabled = rpIsWaiting;
   document.getElementById('rpBtnStop').style.display = rpIsWaiting ? '' : 'none';
   document.getElementById('rpAttachBtn').disabled = rpIsWaiting || !rpActiveSessionId;
+  const noteEl = document.getElementById('rpAuthorNoteInput');
+  if (noteEl) noteEl.disabled = rpIsWaiting;
   if (!rpIsWaiting) document.getElementById('rpMsgInput').focus();
+}
+
+// ── Author's Note toggle + key handlers ──
+function toggleSchoolAuthorNote() {
+  const bar = document.getElementById('schoolAuthorNoteBar');
+  const arrow = document.getElementById('schoolAuthorNoteArrow');
+  if (!bar) return;
+  const expanded = bar.classList.toggle('expanded');
+  arrow.textContent = expanded ? '▾' : '▸';
+  if (expanded) {
+    const field = document.getElementById('schoolAuthorNoteInput');
+    if (field && !field.disabled) field.focus();
+  }
+}
+
+function toggleRPAuthorNote() {
+  const bar = document.getElementById('rpAuthorNoteBar');
+  const arrow = document.getElementById('rpAuthorNoteArrow');
+  if (!bar) return;
+  const expanded = bar.classList.toggle('expanded');
+  arrow.textContent = expanded ? '▾' : '▸';
+  if (expanded) {
+    const field = document.getElementById('rpAuthorNoteInput');
+    if (field && !field.disabled) field.focus();
+  }
+}
+
+function handleAuthorNoteKey(e, mode) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (mode === 'school') sendMessage();
+    else if (mode === 'rp') sendRPMessage();
+  }
 }
 
 function stopRPGeneration() {
@@ -4182,6 +4257,7 @@ async function deleteRPSession(sessionId) {
       rpCharacters = [];
       document.getElementById('rpChatMessages').innerHTML = '<div class="analysis-empty" id="rpChatEmpty">Start a new RP session to begin.</div>';
       document.getElementById('rpInputArea').style.display = 'none';
+      document.getElementById('rpAuthorNoteBar').style.display = 'none';
       document.getElementById('rpSceneBar').innerHTML = '<span style="color:var(--text-dim);font-size:13px">No active session. Click "+ New" to start a roleplay.</span>';
     }
     loadRPSessions();
