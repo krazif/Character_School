@@ -96,14 +96,12 @@ header .status.connected { color:var(--green); }
 .chat-input .image-preview-remove { position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%; background:var(--red); color:#fff; border:none; font-size:10px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
 
 /* Author's Note bar — collapsible inject between chat area and input */
-.author-note-bar { padding:0 16px; border-top:1px solid var(--border); background:var(--surface); overflow:hidden; transition:max-height 0.2s ease, padding 0.2s ease; max-height:0; }
-.author-note-bar.expanded { max-height:120px; padding:8px 16px; }
+.author-note-bar { padding:0 16px; border-top:1px solid var(--border); background:var(--surface); }
 .author-note-toggle { display:flex; align-items:center; gap:4px; cursor:pointer; font-size:12px; color:var(--text-dim); padding:4px 0; user-select:none; }
 .author-note-toggle:hover { color:var(--accent); }
-.author-note-field { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:13px; resize:none; height:44px; font-family:inherit; display:none; }
+.author-note-field { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:13px; resize:none; height:44px; font-family:inherit; display:none; margin-bottom:6px; }
 .author-note-field:focus { outline:none; border-color:var(--accent); }
 .author-note-bar.expanded .author-note-field { display:block; }
-.author-note-bar.expanded .author-note-toggle { padding:0 0 6px 0; }
 .chat-input button { padding:10px 20px; border:none; border-radius:8px; font-size:14px; cursor:pointer; font-weight:500; }
  .btn-send { background:var(--accent); color:#fff; }
  .btn-send:disabled { opacity:0.5; cursor:not-allowed; }
