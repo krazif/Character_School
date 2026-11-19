@@ -3,11 +3,14 @@ Character School — engine layer (pure logic, no FastAPI).
 Split from server.py.
 """
 import asyncio
+import inspect
 import json
 import re
 import base64
 import io
+import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional, Any
 from json_repair import repair_json
 import db
@@ -1031,9 +1034,191 @@ def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
     return default
 
 
+# ─── Streaming completions ───────────────────────────────────────
+# Chat replies are pushed to the client token-by-token instead of arriving
+# in one lump. The result is shaped like a non-streaming ChatCompletion, so
+# call sites (and maybe_auto_continue) keep reading
+# .choices[0].message.content / .finish_reason / .usage unchanged.
+
+_STREAM_FLUSH_INTERVAL = 0.05   # seconds between delta pushes — don't spam the socket
+_STREAM_FLUSH_CHARS = 64        # ...unless this much text has piled up
+_PREFIX_HOLD_LIMIT = 64         # chars of a still-ambiguous "[Name]:" prefix
+# Statuses where retrying without streaming is pointless (and harmful for
+# rate limits) — surface them immediately instead of falling back.
+_NON_RETRYABLE_STATUS = {401, 402, 403, 404, 408, 429}
+
+
+class StreamedCompletion:
+    """Stand-in for an OpenAI ChatCompletion assembled from a stream."""
+
+    def __init__(self, content: str, finish_reason, usage, speaker: Optional[str] = None):
+        self.choices = [SimpleNamespace(
+            message=SimpleNamespace(content=content),
+            finish_reason=finish_reason,
+        )]
+        self.usage = usage
+        # Speaker taken from a dropped "[Name]:" prefix (RP auto mode), if any.
+        self.speaker = speaker
+
+
+def _release_prefix(held: str) -> tuple:
+    """Decide what to release from a buffer that may be a leading "[Name]:" prefix.
+
+    RP auto mode's final message drops that prefix, so streaming it would make
+    the bubble jump at the end. Hold only while the buffer could still turn
+    into one. Returns (release?, text_to_release, speaker_or_None).
+    """
+    stripped = held.lstrip()
+    if not stripped:
+        return False, "", None                    # whitespace only — nothing to show yet
+    if not stripped.startswith("["):
+        return True, held, None                   # not a prefix after all
+    if "]:" in held:
+        name, _, rest = held.partition("]:")
+        speaker = name[1:].strip() if name.startswith("[") else name.strip()
+        return True, rest, speaker
+    if "\n" in held or len(held) > _PREFIX_HOLD_LIMIT:
+        return True, held, None                   # gave up on it being a prefix
+    return False, "", None                        # keep holding
+
+
+async def _consume_stream(client, call_kwargs: dict, on_delta, hold_prefix: bool) -> tuple:
+    """Iterate an OpenAI-compatible SSE stream.
+
+    Returns (content, usage, finish_reason, speaker). on_delta(text, speaker)
+    is awaited for each released chunk, throttled to _STREAM_FLUSH_INTERVAL
+    so a fast model doesn't flood the websocket.
+    """
+    stream = await client.chat.completions.create(**call_kwargs)
+
+    raw_parts = []        # everything the model produced (includes any prefix)
+    pending = ""          # released text not yet pushed to the client
+    held = ""             # buffer while a leading "[Name]:" prefix is ambiguous
+    decided = not hold_prefix
+    strip_leading = False  # the stored message strips what follows the prefix
+    speaker = None
+    usage = None
+    finish_reason = None
+    last_flush = time.monotonic()
+
+    async def flush(force: bool = False):
+        nonlocal pending, last_flush
+        if not pending:
+            return
+        if (not force
+                and time.monotonic() - last_flush < _STREAM_FLUSH_INTERVAL
+                and len(pending) < _STREAM_FLUSH_CHARS):
+            return
+        text, pending = pending, ""
+        last_flush = time.monotonic()
+        if on_delta:
+            result = on_delta(text, speaker)
+            if inspect.isawaitable(result):
+                await result
+
+    async for chunk in stream:
+        if getattr(chunk, "usage", None) is not None:
+            usage = chunk.usage
+        choices = getattr(chunk, "choices", None)
+        if not choices:
+            continue                             # usage-only trailing frame
+        choice = choices[0]
+        if getattr(choice, "finish_reason", None):
+            finish_reason = choice.finish_reason
+        delta = getattr(choice, "delta", None)
+        text = getattr(delta, "content", None) if delta is not None else None
+        if not text:
+            continue                             # reasoning/thinking deltas are not chat output
+        raw_parts.append(text)
+        if not decided:
+            held += text
+            release, released, prefix_speaker = _release_prefix(held)
+            if release:
+                decided = True
+                held = ""
+                if prefix_speaker:
+                    speaker = prefix_speaker
+                    strip_leading = True   # stored message strips after the prefix
+                if released and strip_leading:
+                    released = released.lstrip()
+                    if released:
+                        strip_leading = False
+                if released:
+                    pending += released
+        else:
+            if strip_leading:
+                text = text.lstrip()
+                if text:
+                    strip_leading = False
+            pending += text
+        await flush()
+
+    if held:
+        pending += held                          # never drop text we were holding back
+    await flush(force=True)
+
+    content = "".join(raw_parts)
+    # Some endpoints omit finish_reason on the stream's last frame; a run that
+    # used up max_tokens exactly was truncated, which is what auto-continue keys on.
+    if finish_reason is None and usage is not None:
+        max_tokens = call_kwargs.get("max_tokens")
+        if max_tokens and getattr(usage, "completion_tokens", 0) >= max_tokens:
+            finish_reason = "length"
+    return content, usage, finish_reason, speaker
+
+
+def _stream_rejected(err: Exception) -> bool:
+    """True when the endpoint refused our streaming parameters (safe to retry
+    without them); False for real API errors, which must surface untouched."""
+    status = getattr(err, "status_code", None)
+    if status in _NON_RETRYABLE_STATUS:
+        return False
+    if status is not None:
+        return 400 <= status < 500
+    return "stream" in str(err).lower()
+
+
+async def stream_chat_completion(client, kwargs: dict, on_delta=None,
+                                 hold_prefix: bool = False) -> StreamedCompletion:
+    """Run a chat completion with streaming, pushing text out via
+    on_delta(text, speaker) as it arrives.
+
+    Tries stream+usage, then plain stream, then a non-streaming call, so an
+    endpoint that rejects the newer parameters still works (just without
+    live output). Real API errors are raised, never swallowed.
+    """
+    attempts = (
+        {**kwargs, "stream": True, "stream_options": {"include_usage": True}},
+        {**kwargs, "stream": True},
+        kwargs,   # plain fallback — no streaming at all
+    )
+    last_error = None
+    for i, call_kwargs in enumerate(attempts):
+        try:
+            if i == len(attempts) - 1:
+                resp = await client.chat.completions.create(**call_kwargs)
+                return StreamedCompletion(
+                    resp.choices[0].message.content or "",
+                    resp.choices[0].finish_reason,
+                    resp.usage,
+                )
+            content, usage, finish_reason, speaker = await _consume_stream(
+                client, call_kwargs, on_delta, hold_prefix,
+            )
+            return StreamedCompletion(content, finish_reason, usage, speaker)
+        except Exception as e:
+            last_error = e
+            if not _stream_rejected(e):
+                raise
+    if last_error is None:
+        raise RuntimeError("chat completion produced no result")
+    raise last_error
+
+
 async def maybe_auto_continue(
     client, kwargs: dict, initial_resp, auto_continue: bool,
     response_style: str, send_fn=None, max_continuations: int = 3,
+    on_delta=None,
 ) -> tuple:
     """If initial response was truncated (finish_reason=length), auto-continue
     by appending partial content as an assistant message and re-calling the API.
@@ -1062,7 +1247,7 @@ async def maybe_auto_continue(
             except Exception:
                 pass
 
-        cont_resp = await client.chat.completions.create(**cont_kwargs)
+        cont_resp = await stream_chat_completion(client, cont_kwargs, on_delta=on_delta)
         cont_content = cont_resp.choices[0].message.content or ""
         cont_finish = cont_resp.choices[0].finish_reason
         cont_usage = cont_resp.usage

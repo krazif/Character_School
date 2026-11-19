@@ -281,6 +281,7 @@ function handleRPMessage(data) {
        el.classList.toggle('active', parseInt(el.dataset.sessionId) === rpActiveSessionId);
      });
     } else if (data.type === 'character_message') {
+      clearStreamBubble();
       if (data.regenerated) {
         // Update existing message (swipe) instead of adding new
         const target = rpMessages.find(m => m.messageId === data.message_id);
@@ -304,11 +305,14 @@ function handleRPMessage(data) {
       target.activeSwipe = data.active_swipe;
       renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
     }
+  } else if (data.type === 'character_delta') {
+    handleStreamDelta('rp', data);
   } else if (data.type === 'character_typing') {
     showRPTyping(data.character_name);
   } else if (data.type === 'character_typing_stopped') {
     hideRPTyping();
   } else if (data.type === 'generation_stopped') {
+    clearStreamBubble();
     rpIsWaiting = false;
     hideRPTyping();
     updateRPInputState();
@@ -390,6 +394,7 @@ function handleRPMessage(data) {
       rpWS.send(JSON.stringify({type: 'resume', session_id: rpActiveSessionId}));
     }
   } else if (data.type === 'error') {
+    clearStreamBubble();
     addRPMessage('system', 'Error: ' + data.message, null, null, null, null);
     rpIsWaiting = false;
     updateRPInputState();

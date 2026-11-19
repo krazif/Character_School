@@ -25,6 +25,21 @@ MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 RESUME_CONSOLE_LIMIT = 50
 
 
+def _delta_sender(send, character_name=None):
+    """Build the on_delta callback for a streaming character reply.
+
+    Pushes {"type": "character_delta"} frames as tokens arrive. *send* is the
+    mode's safe sender, which already drops frames on a dead socket.
+    """
+    async def _send(text: str, speaker=None):
+        payload = {"type": "character_delta", "text": text}
+        name = speaker or character_name
+        if name:
+            payload["character_name"] = name
+        await send(payload)
+    return _send
+
+
 def _resume_console_events(sess):
     """Return the last N console events for session_resumed to keep the WS payload small."""
     raw = sess.get("console_events", "[]") if sess else "[]"
@@ -390,7 +405,10 @@ async def ws_rp(ws: WebSocket):
                             "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
                         })
                         if not _ws_state[0]: return
-                        resp = await db.chat_client.chat.completions.create(**kwargs)
+                        on_delta = _delta_sender(_safe_send, character_names.get(directed_to) if directed_to else (character_names.get(character_order[0]) if character_order else None))
+                        resp = await engine.stream_chat_completion(
+                            db.chat_client, kwargs, on_delta=on_delta, hold_prefix=not directed_to,
+                        )
                         raw_content = resp.choices[0].message.content
                         usage = resp.usage
 
@@ -407,6 +425,7 @@ async def ws_rp(ws: WebSocket):
                         raw_content, _final_fr = await engine.maybe_auto_continue(
                             db.chat_client, kwargs, resp, auto_continue, response_style,
                             send_fn=_safe_send,
+                            on_delta=on_delta,
                         )
 
                         parsed = engine.parse_rp_response(raw_content, character_names, character_order)
@@ -570,7 +589,10 @@ async def ws_rp(ws: WebSocket):
                                 "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
                             })
                             if not _ws_state[0]: return
-                            resp = await db.chat_client.chat.completions.create(**kwargs)
+                            on_delta = _delta_sender(_safe_send, character_names.get(directed_to) if directed_to else (character_names.get(character_order[0]) if character_order else None))
+                            resp = await engine.stream_chat_completion(
+                                db.chat_client, kwargs, on_delta=on_delta, hold_prefix=not directed_to,
+                            )
                             raw_content = resp.choices[0].message.content
                             usage = resp.usage
 
@@ -587,6 +609,7 @@ async def ws_rp(ws: WebSocket):
                             raw_content, _final_fr = await engine.maybe_auto_continue(
                                 db.chat_client, kwargs, resp, auto_continue, response_style,
                                 send_fn=_safe_send,
+                                on_delta=on_delta,
                             )
 
                             parsed = engine.parse_rp_response(raw_content, character_names, character_order)
@@ -749,7 +772,10 @@ async def ws_rp(ws: WebSocket):
                                 "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
                             })
                             if not _ws_state[0]: return
-                            resp = await db.chat_client.chat.completions.create(**kwargs)
+                            on_delta = _delta_sender(_safe_send, character_names.get(directed_to) if directed_to else (character_names.get(character_order[0]) if character_order else None))
+                            resp = await engine.stream_chat_completion(
+                                db.chat_client, kwargs, on_delta=on_delta, hold_prefix=not directed_to,
+                            )
                             raw_content = resp.choices[0].message.content
                             usage = resp.usage
 
@@ -766,6 +792,7 @@ async def ws_rp(ws: WebSocket):
                             raw_content, _final_fr = await engine.maybe_auto_continue(
                                 db.chat_client, kwargs, resp, auto_continue, response_style,
                                 send_fn=_safe_send,
+                                on_delta=on_delta,
                             )
 
                             parsed = engine.parse_rp_response(raw_content, character_names, character_order)

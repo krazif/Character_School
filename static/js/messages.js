@@ -386,6 +386,7 @@ function swipeRPMessage(index, swipeIndex) {
 }
 
 function clearSchoolChat() {
+  clearStreamBubble();
   schoolMessages = [];
   schoolVisibleCount.value = VIRTUAL_SCROLL_BATCH;
   const container = document.getElementById('chatMessages');
@@ -436,6 +437,7 @@ function openImageLightbox(src, promptText, seed) {
 }
 
 function clearRPChat() {
+  clearStreamBubble();
   rpMessages = [];
   rpVisibleCount.value = VIRTUAL_SCROLL_BATCH;
   const container = document.getElementById('rpChatMessages');
@@ -444,3 +446,65 @@ function clearRPChat() {
 }
 
 // ─── End Virtual Scrolling ──────────────────────
+
+// ─── Live streaming ─────────────────────────────
+// While the LLM generates, the server pushes `character_delta` frames; they
+// render into this temporary bubble and the final `character_message`
+// replaces it with the stored message. The server already holds back RP auto
+// mode's leading "[Name]:" prefix, so what lands here matches the final text.
+let _streamBubble = null;   // { containerId, el, contentEl, text }
+
+function startStreamBubble(mode, label) {
+  clearStreamBubble();
+  // Swap the typing dots for the growing bubble
+  if (mode === 'rp') {
+    hideRPTyping();
+  } else {
+    const typing = document.getElementById('schoolCharTyping');
+    if (typing) typing.remove();
+  }
+  const containerId = mode === 'rp' ? 'rpChatMessages' : 'chatMessages';
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const div = document.createElement('div');
+  div.id = 'streamBubble';
+  div.className = mode === 'rp' ? 'rp-msg character streaming' : 'message character streaming';
+  const labelEl = document.createElement('span');
+  labelEl.className = mode === 'rp' ? 'rp-msg-label' : 'msg-label';
+  labelEl.textContent = label || '';
+  div.appendChild(labelEl);
+  const contentEl = document.createElement('div');
+  contentEl.className = mode === 'rp' ? 'rp-msg-content' : 'msg-content';
+  div.appendChild(contentEl);
+  container.appendChild(div);
+  _streamBubble = { containerId, el: div, contentEl, text: '' };
+}
+
+function appendStreamText(text) {
+  if (!_streamBubble || !text) return;
+  const b = _streamBubble;
+  const container = document.getElementById(b.containerId);
+  if (!container) return;
+  const wasNearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 120;
+  // The virtual scroller rebuilds the container — re-attach if it dropped us
+  if (!b.el.isConnected) container.appendChild(b.el);
+  b.text += text;
+  b.contentEl.innerHTML = formatMessage(b.text);
+  if (wasNearBottom) container.scrollTop = container.scrollHeight;
+}
+
+function clearStreamBubble() {
+  if (_streamBubble) {
+    _streamBubble.el.remove();
+    _streamBubble = null;
+  }
+}
+
+function handleStreamDelta(mode, data) {
+  if (!_streamBubble) {
+    const label = data.character_name
+      || (mode === 'rp' ? 'Someone' : (currentCard?.data?.name || 'Character'));
+    startStreamBubble(mode, label);
+  }
+  appendStreamText(data.text || '');
+}

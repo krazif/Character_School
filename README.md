@@ -26,6 +26,12 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - Download cards as PNG or JSON
 
 
+### Streaming Replies
+
+- Character replies stream token-by-token into the chat — the bubble grows as the model generates instead of appearing in one lump at the end.
+- RP auto mode's leading `[CharacterName]:` prefix is held back while streaming, so the bubble shows exactly the text the stored message will show.
+- Works against any OpenAI-compatible endpoint: if one rejects streaming parameters, the request falls back to a plain call and the reply still arrives (just without live output).
+
 ![School Mode](school.png)
 ### Real-Time LLM Analysis
 
@@ -171,6 +177,20 @@ All settings can also be overridden via environment variables with the `CHARACTE
 
 ---
 
+## Tests
+
+Stdlib-only unit tests for the streaming layer, plus an end-to-end check that
+starts a mock LLM and a second app instance (throwaway copy — the dev
+database is never touched) and drives the real WebSocket protocol:
+
+```bash
+python -m unittest discover -s tests      # streaming / auto-continue units
+python tests/e2e_stream_check.py          # A–D: school, RP prefix, auto-continue, fallback
+```
+
+`tests/mock_llm.py` is a standalone OpenAI-compatible endpoint (streamed,
+word by word) that can also be run by hand for poking at the UI.
+
 ## Project Layout
 
 ```
@@ -182,6 +202,7 @@ character-school/
 ├── rp.py                  # RP mode routes + WebSocket + config API
 ├── config.jsonc           # Configuration (auto-created, editable in-app)
 ├── char_test.db           # SQLite database (sessions, messages)
+├── tests/                 # streaming units, mock LLM, end-to-end WS check
 ├── LICENSE                # Apache 2.0
 ├── NOTICE                 # Attribution notice
 ├── README.md              # This file

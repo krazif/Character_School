@@ -395,6 +395,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.type === 'character_message') {
+      clearStreamBubble();
       if (data.regenerated) {
         // Update existing message (swipe) instead of adding new
         const target = schoolMessages.find(m => m.messageId === data.message_id);
@@ -675,6 +676,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
     } else if (data.type === 'report') {
       showReport(data.content);
     } else if (data.type === 'error') {
+      clearStreamBubble();
       addMessage('system', 'Error: ' + data.message, null, false, null, null, null);
       isWaiting = false;
       hideSchoolTyping();
@@ -682,6 +684,8 @@ function connectWS(filename, personaFilename, resumeSessionId) {
     } else if (data.type === 'console_event') {
       addConsoleEntry(data);
       schoolConsoleEvents.push(data);
+    } else if (data.type === 'character_delta') {
+      handleStreamDelta('school', data);
     } else if (data.type === 'character_typing') {
       showSchoolTyping('character', data.character_name);
     } else if (data.type === 'character_typing_stopped') {
@@ -692,6 +696,7 @@ function connectWS(filename, personaFilename, resumeSessionId) {
     } else if (data.type === 'analysis_typing_stopped') {
       hideSchoolTyping();
     } else if (data.type === 'generation_stopped') {
+      clearStreamBubble();
       isWaiting = false;
       hideSchoolTyping();
       updateInputState();

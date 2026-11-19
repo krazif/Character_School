@@ -21,6 +21,26 @@ router = APIRouter()
 MAX_UPLOAD_SIZE = 8 * 1024 * 1024
 ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
+
+def _delta_sender(ws: WebSocket, character_name=None):
+    """Build the on_delta callback for a streaming character reply.
+
+    Pushes {"type": "character_delta"} frames as tokens arrive. A send
+    failure is swallowed: one dropped frame must not kill a generation that
+    is still running (the next send surfaces a dead socket anyway).
+    """
+    async def _send(text: str, speaker=None):
+        payload = {"type": "character_delta", "text": text}
+        name = speaker or character_name
+        if name:
+            payload["character_name"] = name
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass
+    return _send
+
+
 @router.post("/api/school/upload")
 async def api_school_upload(file: UploadFile = FastAPIFile(...)):
     """Upload an image for School mode and return a safe relative path token."""
@@ -703,7 +723,8 @@ async def ws_chat(ws: WebSocket):
                             "type": "console_event", "event": "request_kwargs", "llm": "character",
                             "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
                         })
-                        resp = await db.chat_client.chat.completions.create(**kwargs)
+                        on_delta = _delta_sender(ws, card.get("data", card).get("name", "Character"))
+                        resp = await engine.stream_chat_completion(db.chat_client, kwargs, on_delta=on_delta)
                         char_content = resp.choices[0].message.content
                         usage = resp.usage
 
@@ -725,6 +746,7 @@ async def ws_chat(ws: WebSocket):
                         char_content, _final_fr = await engine.maybe_auto_continue(
                             db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
                             send_fn=ws.send_json,
+                            on_delta=on_delta,
                         )
 
                         # Store in school DB (no auto-analysis)
@@ -930,7 +952,8 @@ async def ws_chat(ws: WebSocket):
                                 "type": "console_event", "event": "request_kwargs", "llm": "character",
                                 "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
                             })
-                            resp = await db.chat_client.chat.completions.create(**kwargs)
+                            on_delta = _delta_sender(ws, card.get("data", card).get("name", "Character"))
+                            resp = await engine.stream_chat_completion(db.chat_client, kwargs, on_delta=on_delta)
                             char_content = resp.choices[0].message.content
                             usage = resp.usage
 
@@ -951,6 +974,7 @@ async def ws_chat(ws: WebSocket):
                             char_content, _final_fr = await engine.maybe_auto_continue(
                                 db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
                                 send_fn=ws.send_json,
+                                on_delta=on_delta,
                             )
 
                             swipe_info = db.db_school_add_swipe(session_id, target_id, char_content)
@@ -1088,7 +1112,8 @@ async def ws_chat(ws: WebSocket):
                                 "type": "console_event", "event": "request_kwargs", "llm": "character",
                                 "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
                             })
-                            resp = await db.chat_client.chat.completions.create(**kwargs)
+                            on_delta = _delta_sender(ws, card.get("data", card).get("name", "Character"))
+                            resp = await engine.stream_chat_completion(db.chat_client, kwargs, on_delta=on_delta)
                             char_content = resp.choices[0].message.content
                             usage = resp.usage
 
@@ -1109,6 +1134,7 @@ async def ws_chat(ws: WebSocket):
                             char_content, _final_fr = await engine.maybe_auto_continue(
                                 db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
                                 send_fn=ws.send_json,
+                                on_delta=on_delta,
                             )
 
                             msg_id = db.db_school_add_message(
