@@ -17,6 +17,7 @@ import asyncio
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -72,7 +73,7 @@ def typed(frames, kind):
     return any(f.get("type") == kind for _, f in frames)
 
 
-async def run_school_scenario(uri, card_name, text, expect_deltas=True):
+async def run_school_scenario(uri, card_name, text, expect_deltas=True, style=None):
     import websockets
     async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
         await ws.send(json.dumps({"type": "start", "card_filename": "p_ramlee.json"}))
@@ -80,6 +81,9 @@ async def run_school_scenario(uri, card_name, text, expect_deltas=True):
         frames += await collect_until(ws, lambda f: f.get("type") == "character_message"
                                       and f.get("is_first_mes"))
         session_id = next(f["session_id"] for _, f in frames if f.get("type") == "session_started")
+        if style:
+            await ws.send(json.dumps({"type": "update_settings", "response_style": style}))
+            frames += await collect_until(ws, lambda f: f.get("type") == "settings_updated")
 
         await ws.send(json.dumps({"type": "user_message", "content": text}))
         rest = await collect_until(
@@ -154,8 +158,9 @@ async def scenario_b_rp(uri, card_name):
 
 
 async def scenario_c_auto_continue(uri, card_name):
-    print("C. TRUNCATE — auto-continue keeps streaming")
-    frames, deltas, final, _ = await run_school_scenario(uri, card_name, "TRUNCATE this please")
+    print("C. TRUNCATE on an uncapped style — auto-continue keeps streaming")
+    frames, deltas, final, _ = await run_school_scenario(
+        uri, card_name, "TRUNCATE this please", style="long")
 
     events = [f for _, f in frames if f.get("type") == "console_event"]
     check("auto-continue console event fired",
@@ -165,6 +170,46 @@ async def scenario_c_auto_continue(uri, card_name):
           repr(final["content"][-60:]))
     joined = "".join(t for _, t in deltas)
     check("streamed text == final message", joined == final["content"])
+
+
+async def scenario_e_style_cap(uri, card_name):
+    """The response style must be enforced by a hard cap, not just the prompt."""
+    print("E. Response style 'short' — hard cap + sentence trim")
+    import websockets
+    async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
+        await ws.send(json.dumps({"type": "start", "card_filename": "p_ramlee.json"}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "session_started")
+        frames += await collect_until(ws, lambda f: f.get("type") == "character_message"
+                                      and f.get("is_first_mes"))
+        await ws.send(json.dumps({"type": "update_settings", "response_style": "short"}))
+        frames += await collect_until(ws, lambda f: f.get("type") == "settings_updated")
+        await ws.send(json.dumps({"type": "user_message", "content": "LONGREPLY tell me everything."}))
+        frames += await collect_until(
+            ws, lambda f: f.get("type") == "character_message" and not f.get("is_first_mes"))
+
+    final = next(f for _, f in frames if f.get("type") == "character_message"
+                 and not f.get("is_first_mes"))
+    events = [f for _, f in frames if f.get("type") == "console_event"]
+    req = next((e for e in events if e.get("event") == "request"), None)
+    deltas = deltas_of(frames)
+    streamed = "".join(t for _, t in deltas)
+    content = final["content"]
+    words = len(content.split())
+    cap = req.get("max_tokens") if req else None
+
+    check("style cap applied instead of the global 2000", cap is not None and cap <= 240,
+          f"max_tokens={cap}")
+    check("auto-continue did NOT extend the capped reply",
+          not any(e.get("event") == "auto_continue" for e in events))
+    check("trim recorded in the console",
+          any(e.get("event") == "style_trim" for e in events))
+    check("reply within the word target", words <= 150, f"{words} words")
+    check("reply ends on a sentence boundary",
+          re.search(r'[.!?…]["\']?$', content.strip()) is not None,
+          repr(content[-40:]))
+    check("stored message is the trimmed prefix of the stream",
+          streamed.startswith(content) and len(streamed) > len(content),
+          f"streamed {len(streamed)} chars, stored {len(content)}")
 
 
 async def scenario_d_fallback(uri, card_name):
@@ -231,6 +276,7 @@ async def main():
         await scenario_a_school(ws_uri + "/ws/chat", card_name)
         await scenario_b_rp(ws_uri + "/ws/rp", card_name)
         await scenario_c_auto_continue(ws_uri + "/ws/chat", card_name)
+        await scenario_e_style_cap(ws_uri + "/ws/chat", card_name)
 
         # Swap the mock for one that refuses streaming, then re-run scenario A
         mock.terminate()

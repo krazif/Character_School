@@ -692,7 +692,7 @@ async def ws_chat(ws: WebSocket):
                         # ── Notify frontend: character is responding ──
                         await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
 
-                        effective_max_tokens = db.CHAT_MAX_TOKENS
+                        effective_max_tokens = engine.response_style_max_tokens(school_response_style, db.CHAT_MAX_TOKENS)
 
                         # ── Console: log the request ──
                         await ws.send_json({
@@ -921,8 +921,7 @@ async def ws_chat(ws: WebSocket):
 
                             await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
 
-                            effective_max_tokens = db.CHAT_MAX_TOKENS
-                            effective_max_tokens = db.CHAT_MAX_TOKENS
+                            effective_max_tokens = engine.response_style_max_tokens(school_response_style, db.CHAT_MAX_TOKENS)
 
                             await ws.send_json({
                                 "type": "console_event",
@@ -1081,8 +1080,7 @@ async def ws_chat(ws: WebSocket):
 
                             await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
 
-                            effective_max_tokens = db.CHAT_MAX_TOKENS
-                            effective_max_tokens = db.CHAT_MAX_TOKENS
+                            effective_max_tokens = engine.response_style_max_tokens(school_response_style, db.CHAT_MAX_TOKENS)
 
                             await ws.send_json({
                                 "type": "console_event",

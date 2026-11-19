@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import db
 import engine
 
 
@@ -288,7 +289,10 @@ class AutoContinueTests(unittest.TestCase):
         client = make_client([
             [delta_frame(" and it kept going", finish="stop")],
         ])
-        kwargs = dict(model="m", messages=[{"role": "user", "content": "hi"}], max_tokens=50)
+        # max_tokens at the global budget so this reads as a budget
+        # truncation (which continues), not a response-style cap
+        kwargs = dict(model="m", messages=[{"role": "user", "content": "hi"}],
+                      max_tokens=db.CHAT_MAX_TOKENS)
         initial = engine.StreamedCompletion("First half", "length", None)
 
         content, finish = asyncio.run(engine.maybe_auto_continue(

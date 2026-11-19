@@ -33,6 +33,12 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 - Works against any OpenAI-compatible endpoint: if one rejects streaming parameters, the request falls back to a plain call and the reply still arrives (just without live output).
 
 ![School Mode](school.png)
+### Response Length
+
+- The selected style is a **hard limit**, not a suggestion: `short` and `moderate` get a real `max_tokens` budget derived from their word target (150 → 210 tokens, 300 → 420), sized against the model's measured tokens-per-word ratio so the reply cannot run past its range.
+- A reply cut by that budget is trimmed back to the last full sentence — never mid-word — and auto-continue is skipped for it, since continuing would defeat the cap. `long` and `flexible` keep the global budget with no ceiling.
+- The console shows `max=210` on the request and a `✂ TRIM` entry whenever a reply is trimmed, so the enforcement is visible.
+
 ### Real-Time LLM Analysis
 
 - Two independent LLM endpoints — one for character responses, one for analysis
@@ -185,7 +191,7 @@ database is never touched) and drives the real WebSocket protocol:
 
 ```bash
 python -m unittest discover -s tests      # streaming / auto-continue units
-python tests/e2e_stream_check.py          # A–D: school, RP prefix, auto-continue, fallback
+python tests/e2e_stream_check.py          # A–E: school, RP prefix, auto-continue, style cap, fallback
 ```
 
 `tests/mock_llm.py` is a standalone OpenAI-compatible endpoint (streamed,

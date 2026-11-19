@@ -31,7 +31,12 @@ REPLY = (
 )
 CONTINUED = ", and that is exactly how the rest of it went"
 TRUNCATED = REPLY[: len(REPLY) // 2]
+# Long enough that any sane per-style token budget cuts it mid-sentence,
+# and punctuated so the client has sentence boundaries to trim back to
+LONG_REPLY = " ".join([REPLY + "." for _ in range(13)])
 
+# Same assumption the client budgets with (engine._TOKENS_PER_WORD)
+TOKENS_PER_WORD = 1.4
 WORDS_PER_FRAME = 2
 FRAME_DELAY = float(os.environ.get("MOCK_FRAME_DELAY", "0.04"))
 REJECT_STREAM = False
@@ -80,6 +85,8 @@ async def chat_completions(request: Request):
         reply, finish = CONTINUED, "stop"
     elif "TRUNCATE" in user_text:
         reply, finish = TRUNCATED, "length"
+    elif "LONGREPLY" in user_text:
+        reply, finish = LONG_REPLY, "stop"
     else:
         reply, finish = REPLY, "stop"
 
@@ -89,6 +96,14 @@ async def chat_completions(request: Request):
 
     full = prefix + reply
     max_tokens = body.get("max_tokens") or 4096
+
+    # Honour max_tokens like a real server: stop mid-reply when the budget
+    # runs out, so the client's response-style cap is actually exercised.
+    max_words = max(1, int(max_tokens / TOKENS_PER_WORD))
+    words = full.split(" ")
+    if len(words) > max_words:
+        full = " ".join(words[:max_words])
+        finish = "length"
 
     if not body.get("stream"):
         return {

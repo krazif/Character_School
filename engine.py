@@ -1027,11 +1027,57 @@ Return ONLY the JSON object."""},
     return report
 
 
-def response_style_max_tokens(response_style: str, default: int = 2000) -> int:
-    """Legacy: response styles now use prompt-level directives (Marinara-style).
-    max_tokens is controlled globally via endpoint preset settings.
-    Kept for backward compat but no longer used for per-style caps."""
-    return default
+# Tokens per word measured on the bundled endpoint (6 samples: 1.44–1.59,
+# mean 1.53). Budgeting at 1.4 keeps a reply inside its word target even
+# when the text is token-dense; the tail is trimmed on truncation anyway.
+_TOKENS_PER_WORD = 1.4
+_STYLE_WORD_TARGETS = {"short": 150, "moderate": 300}
+
+
+def response_style_max_tokens(response_style: Optional[str], default: int = 2000) -> int:
+    """Hard token budget backing a response style.
+
+    'short' and 'moderate' get a real ceiling so the selected word range is
+    enforced instead of merely requested in the prompt (a prompt directive
+    loses to long inputs — measured). 'long' and 'flexible' have no ceiling
+    and keep the global budget. Always returns min(target, default) so a
+    smaller global budget still wins.
+    """
+    words = _STYLE_WORD_TARGETS.get(response_style)
+    if not words:
+        return default
+    return min(default, max(64, int(words * _TOKENS_PER_WORD)))
+
+
+_SENTENCE_END = re.compile(r'[.!?…][\"\'”’»)\]]*(?=\s|$)')
+
+
+def trim_to_sentence(text: str) -> str:
+    """Cut *text* back so a style-capped reply never ends mid-word.
+
+    Prefers the last complete sentence, but never at the cost of discarding
+    more than half the reply — one early full stop must not throw the rest
+    away. Otherwise falls back to the last complete word (mid-sentence, but
+    never mid-word). Also drops an unpaired asterisk if the cut landed inside
+    a *paired* emphasis span.
+    """
+    if not text:
+        return text
+    matches = list(_SENTENCE_END.finditer(text))
+    trimmed = None
+    if matches:
+        cut = matches[-1].end()
+        if cut >= len(text) * 0.5:
+            trimmed = text[:cut].rstrip()
+    if trimmed is None:
+        parts = text.rsplit(None, 1)
+        trimmed = parts[0] if len(parts) == 2 else text
+    # An odd number of asterisks means the cut landed inside *emphasis* —
+    # drop the unpaired marker so it cannot render as a stray asterisk.
+    if trimmed.count("*") % 2:
+        idx = trimmed.rfind("*")
+        trimmed = (trimmed[:idx] + trimmed[idx + 1:]).rstrip()
+    return trimmed
 
 
 # ─── Streaming completions ───────────────────────────────────────
@@ -1224,9 +1270,33 @@ async def maybe_auto_continue(
     by appending partial content as an assistant message and re-calling the API.
     Logs each continuation via send_fn as console_event.
     Does NOT re-log the initial response (call site handles that).
-    Returns (concatenated_content, final_finish_reason)."""
+
+    A truncation caused by a response-style cap is not a truncation to fix:
+    the style asked for a shorter reply, so continuing would defeat it. The
+    partial text is trimmed to the last full sentence instead, logged as a
+    style_trim console_event.
+    Returns (content, final_finish_reason)."""
     raw_content = initial_resp.choices[0].message.content or ""
     finish_reason = initial_resp.choices[0].finish_reason
+
+    # Cut by the response-style budget rather than the global one?
+    cap = kwargs.get("max_tokens")
+    style_capped = cap is not None and cap < db.CHAT_MAX_TOKENS
+
+    if style_capped and finish_reason == "length":
+        raw_content = trim_to_sentence(raw_content)
+        if send_fn:
+            try:
+                await send_fn({
+                    "type": "console_event", "event": "style_trim",
+                    "llm": "character", "label": "Response style",
+                    "message": (f"Trimmed to {len(raw_content.split())} words — the "
+                                f"'{response_style}' style capped this reply at {cap} tokens."),
+                    "timestamp": _now_iso(),
+                })
+            except Exception:
+                pass
+        return raw_content, finish_reason
 
     cont_count = 0
     while (auto_continue
