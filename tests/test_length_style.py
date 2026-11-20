@@ -18,11 +18,15 @@ from test_streaming import delta_frame, make_client
 class StyleBudgetTests(unittest.TestCase):
     """response_style_max_tokens — the hard ceiling per style."""
 
-    def test_short_caps_at_150_words_worth_of_tokens(self):
-        self.assertEqual(engine.response_style_max_tokens("short", 2000), 210)
+    def test_short_ceiling_has_headroom_above_the_word_target(self):
+        # 150 words ≈ 230 tokens at the measured 1.44–1.59 tokens/word; the
+        # ceiling sits well above that so a short reply can finish on its own.
+        self.assertEqual(engine.response_style_max_tokens("short", 2000), 450)
+        self.assertGreater(450, 150 * 1.59)
 
-    def test_moderate_caps_at_300_words_worth_of_tokens(self):
-        self.assertEqual(engine.response_style_max_tokens("moderate", 2000), 420)
+    def test_moderate_ceiling_has_headroom_above_the_word_target(self):
+        self.assertEqual(engine.response_style_max_tokens("moderate", 2000), 700)
+        self.assertGreater(700, 300 * 1.59)
 
     def test_long_and_flexible_have_no_ceiling(self):
         self.assertEqual(engine.response_style_max_tokens("long", 2000), 2000)
@@ -36,10 +40,13 @@ class StyleBudgetTests(unittest.TestCase):
         # A global max_tokens below the style target must not be raised
         self.assertEqual(engine.response_style_max_tokens("short", 100), 100)
 
-    def test_budget_is_always_below_the_word_target(self):
-        # Even at the densest tokens/word we measured (1.44), a short budget
-        # cannot fit 150 words: 210 / 1.44 = 145 words.
-        self.assertLess(210 / 1.44, 150)
+    def test_ceiling_still_cuts_a_runaway_reply(self):
+        # The headroom must not make the ceiling useless: at the model's
+        # densest measured ratio (1.59 tok/word) 450 tokens is ~283 words —
+        # well short of an unbounded reply, and short/flexible stay apart.
+        self.assertLess(450 / 1.44, 400)
+        self.assertLess(engine.response_style_max_tokens("short", 2000),
+                        engine.response_style_max_tokens("moderate", 2000))
 
 
 

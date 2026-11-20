@@ -68,6 +68,9 @@ header .status.connected { color:var(--green); }
 .msg-actions a:hover { color:var(--red); opacity:1; }
 .msg-actions .msg-word-count { color:var(--text-dim); opacity:0.5; font-size:11px; }
 .msg-actions a.regenerate-link:hover { color:var(--accent); opacity:1; }
+/* Length-limit affordance: always visible — it reports a real finish_reason=length, not a text heuristic */
+.msg-actions a.continue-link { color:var(--accent); opacity:1; font-weight:600; }
+.msg-actions a.continue-link:hover { text-decoration:underline; }
 .msg-actions .swipe-controls { display:inline-flex; align-items:center; gap:4px; color:var(--text-dim); opacity:0.5; }
 .msg-actions .swipe-arrow { color:var(--text-dim); text-decoration:none; cursor:pointer; font-size:12px; }
 .msg-actions .swipe-arrow:hover { color:var(--accent); }
@@ -334,6 +337,8 @@ body.rp-mode .school-only { display:none; }
 .rp-msg .rp-msg-actions a:hover { color:var(--red); opacity:1; }
 .rp-msg .rp-msg-actions .msg-word-count { color:var(--text-dim); opacity:0.5; font-size:11px; }
 .rp-msg .rp-msg-actions a.rp-regenerate-link:hover { color:var(--accent); opacity:1; }
+.rp-msg .rp-msg-actions a.continue-link { color:var(--accent); opacity:1; font-weight:600; }
+.rp-msg .rp-msg-actions a.continue-link:hover { text-decoration:underline; }
 .rp-msg .rp-msg-actions .swipe-controls { display:inline-flex; align-items:center; gap:4px; color:var(--text-dim); opacity:0.5; }
 .rp-msg .rp-msg-actions .swipe-arrow { color:var(--text-dim); text-decoration:none; cursor:pointer; font-size:12px; }
 .rp-msg:hover .rp-msg-actions .swipe-controls { opacity:0.6; }

@@ -1027,26 +1027,28 @@ Return ONLY the JSON object."""},
     return report
 
 
-# Tokens per word measured on the bundled endpoint (6 samples: 1.44–1.59,
-# mean 1.53). Budgeting at 1.4 keeps a reply inside its word target even
-# when the text is token-dense; the tail is trimmed on truncation anyway.
-_TOKENS_PER_WORD = 1.4
-_STYLE_WORD_TARGETS = {"short": 150, "moderate": 300}
+# A response style does two different jobs. The PROMPT line asks for a word
+# range ("under 150 words"); this is the CEILING that stops a runaway reply.
+# The ceiling sits ABOVE the target with headroom, because a reply cut
+# mid-sentence is visible damage while an occasionally over-long one is not:
+# on this model 150 words ≈ 230 tokens (measured 1.44–1.59 tokens/word), so
+# 450 lets a short reply finish on its own. A reply that still reaches the
+# ceiling is flagged to the client as truncated, never trimmed.
+_STYLE_TOKEN_BUDGETS = {"short": 450, "moderate": 700}
 
 
 def response_style_max_tokens(response_style: Optional[str], default: int = 2000) -> int:
-    """Hard token budget backing a response style.
+    """Hard token ceiling backing a response style.
 
-    'short' and 'moderate' get a real ceiling so the selected word range is
-    enforced instead of merely requested in the prompt (a prompt directive
-    loses to long inputs — measured). 'long' and 'flexible' have no ceiling
-    and keep the global budget. Always returns min(target, default) so a
-    smaller global budget still wins.
+    Sized with headroom above the style's word target so the model finishes
+    naturally; 'long' and 'flexible' have no ceiling and keep the global
+    budget. Always returns min(budget, default) so a smaller global budget
+    still wins.
     """
-    words = _STYLE_WORD_TARGETS.get(response_style)
-    if not words:
+    budget = _STYLE_TOKEN_BUDGETS.get(response_style)
+    if not budget:
         return default
-    return min(default, max(64, int(words * _TOKENS_PER_WORD)))
+    return min(default, max(64, budget))
 
 
 # ─── Streaming completions ───────────────────────────────────────

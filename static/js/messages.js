@@ -143,6 +143,14 @@ function buildSchoolMessageDOM(msg, index) {
         actionsDiv.appendChild(swipeDiv);
       }
       const regenLink = document.createElement('a');
+      if (msg.truncated && index === schoolMessages.length - 1) {
+        const contLink = document.createElement('a');
+        contLink.className = 'continue-link';
+        contLink.textContent = 'continue';
+        contLink.title = 'This reply hit the length limit — extend it';
+        contLink.onclick = () => continueSchoolMessage();
+        actionsDiv.appendChild(contLink);
+      }
       regenLink.className = 'regenerate-link';
       regenLink.textContent = 'regenerate';
       regenLink.onclick = () => regenerateSchoolMessage(index);
@@ -236,6 +244,14 @@ function buildRPMessageDOM(msg, index) {
         actionsDiv.appendChild(swipeDiv);
       }
       const regenLink = document.createElement('a');
+      if (msg.truncated && index === rpMessages.length - 1) {
+        const contLink = document.createElement('a');
+        contLink.className = 'continue-link';
+        contLink.textContent = 'continue';
+        contLink.title = 'This reply hit the length limit — extend it';
+        contLink.onclick = () => continueRPMessage();
+        actionsDiv.appendChild(contLink);
+      }
       regenLink.className = 'rp-regenerate-link';
       regenLink.textContent = 'regenerate';
       regenLink.onclick = () => regenerateRPMessage(index);

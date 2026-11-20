@@ -404,11 +404,12 @@ function connectWS(filename, personaFilename, resumeSessionId) {
           if (target.swipes.length === 0) target.swipes.push(target.content); // original becomes swipe 0
           target.swipes.push(data.content);
           target.content = data.content;
+          target.truncated = !!data.truncated;
           target.activeSwipe = (data.swipe_index !== undefined) ? data.swipe_index : target.swipes.length - 1;
           renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
         }
       } else {
-        addMessage('character', data.content, data.analysis, data.is_first_mes, data.message_id, null, data.image_path || null, data.image_prompt || null, data.seed);
+        addMessage('character', data.content, data.analysis, data.is_first_mes, data.message_id, null, data.image_path || null, data.image_prompt || null, data.seed, data.truncated);
       }
       isWaiting = false;
       updateInputState();

@@ -290,11 +290,12 @@ function handleRPMessage(data) {
           if (target.swipes.length === 0) target.swipes.push(target.content); // original becomes swipe 0
           target.swipes.push(data.content);
           target.content = data.content;
+          target.truncated = !!data.truncated;
           target.activeSwipe = (data.swipe_index !== undefined) ? data.swipe_index : target.swipes.length - 1;
           renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
         }
       } else {
-        addRPMessage('character', data.content, data.character_name, data.message_id, null, data.image_path || null, data.image_prompt || null, data.seed);
+        addRPMessage('character', data.content, data.character_name, data.message_id, null, data.image_path || null, data.image_prompt || null, data.seed, data.truncated);
       }
       rpIsWaiting = false;
       updateRPInputState();
@@ -487,14 +488,14 @@ function renderRPSceneBar() {
   }
 }
 
-function addRPMessage(role, content, speaker, messageId, clientId, imagePath, imagePrompt, seed) {
+function addRPMessage(role, content, speaker, messageId, clientId, imagePath, imagePrompt, seed, truncated) {
   // Remove empty placeholder
   const empty = document.getElementById('rpChatEmpty');
   if (empty) empty.remove();
 
   // Push to array — stamp persona name per-message so old labels don't change when persona switches
   const personaName = role === 'user' ? (currentPersona?.name || null) : null;
-  const msg = { role, content, speaker, messageId, clientId, personaName, imagePath, imagePrompt, seed, swipes: null, activeSwipe: 0 };
+  const msg = { role, content, speaker, messageId, clientId, personaName, imagePath, imagePrompt, seed, truncated, swipes: null, activeSwipe: 0 };
   rpMessages.push(msg);
 
   // Render
@@ -596,6 +597,14 @@ async function uploadRPImage(file) {
   if (!r.ok) throw new Error('RP upload failed');
   const j = await r.json();
   return j.image_path;
+}
+
+// Continue a reply that hit the length limit — the same path as /continue.
+function continueRPMessage() {
+  if (rpIsWaiting || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
+  rpWS.send(JSON.stringify({ type: 'continue_message' }));
+  rpIsWaiting = true;
+  updateRPInputState();
 }
 
 async function sendRPMessage() {

@@ -3,14 +3,14 @@
 
 // ─── Chat ───────────────────────────────────────
 
-function addMessage(role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt, seed) {
+function addMessage(role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt, seed, truncated) {
   // Remove loading indicator if present
   const loading = document.getElementById('firstMesLoading');
   if (loading) loading.remove();
 
   // Push to array — stamp persona name per-message so old labels don't change when persona switches
   const personaName = role === 'user' ? (currentPersona?.name || null) : null;
-  const msg = { role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt, seed, swipes: null, activeSwipe: 0, personaName };
+  const msg = { role, content, analysis, isFirst, messageId, clientId, imagePath, imagePrompt, seed, truncated, swipes: null, activeSwipe: 0, personaName };
   schoolMessages.push(msg);
 
   // Render
@@ -195,6 +195,15 @@ async function uploadSchoolImage(file) {
   if (!r.ok) throw new Error('School upload failed');
   const j = await r.json();
   return j.image_path;
+}
+
+// Continue a reply that hit the length limit — the same path as typing
+// /continue: the model is asked to extend its own last response.
+function continueSchoolMessage() {
+  if (isWaiting || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'continue_message' }));
+  isWaiting = true;
+  updateInputState();
 }
 
 async function sendMessage() {

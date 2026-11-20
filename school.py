@@ -761,6 +761,7 @@ async def ws_chat(ws: WebSocket):
                             "analysis": None,
                             "is_first_mes": False,
                             "message_id": msg_id,
+                            "truncated": _final_fr == "length",
                         })
 
                         # ── Auto-summary check (after character message) ──
@@ -984,6 +985,7 @@ async def ws_chat(ws: WebSocket):
                                 "analysis": None,
                                 "is_first_mes": False,
                                 "message_id": target_id,
+                                "truncated": _final_fr == "length",
                                 "regenerated": True,
                                 "swipe_index": swipe_info.get("active_swipe", 0),
                                 "swipe_count": swipe_info.get("swipe_count", 1),
@@ -1146,6 +1148,7 @@ async def ws_chat(ws: WebSocket):
                                 "analysis": None,
                                 "is_first_mes": False,
                                 "message_id": msg_id,
+                                "truncated": _final_fr == "length",
                             })
 
                             updated_cfg = await check_school_auto_summary(session_id, ws)

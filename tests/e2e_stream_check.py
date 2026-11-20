@@ -31,6 +31,8 @@ APP_PORT = 7898
 CONTINUED_TAIL = "and that is exactly how the rest of it went"
 
 FAILURES = []
+# Per-wait ceiling for collect_until; overridable so a hang surfaces fast
+COLLECT_TIMEOUT = float(os.environ.get("E2E_COLLECT_TIMEOUT", "240"))
 
 
 def check(label, condition, detail=""):
@@ -52,16 +54,22 @@ def wait_http(url, timeout=30):
     return False
 
 
-async def collect_until(ws, predicate, limit=60):
+async def collect_until(ws, predicate, timeout=None):
     """Read frames until *predicate* matches; return every frame seen."""
+    timeout = timeout or COLLECT_TIMEOUT
     frames = []
-    while len(frames) < limit:
-        raw = await asyncio.wait_for(ws.recv(), timeout=30)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        raw = await asyncio.wait_for(ws.recv(), timeout=max(0.5, deadline - time.monotonic()))
         data = json.loads(raw)
         frames.append((time.monotonic(), data))
         if predicate(data):
             return frames
-    raise AssertionError("predicate never matched")
+    # Say WHAT arrived — a silent timeout tells you nothing about which
+    # layer failed (an `error` frame in particular is easy to miss).
+    seen = [f.get("type") for _, f in frames]
+    errs = [f for _, f in frames if f.get("type") == "error"]
+    raise AssertionError(f"predicate never matched; frames={seen}; errors={errs}")
 
 
 def deltas_of(frames):
@@ -116,6 +124,8 @@ async def scenario_a_school(uri, card_name):
     check("streamed text == final message", joined == final["content"],
           f"{len(joined)} vs {len(final['content'])} chars")
     check("typing stopped before the final message", typed(frames, "character_typing_stopped"))
+    check("a reply that stopped naturally is not flagged truncated",
+          final.get("truncated") is False, f"truncated={final.get('truncated')!r}")
 
     with urllib.request.urlopen(f"http://127.0.0.1:{APP_PORT}/api/school/sessions/{session_id}") as r:
         stored = json.load(r)
@@ -196,13 +206,16 @@ async def scenario_e_style_cap(uri, card_name):
     words = len(content.split())
     cap = req.get("max_tokens") if req else None
 
-    check("style cap applied instead of the global 2000", cap is not None and cap <= 240,
+    check("ceiling sent instead of the global 2000", cap is not None and 400 <= cap <= 500,
           f"max_tokens={cap}")
     check("auto-continue did NOT extend the capped reply",
           not any(e.get("event") == "auto_continue" for e in events))
-    check("reply within the word target", words <= 150, f"{words} words")
+    check("ceiling cut the over-long reply", words < 400,
+          f"{words} words (uncapped reply is ~470)")
     check("stored message is exactly what was streamed", streamed == content,
           f"streamed {len(streamed)} chars, stored {len(content)}")
+    check("cut reply is flagged truncated for the client",
+          final.get("truncated") is True, f"truncated={final.get('truncated')!r}")
     check("no trim event — trimming was removed",
           not any(e.get("event") == "style_trim" for e in events))
 
@@ -239,7 +252,7 @@ async def main():
 
     mock = subprocess.Popen(
         [PY, str(app_dir / "tests" / "mock_llm.py"), "--port", str(MOCK_PORT)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+        stdout=open(tmp / "mock.log", "w"), stderr=subprocess.STDOUT,
     )
     app = None
     app_log = None
@@ -278,7 +291,7 @@ async def main():
         mock.wait(timeout=10)
         mock = subprocess.Popen(
             [PY, str(app_dir / "tests" / "mock_llm.py"), "--port", str(MOCK_PORT), "--reject-stream"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+            stdout=open(tmp / "mock-reject.log", "w"), stderr=subprocess.STDOUT,
         )
         if not wait_http(f"http://127.0.0.1:{MOCK_PORT}/docs"):
             raise SystemExit("rejecting mock never came up")
@@ -301,7 +314,16 @@ async def main():
                 mock.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 mock.kill()
-        shutil.rmtree(tmp, ignore_errors=True)
+        # KEEP_TMP=1 leaves the throwaway copy (and app.log) behind for debugging
+        if os.environ.get("KEEP_TMP"):
+            print(f"\n[kept] {tmp}")
+            try:
+                print("--- app.log tail ---")
+                print("\n".join((tmp / "app.log").read_text().splitlines()[-40:]))
+            except Exception as e:
+                print(f"(no log: {e})")
+        else:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     print()
     if FAILURES:

@@ -35,7 +35,8 @@ TRUNCATED = REPLY[: len(REPLY) // 2]
 # and punctuated so the client has sentence boundaries to trim back to
 LONG_REPLY = " ".join([REPLY + "." for _ in range(13)])
 
-# Same assumption the client budgets with (engine._TOKENS_PER_WORD)
+# Same assumption the client's mock math uses (the real one now sets a
+# headroom ceiling, so the mock just needs a stable tok/word ratio)
 TOKENS_PER_WORD = 1.4
 WORDS_PER_FRAME = 2
 FRAME_DELAY = float(os.environ.get("MOCK_FRAME_DELAY", "0.04"))
@@ -79,7 +80,11 @@ async def chat_completions(request: Request):
 
     messages = body.get("messages", [])
     user_text = last_user_text(messages)
-    is_continuation = bool(messages) and messages[-1].get("role") == "assistant"
+    last = messages[-1] if messages else {}
+    # Continuation = auto-continue (partial reply re-appended as assistant)
+    # or the /continue route (directive as the final user turn)
+    is_continuation = (last.get("role") == "assistant"
+                       or "Continue your previous message" in (last.get("content") or ""))
 
     if is_continuation:
         reply, finish = CONTINUED, "stop"

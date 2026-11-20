@@ -35,9 +35,9 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 ![School Mode](school.png)
 ### Response Length
 
-- The selected style is a **hard limit**, not a suggestion: `short` and `moderate` get a real `max_tokens` budget derived from their word target (150 → 210 tokens, 300 → 420), sized against the model's measured tokens-per-word ratio so the reply cannot run past its range.
-- A reply cut by that budget ends exactly where the budget stopped — nothing is trimmed afterwards — and auto-continue is skipped for it, since continuing would defeat the cap. `long` and `flexible` keep the global budget with no ceiling.
-- The console shows `max=210` on the request, so the limit in force is always visible.
+- The selected style sets a **ceiling with headroom**, not a hard cut: `short` → 450 tokens, `moderate` → 700, both sized above the word target (150/300 words ≈ 230/460 tokens at this model's measured ratio) so a reply that wants that length finishes on its own instead of being chopped mid-sentence. `long` and `flexible` keep the global budget with no ceiling.
+- A reply that still reaches the ceiling is **flagged, never trimmed**: the message carries `truncated: true` and the last message in the chat shows a `continue` action, which runs the existing `/continue` (both modes) to extend it. Nothing is silently lost, and the flag comes from the endpoint's own `finish_reason` — not a guess at the text.
+- The console shows `max=450` on the request, so the ceiling in force is always visible.
 
 ### Real-Time LLM Analysis
 
