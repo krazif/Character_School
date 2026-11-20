@@ -296,7 +296,7 @@ class AutoContinueTests(unittest.TestCase):
         initial = engine.StreamedCompletion("First half", "length", None)
 
         content, finish = asyncio.run(engine.maybe_auto_continue(
-            client, kwargs, initial, True, "moderate", on_delta=on_delta,
+            client, kwargs, initial, True, on_delta=on_delta,
         ))
 
         self.assertEqual(content, "First half and it kept going")
@@ -311,7 +311,7 @@ class AutoContinueTests(unittest.TestCase):
         initial = engine.StreamedCompletion("done", "stop", None)
 
         content, finish = asyncio.run(engine.maybe_auto_continue(
-            client, kwargs, initial, True, "moderate",
+            client, kwargs, initial, True,
         ))
 
         self.assertEqual((content, finish), ("done", "stop"))

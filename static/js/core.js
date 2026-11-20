@@ -238,7 +238,6 @@ function addConsoleEntry(data) {
   const isResp = data.event === 'response';
   const isErr = data.event === 'error';
   const isKwargs = data.event === 'request_kwargs';
-  const isTrim = data.event === 'style_trim';
 
   // Update token estimate in console title bar
   if (isReq && data.token_estimate !== undefined) {
@@ -249,8 +248,8 @@ function addConsoleEntry(data) {
     const el = document.getElementById('consoleTokEst');
     if (el) el.textContent = data.usage.prompt_tokens + ' tok';
   }
-  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : isErr ? 'console-tag-err' : isTrim ? 'console-tag-trim' : 'console-tag-req';
-  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : isErr ? '✕ ERR' : isTrim ? '✂ TRIM' : '→ KWARGS';
+  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : isErr ? 'console-tag-err' : 'console-tag-req';
+  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : isErr ? '✕ ERR' : '→ KWARGS';
   const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';
   const llmLabel = data.llm === 'character' ? 'CHARACTER' : 'ANALYSIS';
 
@@ -281,8 +280,6 @@ function addConsoleEntry(data) {
     html += `<div class="msg-content assistant">${escapeHtml(content)}</div>`;
   } else if (isErr) {
     html += `<div class="msg-content" style="border-left-color:var(--red);color:var(--red)">${escapeHtml(data.message || data.content || '')}</div>`;
-  } else if (isTrim) {
-    html += `<div class="msg-content" style="border-left-color:var(--yellow);color:var(--yellow)">${escapeHtml(data.message || '')}</div>`;
   } else if (isKwargs && data.kwargs) {
     html += `<pre style="margin:4px 0;font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all">${escapeHtml(JSON.stringify(data.kwargs, null, 2))}</pre>`;
   }

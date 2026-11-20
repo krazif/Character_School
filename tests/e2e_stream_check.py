@@ -17,7 +17,6 @@ import asyncio
 import json
 import os
 import pathlib
-import re
 import shutil
 import subprocess
 import sys
@@ -174,7 +173,7 @@ async def scenario_c_auto_continue(uri, card_name):
 
 async def scenario_e_style_cap(uri, card_name):
     """The response style must be enforced by a hard cap, not just the prompt."""
-    print("E. Response style 'short' — hard cap + sentence trim")
+    print("E. Response style 'short' — hard cap, nothing trimmed")
     import websockets
     async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
         await ws.send(json.dumps({"type": "start", "card_filename": "p_ramlee.json"}))
@@ -201,15 +200,11 @@ async def scenario_e_style_cap(uri, card_name):
           f"max_tokens={cap}")
     check("auto-continue did NOT extend the capped reply",
           not any(e.get("event") == "auto_continue" for e in events))
-    check("trim recorded in the console",
-          any(e.get("event") == "style_trim" for e in events))
     check("reply within the word target", words <= 150, f"{words} words")
-    check("reply ends on a sentence boundary",
-          re.search(r'[.!?…]["\']?$', content.strip()) is not None,
-          repr(content[-40:]))
-    check("stored message is the trimmed prefix of the stream",
-          streamed.startswith(content) and len(streamed) > len(content),
+    check("stored message is exactly what was streamed", streamed == content,
           f"streamed {len(streamed)} chars, stored {len(content)}")
+    check("no trim event — trimming was removed",
+          not any(e.get("event") == "style_trim" for e in events))
 
 
 async def scenario_d_fallback(uri, card_name):

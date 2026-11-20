@@ -423,7 +423,7 @@ async def ws_rp(ws: WebSocket):
                         # ── Auto-continue if truncated (finish_reason=length) ──
                         if not _ws_state[0]: return
                         raw_content, _final_fr = await engine.maybe_auto_continue(
-                            db.chat_client, kwargs, resp, auto_continue, response_style,
+                            db.chat_client, kwargs, resp, auto_continue,
                             send_fn=_safe_send,
                             on_delta=on_delta,
                         )
@@ -606,7 +606,7 @@ async def ws_rp(ws: WebSocket):
                             # ── Auto-continue if truncated ──
                             if not _ws_state[0]: return
                             raw_content, _final_fr = await engine.maybe_auto_continue(
-                                db.chat_client, kwargs, resp, auto_continue, response_style,
+                                db.chat_client, kwargs, resp, auto_continue,
                                 send_fn=_safe_send,
                                 on_delta=on_delta,
                             )
@@ -788,7 +788,7 @@ async def ws_rp(ws: WebSocket):
                             # ── Auto-continue if truncated ──
                             if not _ws_state[0]: return
                             raw_content, _final_fr = await engine.maybe_auto_continue(
-                                db.chat_client, kwargs, resp, auto_continue, response_style,
+                                db.chat_client, kwargs, resp, auto_continue,
                                 send_fn=_safe_send,
                                 on_delta=on_delta,
                             )

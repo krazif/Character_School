@@ -744,7 +744,7 @@ async def ws_chat(ws: WebSocket):
 
                         # ── Auto-continue if truncated (finish_reason=length) ──
                         char_content, _final_fr = await engine.maybe_auto_continue(
-                            db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
+                            db.chat_client, kwargs, resp, school_auto_continue,
                             send_fn=ws.send_json,
                             on_delta=on_delta,
                         )
@@ -971,7 +971,7 @@ async def ws_chat(ws: WebSocket):
 
                             # ── Auto-continue if truncated ──
                             char_content, _final_fr = await engine.maybe_auto_continue(
-                                db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
+                                db.chat_client, kwargs, resp, school_auto_continue,
                                 send_fn=ws.send_json,
                                 on_delta=on_delta,
                             )
@@ -1130,7 +1130,7 @@ async def ws_chat(ws: WebSocket):
 
                             # ── Auto-continue if truncated ──
                             char_content, _final_fr = await engine.maybe_auto_continue(
-                                db.chat_client, kwargs, resp, school_auto_continue, school_response_style,
+                                db.chat_client, kwargs, resp, school_auto_continue,
                                 send_fn=ws.send_json,
                                 on_delta=on_delta,
                             )

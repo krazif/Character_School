@@ -36,8 +36,8 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 ### Response Length
 
 - The selected style is a **hard limit**, not a suggestion: `short` and `moderate` get a real `max_tokens` budget derived from their word target (150 → 210 tokens, 300 → 420), sized against the model's measured tokens-per-word ratio so the reply cannot run past its range.
-- A reply cut by that budget is trimmed back to the last full sentence — never mid-word — and auto-continue is skipped for it, since continuing would defeat the cap. `long` and `flexible` keep the global budget with no ceiling.
-- The console shows `max=210` on the request and a `✂ TRIM` entry whenever a reply is trimmed, so the enforcement is visible.
+- A reply cut by that budget ends exactly where the budget stopped — nothing is trimmed afterwards — and auto-continue is skipped for it, since continuing would defeat the cap. `long` and `flexible` keep the global budget with no ceiling.
+- The console shows `max=210` on the request, so the limit in force is always visible.
 
 ### Real-Time LLM Analysis
 
