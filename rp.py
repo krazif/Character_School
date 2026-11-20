@@ -9,6 +9,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, File as FastAPIFile, Request, WebSocket, WebSocketDisconnect, UploadFile
+from starlette.websockets import WebSocketDisconnected
 from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse
 import db
 import engine
@@ -125,6 +126,58 @@ async def api_rp_fork_session(session_id: int):
 
 
 # ─── RP WebSocket ─────────────────────────────────────────────────
+async def _rp_summarize_block(session_id: int, block_index, _safe_send) -> None:
+    """Summarize one stack block into its text. Runs as a background task so the
+    RP websocket receive loop stays responsive during the 30-60s LLM call."""
+    try:
+        sess = db.db_rp_get_session(session_id)
+        stack_cfg = db.get_stack_config(sess)
+        blocks = stack_cfg.get("blocks", [])
+        if block_index is None or not (0 <= block_index < len(blocks)):
+            await _safe_send({"type": "error", "message": "Summarize failed: block index out of range."})
+            return
+        block = blocks[block_index]
+        # Accept summary_chunk and legacy types
+        if block.get("type") not in ("summary_chunk", "early_summary", "late_summary", "summary"):
+            await _safe_send({"type": "error", "message": "Summarize failed: block is not a summary chunk."})
+            return
+        all_msgs = db.db_rp_get_messages(session_id)
+        start_idx = max(0, min(block.get("start", 0), len(all_msgs)))
+        end_idx = max(start_idx, min(block.get("end", 0), len(all_msgs)))
+        to_summarize = all_msgs[start_idx:end_idx]
+        if not to_summarize:
+            await _safe_send({"type": "error", "message": "No messages in range to summarize."})
+            return
+        existing = block.get("text", "")
+        await _safe_send({"type": "block_summarizing", "block_index": block_index})
+        new_summary = await engine.rp_summarize(
+            session_id, to_summarize, existing, send_fn=_safe_send
+        )
+        # Re-read so a concurrent save (e.g. UI editing another block) isn't clobbered
+        sess2 = db.db_rp_get_session(session_id)
+        stack_cfg2 = db.get_stack_config(sess2)
+        blocks2 = stack_cfg2.get("blocks", [])
+        if 0 <= block_index < len(blocks2):
+            blocks2[block_index]["text"] = new_summary
+            if blocks2[block_index].get("type") in ("early_summary", "late_summary", "summary"):
+                blocks2[block_index]["type"] = "summary_chunk"
+            stack_cfg2["blocks"] = blocks2
+            db.db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg2))
+        await _safe_send({
+            "type": "block_summary_updated",
+            "block_index": block_index,
+            "summary": new_summary,
+            "stack_config": stack_cfg2,
+        })
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        try:
+            await _safe_send({"type": "error", "message": f"Summarization error: {e}"})
+        except Exception:
+            pass
+
+
 @router.websocket("/ws/rp")
 async def ws_rp(ws: WebSocket):
     await ws.accept()
@@ -137,7 +190,9 @@ async def ws_rp(ws: WebSocket):
     persona_filename = None
     auto_continue = True  # auto-continue truncated responses (finish_reason=length)
     current_gen_task = None  # background generation task (for stop support)
+    _summary_tasks = []  # background summarization tasks (kept so they aren't GC'd)
     _ws_state = [True]  # [is_alive] — mutable container to avoid nonlocal issues
+
 
     async def _safe_send(payload):
         """Send JSON only if the websocket is still alive."""
@@ -858,37 +913,14 @@ async def ws_rp(ws: WebSocket):
             elif data["type"] == "summarize_block":
                 if session_id:
                     block_index = data.get("block_index")
-                    sess = db.db_rp_get_session(session_id)
-                    stack_cfg = db.get_stack_config(sess)
-                    blocks = stack_cfg.get("blocks", [])
-                    if block_index is not None and 0 <= block_index < len(blocks):
-                        block = blocks[block_index]
-                        # Accept summary_chunk and legacy types
-                        if block.get("type") in ("summary_chunk", "early_summary", "late_summary", "summary"):
-                            start_idx = block.get("start", 0)
-                            end_idx = block.get("end", 0)
-                            all_msgs = db.db_rp_get_messages(session_id)
-                            start_idx = max(0, min(start_idx, len(all_msgs)))
-                            end_idx = max(start_idx, min(end_idx, len(all_msgs)))
-                            to_summarize = all_msgs[start_idx:end_idx]
-                            existing = block.get("text", "")
-                            if to_summarize:
-                                await _safe_send({"type": "block_summarizing", "block_index": block_index})
-                                new_summary = await engine.rp_summarize(session_id, to_summarize, existing, ws=ws, send_fn=_safe_send)
-                                block["text"] = new_summary
-                                # Normalize type
-                                if block.get("type") in ("early_summary", "late_summary", "summary"):
-                                    block["type"] = "summary_chunk"
-                                stack_cfg["blocks"] = blocks
-                                db.db_rp_update_settings(session_id, stack_config=json.dumps(stack_cfg))
-                                await _safe_send({
-                                    "type": "block_summary_updated",
-                                    "block_index": block_index,
-                                    "summary": new_summary,
-                                    "stack_config": stack_cfg,
-                                })
-                            else:
-                                await _safe_send({"type": "error", "message": "No messages in range to summarize."})
+                    # Run summarization in the background so this receive loop keeps
+                    # reading the socket. A long LLM call here would leave the WS
+                    # unread (and looking dead) for 30-60s; the work still completes
+                    # and saves even if the client goes away mid-summary.
+                    _summary_tasks[:] = [t for t in _summary_tasks if not t.done()]
+                    _summary_tasks.append(asyncio.create_task(
+                        _rp_summarize_block(session_id, block_index, _safe_send)
+                    ))
 
             elif data["type"] == "save_console_events":
                 if session_id:
@@ -976,9 +1008,12 @@ async def ws_rp(ws: WebSocket):
                 # Reload session list to update title in sidebar
                 await _safe_send({"type": "reload_sessions"})
 
-    except WebSocketDisconnect:
-        print("[RP WS] WebSocketDisconnect", flush=True)
-        pass
+    except (WebSocketDisconnect, WebSocketDisconnected):
+        # Normal close path: the client navigated away / reconnected / reloaded,
+        # or a send already failed and Starlette marked the socket DISCONNECTED.
+        # Not an error — no traceback.
+        print("[RP WS] client disconnected", flush=True)
+
     except Exception as e:
         import traceback
         print(f"[RP WS] EXCEPTION: {type(e).__name__}: {e}", flush=True)

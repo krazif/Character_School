@@ -552,7 +552,18 @@ async def rp_summarize(session_id: int, messages_to_summarize: list[dict],
     prompt += f"\n\nCONVERSATION TO SUMMARIZE:\n{summary_input}"
 
     messages = [
-        {"role": "system", "content": "You are a roleplay scene summarizer. Be concise but capture emotional and relational detail. Write in present tense."},
+        {"role": "system", "content": (
+            "You are a roleplay scene summarizer. Be concise but capture emotional and "
+            "relational detail. Write in present tense.\n\n"
+            "STYLE: plain narrative prose in the characters' own human register — what "
+            "people do, say and feel, in ordinary concrete language. Never use technical, "
+            "clinical, engineering or systems vocabulary. Banned as descriptions of a "
+            "person or a feeling: 'processing', 'processing lag', 'control system', "
+            "'variables', 'data', 'parameters', 'input', 'output', 'compile', 'calibrate', "
+            "'leverage', 'model', 'flag as unmodeled', 'motor response'. Never quantify an "
+            "emotion or a body, never measure a gesture, never diagnose. Report what the "
+            "scene actually showed; invent no interior monologue and add no editorializing."
+        )},
         {"role": "user", "content": prompt},
     ]
 

@@ -9,6 +9,7 @@ import io
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, Request, UploadFile, File as FastAPIFile, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketDisconnected
 from fastapi.responses import JSONResponse, Response, FileResponse
 from json_repair import repair_json
 import db
@@ -439,6 +440,69 @@ async def check_school_auto_summary(session_id: int, ws: WebSocket) -> dict | No
 
 
 # ─── WebSocket Chat ───────────────────────────────────────────────
+async def _school_summarize_block(session_id: int, block_index, ws: WebSocket) -> None:
+    """Summarize one stack block in school mode. Runs as a background task so the
+    receive loop stays responsive during the 30-60s LLM call."""
+    async def _send(payload):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass
+
+    try:
+        sess = db.db_school_get_session(session_id)
+        if not sess:
+            return
+        stack_cfg = db.get_stack_config(sess)
+        blocks = stack_cfg.get("blocks", [])
+        if block_index is None or not (0 <= block_index < len(blocks)):
+            await _send({"type": "error", "message": "Summarize failed: block index out of range."})
+            return
+        block = blocks[block_index]
+        if block.get("type") not in ("summary_chunk", "early_summary", "late_summary", "summary"):
+            await _send({"type": "error", "message": "Summarize failed: block is not a summary chunk."})
+            return
+        all_msgs = db.db_school_get_messages(session_id)
+        start = block.get("start", 0)
+        end = block.get("end", len(all_msgs) - 1)
+        msgs_to_summarize = [
+            {"role": m["role"], "content": m["content"]}
+            for m in all_msgs if start <= m["seq"] <= end
+        ]
+        if not msgs_to_summarize:
+            await _send({"type": "error", "message": "No messages in range to summarize."})
+            return
+        existing = block.get("text", "")
+        new_text = await engine.rp_summarize(
+            session_id, msgs_to_summarize, existing, send_fn=_send
+        )
+        # Re-read before writing so concurrent UI saves aren't clobbered
+        sess2 = db.db_school_get_session(session_id)
+        if not sess2:
+            return
+        stack_cfg2 = db.get_stack_config(sess2)
+        blocks2 = stack_cfg2.get("blocks", [])
+        if 0 <= block_index < len(blocks2):
+            blocks2[block_index]["text"] = new_text
+            if blocks2[block_index].get("type") in ("early_summary", "late_summary", "summary"):
+                blocks2[block_index]["type"] = "summary_chunk"
+            stack_cfg2["blocks"] = blocks2
+            db.db_school_update_settings(session_id, stack_config=json.dumps(stack_cfg2))
+        await _send({
+            "type": "block_summarized",
+            "block_index": block_index,
+            "text": new_text,
+            "stack_config": stack_cfg2,
+        })
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        try:
+            await _send({"type": "error", "message": f"Summarization error: {e}"})
+        except Exception:
+            pass
+
+
 @router.websocket("/ws/chat")
 async def ws_chat(ws: WebSocket):
     """
@@ -468,6 +532,8 @@ async def ws_chat(ws: WebSocket):
     analysis_prompt = ""
     session_id = None
     current_gen_task = None
+    _summary_tasks = []  # background summarization tasks (kept so they aren't GC'd)
+
     school_response_style = "moderate"
     school_pov = None
     school_inner_monologue = False
@@ -1175,36 +1241,12 @@ async def ws_chat(ws: WebSocket):
             elif data["type"] == "summarize_block":
                 if session_id:
                     block_index = data.get("block_index")
-                    sess = db.db_school_get_session(session_id)
-                    if sess:
-                        stack_cfg = db.get_stack_config(sess)
-                        blocks = stack_cfg.get("blocks", [])
-                        if block_index is not None and 0 <= block_index < len(blocks):
-                            block = blocks[block_index]
-                            if block.get("type") in ("summary_chunk", "early_summary", "late_summary", "summary"):
-                                all_msgs = db.db_school_get_messages(session_id)
-                                start = block.get("start", 0)
-                                end = block.get("end", len(all_msgs) - 1)
-                                msgs_to_summarize = [
-                                    {"role": m["role"], "content": m["content"]}
-                                    for m in all_msgs if start <= m["seq"] <= end
-                                ]
-                                existing = block.get("text", "")
-                                new_text = await engine.rp_summarize(
-                                    session_id, msgs_to_summarize, existing, ws=ws
-                                )
-                                block["text"] = new_text
-                                if block.get("type") in ("early_summary", "late_summary", "summary"):
-                                    block["type"] = "summary_chunk"
-                                db.db_school_update_settings(
-                                    session_id, stack_config=json.dumps(stack_cfg)
-                                )
-                                await ws.send_json({
-                                    "type": "block_summarized",
-                                    "block_index": block_index,
-                                    "text": new_text,
-                                    "stack_config": stack_cfg,
-                                })
+                    # Background task so this receive loop stays responsive during the
+                    # 30-60s LLM call; the summary still saves if the client drops.
+                    _summary_tasks[:] = [t for t in _summary_tasks if not t.done()]
+                    _summary_tasks.append(asyncio.create_task(
+                        _school_summarize_block(session_id, block_index, ws)
+                    ))
 
             elif data["type"] == "save_console_events":
                 if session_id:
@@ -1298,8 +1340,9 @@ async def ws_chat(ws: WebSocket):
                     await ws.send_json({"type": "analysis_typing_stopped"})
                     await ws.send_json({"type": "error", "message": f"Analysis error: {e}"})
 
-    except WebSocketDisconnect:
-        pass
+    except (WebSocketDisconnect, WebSocketDisconnected):
+        # Normal close: client navigated away, reloaded, or reconnected.
+        print("[School WS] client disconnected", flush=True)
     except Exception as e:
         try:
             await ws.send_json({"type": "error", "message": str(e)})
