@@ -1338,8 +1338,17 @@ async def maybe_auto_continue(
             except Exception:
                 pass
 
-        cont_resp = await stream_chat_completion(client, cont_kwargs, on_delta=on_delta)
+        # The continuation continues the SAME reply. A model asked to keep
+        # writing often re-states its format header here ("[Name]: ") —
+        # mid-reply that splits RP text (parse_rp_response keeps only the
+        # first segment, silently dropping the tail) and it would desync
+        # the streamed deltas from the stored message. Hold it back during
+        # streaming exactly like a fresh reply's header, and strip it from
+        # the assembled content (covers the non-stream fallback too).
+        cont_resp = await stream_chat_completion(
+            client, cont_kwargs, on_delta=on_delta, hold_prefix=True)
         cont_content = cont_resp.choices[0].message.content or ""
+        cont_content = re.sub(r"^\s*\[[^\]\n]{1,60}\]:\s*", "", cont_content)
         cont_finish = cont_resp.choices[0].finish_reason
         cont_usage = cont_resp.usage
 
