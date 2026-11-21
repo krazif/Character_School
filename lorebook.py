@@ -15,7 +15,7 @@ Each lorebook has the SillyTavern World Info format:
       "constant": false,
       "selective": true,
       "order": 100,
-      "position": 0,
+      "position": 0,       # 0=before system, 1=after system, 2=before chat
       "disable": false,
       "extensions": {}
     }
@@ -168,55 +168,142 @@ def scan_for_active_entries(lorebook: dict, recent_messages: list[dict],
         if is_active:
             active.append(entry)
 
-    # Sort by order descending (higher order = higher priority, injected closer to chat)
-    active.sort(key=lambda e: e.get("order", 100), reverse=True)
+    # SillyTavern insertion order: constant entries first, then ascending
+    # `order` — ST puts larger order numbers CLOSER to the end of the
+    # context ("an entry with Order 100 appears before an entry with
+    # Order 250"), i.e. higher order = more impact.
+    active.sort(key=lambda e: (0 if e.get("constant") else 1, e.get("order", 100)))
     return active
 
 
-def build_lorebook_injection(lorebooks: list[dict], recent_messages: list[dict],
-                             scan_depth: int = 10) -> str:
-    """Build the lorebook injection text from multiple lorebooks.
+# Entry placement, simplified from SillyTavern's insertion positions to what
+# this prompt structure supports:
+#   0 = before system — prepended to the system message (moderate impact)
+#   1 = after system  — appended to the system message (greater impact)
+#   2 = before chat   — its own system message directly before the first
+#                       user turn (greatest impact)
+POSITION_BEFORE_SYSTEM = 0
+POSITION_AFTER_SYSTEM = 1
+POSITION_BEFORE_CHAT = 2
 
-    Scans all provided lorebooks, collects active entries, and assembles
-    them into a single text block for injection into the prompt.
 
-    Args:
-        lorebooks: List of lorebook dicts
-        recent_messages: Recent chat messages for keyword scanning
-        scan_depth: How many recent messages to scan
+def build_lorebook_blocks(lorebooks: list[dict], recent_messages: list[dict],
+                          scan_depth: int = 10) -> dict:
+    """Scan lorebooks and group active entries by position.
 
-    Returns:
-        Formatted lorebook text, or empty string if no entries active
+    Returns {0: text, 1: text, 2: text} with "" for positions that fired
+    nothing. Within a position, entries keep ST insertion order: constants
+    first, then ascending `order` (larger order = closer to the end of the
+    context = more impact), merged across books as if one file.
     """
-    all_entries = []
+    groups: dict = {POSITION_BEFORE_SYSTEM: [], POSITION_AFTER_SYSTEM: [],
+                    POSITION_BEFORE_CHAT: []}
     for lb in lorebooks:
         lb_name = lb.get("name", "Unknown")
-        active = scan_for_active_entries(lb, recent_messages, scan_depth)
-        for entry in active:
-            comment = entry.get("comment", "")
-            content = entry.get("content", "").strip()
-            if content:
-                all_entries.append({
-                    "lorebook": lb_name,
-                    "comment": comment,
-                    "content": content,
-                    "order": entry.get("order", 100),
-                })
+        for entry in scan_for_active_entries(lb, recent_messages, scan_depth):
+            content = (entry.get("content") or "").strip()
+            if not content:
+                continue
+            # Missing/unknown position -> after system = where the old
+            # code always put it (appended to the system message).
+            pos = entry.get("position", POSITION_AFTER_SYSTEM)
+            if pos not in groups:
+                pos = POSITION_AFTER_SYSTEM
+            groups[pos].append({
+                "lorebook": lb_name,
+                "comment": entry.get("comment", ""),
+                "content": content,
+                "order": entry.get("order", 100),
+                "constant": bool(entry.get("constant", False)),
+            })
 
-    if not all_entries:
+    blocks = {}
+    for pos, entries in groups.items():
+        entries.sort(key=lambda e: (0 if e["constant"] else 1, e["order"]))
+        if not entries:
+            blocks[pos] = ""
+            continue
+        parts = ["WORLD INFO (LOREBOOK ENTRIES):"]
+        for e in entries:
+            label = e["comment"] if e["comment"] else "(unnamed)"
+            parts.append(f"[{e['lorebook']} — {label}]")
+            parts.append(e["content"])
+            parts.append("")
+        blocks[pos] = "\n".join(parts)
+    return blocks
+
+
+def _join(a: str, b: str) -> str:
+    """Concatenate two prompt fragments without a stray blank line."""
+    if not a:
+        return b
+    if not b:
+        return a
+    return a + "\n\n" + b
+
+
+def apply_lorebook_blocks(llm_messages: list[dict], blocks: dict) -> str:
+    """Place each position block into llm_messages; returns injected text.
+
+    Position 0/1 need a leading system message — if the stack built none,
+    one is created rather than silently dropping the lore (the old code's
+    failure mode).
+    """
+    before = (blocks.get(POSITION_BEFORE_SYSTEM) or "").strip()
+    after = (blocks.get(POSITION_AFTER_SYSTEM) or "").strip()
+    chat = (blocks.get(POSITION_BEFORE_CHAT) or "").strip()
+    injected = "\n\n".join(t for t in (before, after, chat) if t)
+    if not injected:
         return ""
 
-    # Sort by order descending (same as individual scan, but across all lorebooks)
-    all_entries.sort(key=lambda e: e["order"], reverse=True)
+    has_system = bool(llm_messages) and llm_messages[0].get("role") == "system"
+    if (before or after) and not has_system:
+        llm_messages.insert(0, {"role": "system", "content": ""})
+    if before:
+        sys_msg = llm_messages[0]
+        sys_msg["content"] = _join(before, sys_msg.get("content", ""))
+    if after:
+        sys_msg = llm_messages[0]
+        sys_msg["content"] = _join(sys_msg.get("content", ""), after)
+    if chat:
+        idx = next((i for i, m in enumerate(llm_messages)
+                    if m.get("role") != "system"), len(llm_messages))
+        llm_messages.insert(idx, {"role": "system", "content": chat})
+    return injected
 
-    parts = ["WORLD INFO (LOREBOOK ENTRIES):"]
-    for e in all_entries:
-        label = e["comment"] if e["comment"] else "(unnamed)"
-        parts.append(f"[{e['lorebook']} — {label}]")
-        parts.append(e["content"])
-        parts.append("")
 
-    return "\n".join(parts)
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def inject_lorebook(llm_messages: list[dict], session: dict,
+                          all_msgs: list[dict], send,
+                          scan_depth: int = 10) -> str:
+    """Load a session's attached lorebooks, inject active entries, notify.
+
+    One call replaces the six hand-rolled injection blocks in school.py and
+    rp.py. `send` is the async JSON sender for the console event
+    (ws.send_json / _safe_send). Returns the injected text ('' if none).
+    """
+    filenames = []
+    raw = (session or {}).get("lorebooks")
+    if raw:
+        try:
+            filenames = json.loads(raw)
+        except (TypeError, ValueError):
+            filenames = []
+    if not filenames:
+        return ""
+    blocks = build_lorebook_blocks(load_lorebooks_for_session(filenames),
+                                   all_msgs, scan_depth)
+    injected = apply_lorebook_blocks(llm_messages, blocks)
+    if injected:
+        await send({
+            "type": "console_event", "event": "lorebook_injection",
+            "content": injected, "timestamp": _now_iso(),
+        })
+    return injected
 
 
 def load_lorebooks_for_session(lorebook_filenames: list[str]) -> list[dict]:
@@ -256,7 +343,7 @@ def _normalize_entry(uid, entry: dict) -> dict:
         "constant": entry.get("constant", False),
         "selective": entry.get("selective", False),
         "order": entry.get("order", 100),
-        "position": entry.get("position", 0),
+        "position": entry.get("position", POSITION_AFTER_SYSTEM),
         "disable": entry.get("disable", False),
         "extensions": entry.get("extensions", {}) or {},
     }

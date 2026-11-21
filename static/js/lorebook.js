@@ -162,7 +162,7 @@ function renderLorebookEntry(uid, entry) {
   html += `<label style="display:flex;align-items:center;gap:3px"><input type="checkbox" ${e.constant ? 'checked' : ''} onclick="updateLorebookEntryField(${uid},'constant',this.checked)" style="accent-color:var(--accent)"> Constant</label>`;
   html += `<label style="display:flex;align-items:center;gap:3px"><input type="checkbox" ${e.selective ? 'checked' : ''} onclick="updateLorebookEntryField(${uid},'selective',this.checked)" style="accent-color:var(--accent)"> Selective (AND)</label>`;
   html += `<label>Order: <input type="number" value="${e.order ?? 100}" style="width:50px;font-size:11px;padding:1px 4px;border-radius:3px;border:1px solid var(--border);background:var(--surface);color:var(--text)" oninput="updateLorebookEntryField(${uid},'order',parseInt(this.value)||100)"></label>`;
-  html += `<label>Position: <select style="font-size:11px;padding:1px 4px;border-radius:3px;border:1px solid var(--border);background:var(--surface);color:var(--text)" onchange="updateLorebookEntryField(${uid},'position',parseInt(this.value))"><option value="0" ${e.position===0?'selected':''}>Before system</option><option value="1" ${e.position===1?'selected':''}>After system</option><option value="2" ${(e.position===2||e.position===undefined)?'selected':''}>Before chat</option></select></label>`;
+  html += `<label>Position: <select style="font-size:11px;padding:1px 4px;border-radius:3px;border:1px solid var(--border);background:var(--surface);color:var(--text)" onchange="updateLorebookEntryField(${uid},'position',parseInt(this.value))"><option value="0" ${((e.position===undefined?1:e.position)===0)?'selected':''}>Before system</option><option value="1" ${((e.position===undefined?1:e.position)===1)?'selected':''}>After system</option><option value="2" ${((e.position===undefined?1:e.position)===2)?'selected':''}>Before chat</option></select></label>`;
   html += `</div>`;
   html += `</div>`;
   return html;
@@ -182,7 +182,7 @@ function addLorebookEntry() {
     constant: false,
     selective: false,
     order: 100,
-    position: 0,
+    position: 1,   // after system (matches where injection always landed)
     disable: false,
     extensions: {},
   };

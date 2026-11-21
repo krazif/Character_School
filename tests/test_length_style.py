@@ -19,14 +19,15 @@ class StyleBudgetTests(unittest.TestCase):
     """response_style_max_tokens — the hard ceiling per style."""
 
     def test_short_ceiling_has_headroom_above_the_word_target(self):
-        # 150 words ≈ 230 tokens at the measured 1.44–1.59 tokens/word; the
-        # ceiling sits well above that so a short reply can finish on its own.
-        self.assertEqual(engine.response_style_max_tokens("short", 2000), 450)
-        self.assertGreater(450, 150 * 1.59)
+        # 150 words ≈ 230 tokens at the measured 1.44–1.59 tokens/word, but the
+        # model's natural reply overshoots the target (its opener is 500+ words),
+        # so the ceiling sits far above the word target and must not bite.
+        self.assertEqual(engine.response_style_max_tokens("short", 2000), 800)
+        self.assertGreater(800, 150 * 1.59)
 
     def test_moderate_ceiling_has_headroom_above_the_word_target(self):
-        self.assertEqual(engine.response_style_max_tokens("moderate", 2000), 700)
-        self.assertGreater(700, 300 * 1.59)
+        self.assertEqual(engine.response_style_max_tokens("moderate", 2000), 1100)
+        self.assertGreater(1100, 300 * 1.59)
 
     def test_long_and_flexible_have_no_ceiling(self):
         self.assertEqual(engine.response_style_max_tokens("long", 2000), 2000)
@@ -42,9 +43,9 @@ class StyleBudgetTests(unittest.TestCase):
 
     def test_ceiling_still_cuts_a_runaway_reply(self):
         # The headroom must not make the ceiling useless: at the model's
-        # densest measured ratio (1.59 tok/word) 450 tokens is ~283 words —
+        # densest measured ratio (1.59 tok/word) 800 tokens is ~500 words —
         # well short of an unbounded reply, and short/flexible stay apart.
-        self.assertLess(450 / 1.44, 400)
+        self.assertLess(800 / 1.44, 600)
         self.assertLess(engine.response_style_max_tokens("short", 2000),
                         engine.response_style_max_tokens("moderate", 2000))
 
@@ -102,6 +103,62 @@ class StyleCapTruncationTests(unittest.TestCase):
 
         self.assertEqual(content, "A complete reply. Nothing to trim here.")
         self.assertEqual(finish, "stop")
+
+
+class LengthNoteTests(unittest.TestCase):
+    """length_note_for_reply / append_length_note — the author's-note position."""
+
+    def test_short_note_states_the_target(self):
+        note = engine.length_note_for_reply("short", ["a brief reply."]) or ""
+        self.assertIn("under 150 words", note)
+        self.assertNotIn("ran longer", note)
+
+    def test_history_aware_clause_only_when_recent_replies_overshot(self):
+        long_reply = " ".join(["word"] * 200)   # 200 words > 150 bound
+        note = engine.length_note_for_reply("short", [long_reply]) or ""
+        self.assertIn("ran longer", note)
+        note = engine.length_note_for_reply("moderate", [long_reply]) or ""
+        self.assertNotIn("ran longer", note)     # 200 < 300 bound
+
+    def test_only_the_last_three_replies_count(self):
+        old_long = " ".join(["word"] * 200)
+        recent_ok = "a short reply."
+        note = engine.length_note_for_reply("short", [old_long, old_long, old_long,
+                                                      recent_ok, recent_ok, recent_ok]) or ""
+        self.assertNotIn("ran longer", note)
+
+    def test_flexible_and_unknown_get_no_note(self):
+        self.assertIsNone(engine.length_note_for_reply("flexible", []))
+        self.assertIsNone(engine.length_note_for_reply(None, []))
+        self.assertIsNone(engine.length_note_for_reply("weird", []))
+
+    def test_long_style_note_exists_but_never_blames_history(self):
+        note = engine.length_note_for_reply("long", [" ".join(["word"] * 5)]) or ""
+        self.assertIn("300 words", note)
+        self.assertNotIn("ran longer", note)
+
+    def test_note_appends_to_the_last_user_message(self):
+        msgs = [{"role": "user", "content": "hello"}]
+        out = engine.append_length_note(msgs, "[Reply length — ...]")
+        self.assertEqual(out[-1]["role"], "user")
+        self.assertEqual(out[-1]["content"], "hello\n\n[Reply length — ...]")
+        # input list untouched
+        self.assertEqual(msgs[-1]["content"], "hello")
+
+    def test_note_becomes_its_own_message_when_last_is_assistant(self):
+        msgs = [{"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "there"}]
+        out = engine.append_length_note(msgs, "[n]")
+        self.assertEqual(len(out), 3)
+        self.assertEqual(out[-1], {"role": "user", "content": "[n]"})
+
+    def test_none_note_changes_nothing(self):
+        msgs = [{"role": "user", "content": "hi"}]
+        self.assertIs(engine.append_length_note(msgs, None), msgs)
+
+    def test_system_prompt_instruction_still_present(self):
+        self.assertIn("under 150 words", engine.response_style_instruction("short") or "")
+        self.assertIsNone(engine.response_style_instruction(None))
 
 
 if __name__ == "__main__":

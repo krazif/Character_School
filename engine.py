@@ -252,15 +252,10 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
     val = get_card_field(d, "mes_example", version)
     if val:
         parts.append(f"\n\nEXAMPLE DIALOGUE (for voice reference):\n{substitute_macros(val, char_name, user_name)}")
-    # Response style directive (simplified — caps + auto-continue handle enforcement)
-    if response_style == 'short':
-        parts.append("\n\n[IMPORTANT — Keep your response length under 150 words. Never end on handover cues; finish naturally.]")
-    elif response_style == 'moderate':
-        parts.append("\n\n[IMPORTANT — Keep your response length between 150–300 words. Never end on handover cues; finish naturally.]")
-    elif response_style == 'long':
-        parts.append("\n\n[IMPORTANT — Keep your response length above 300 words. Include dialogue, actions, internal thoughts, body language, and emotional detail. Never end on handover cues; finish naturally.]")
-    elif response_style == 'flexible':
-        parts.append("\n\n[IMPORTANT — Choose your response length naturally based on the scene. Keep it concise (up to 150 words) for dialogue and action; write longer (above 150 words) for scene transitions, establishing shots, and plot developments. Never end on handover cues; finish naturally.]")
+    # Response style directive (caps + the per-reply note handle enforcement)
+    _style_note = response_style_instruction(response_style)
+    if _style_note:
+        parts.append("\n\n" + _style_note)
     # POV / perspective directive
     _pov = _pov_directive(pov)
     if _pov:
@@ -466,15 +461,10 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
         parts.append("- Do not write dialogue for other characters — only the one you choose.")
     parts.append("")
 
-    # Response style (simplified — caps + auto-continue handle enforcement)
-    if response_style == 'short':
-        parts.append("[IMPORTANT — Keep your response length under 150 words. Never end on handover cues; finish naturally.]")
-    elif response_style == 'moderate':
-        parts.append("[IMPORTANT — Keep your response length between 150–300 words. Never end on handover cues; finish naturally.]")
-    elif response_style == 'long':
-        parts.append("[IMPORTANT — Keep your response length above 300 words. Include dialogue, actions, internal thoughts, body language, and emotional detail. Never end on handover cues; finish naturally.]")
-    elif response_style == 'flexible':
-        parts.append("[IMPORTANT — Choose your response length naturally based on the scene. Keep it concise (up to 150 words) for dialogue and action; write longer (above 150 words) for scene transitions, establishing shots, and plot developments. Never end on handover cues; finish naturally.]")
+    # Response style (caps + the per-reply note handle enforcement)
+    _style_note = response_style_instruction(response_style)
+    if _style_note:
+        parts.append(_style_note)
     parts.append("")
 
     # POV / perspective directive
@@ -1040,26 +1030,88 @@ Return ONLY the JSON object."""},
 
 # A response style does two different jobs. The PROMPT line asks for a word
 # range ("under 150 words"); this is the CEILING that stops a runaway reply.
-# The ceiling sits ABOVE the target with headroom, because a reply cut
-# mid-sentence is visible damage while an occasionally over-long one is not:
-# on this model 150 words ≈ 230 tokens (measured 1.44–1.59 tokens/word), so
-# 450 lets a short reply finish on its own. A reply that still reaches the
-# ceiling is flagged to the client as truncated, never trimmed.
-_STYLE_TOKEN_BUDGETS = {"short": 450, "moderate": 700}
+# The ceiling must NOT bite: this card's own opener is 500+ words and the model
+# imitates history, so the natural reply overshoots the word target — a ceiling
+# near the target turns "short" into truncation (a reply cut mid-sentence is
+# visible damage, an occasionally over-long one is not). 150 words ≈ 230 tokens
+# at the measured 1.44-1.59 tok/word; 800/1100 let a natural reply finish on
+# its own while still catching a runaway.
+_STYLE_TOKEN_BUDGETS = {"short": 800, "moderate": 1100}
 
 
 def response_style_max_tokens(response_style: Optional[str], default: int = 2000) -> int:
     """Hard token ceiling backing a response style.
 
-    Sized with headroom above the style's word target so the model finishes
-    naturally; 'long' and 'flexible' have no ceiling and keep the global
-    budget. Always returns min(budget, default) so a smaller global budget
-    still wins.
+    Sized ABOVE the style's word target so the model finishes naturally;
+    'long' and 'flexible' have no ceiling and keep the global budget. Always
+    returns min(budget, default) so a smaller global budget still wins.
     """
     budget = _STYLE_TOKEN_BUDGETS.get(response_style)
     if not budget:
         return default
     return min(default, max(64, budget))
+
+
+# The one authoritative wording of each style's length directive — used by
+# build_system_prompt and build_rp_system_prompt so the two cannot drift.
+_STYLE_LENGTH_NOTES = {
+    "short": "[IMPORTANT — Keep your response length under 150 words. Never end on handover cues; finish naturally.]",
+    "moderate": "[IMPORTANT — Keep your response length between 150–300 words. Never end on handover cues; finish naturally.]",
+    "long": "[IMPORTANT — Keep your response length above 300 words. Include dialogue, actions, internal thoughts, body language, and emotional detail. Never end on handover cues; finish naturally.]",
+    "flexible": "[IMPORTANT — Choose your response length naturally based on the scene. Keep it concise (up to 150 words) for dialogue and action; write longer (above 150 words) for scene transitions, establishing shots, and plot developments. Never end on handover cues; finish naturally.]",
+}
+
+
+def response_style_instruction(response_style: Optional[str]) -> Optional[str]:
+    """The system-prompt length directive for a response style, or None."""
+    return _STYLE_LENGTH_NOTES.get(response_style or "")
+
+
+def length_note_for_reply(response_style: Optional[str],
+                          recent_replies: Optional[list] = None) -> Optional[str]:
+    """Per-reply length note for author's-note position (the last user message).
+
+    The system prompt carries the style directive, but length is imitated from
+    history far more than obeyed from a bracketed note — so repeat the target as
+    the last thing the model reads, and when the recent replies overshot it,
+    say so explicitly instead of hoping the model notices.
+
+    'flexible' (and unknown styles) get no note: the scene decides there.
+    """
+    if response_style == "short":
+        base = "This reply stays under 150 words."
+    elif response_style == "moderate":
+        base = "This reply stays between 150 and 300 words."
+    elif response_style == "long":
+        base = "This reply runs above 300 words, with dialogue, actions, and inner detail."
+    else:
+        return None
+
+    lead = ""
+    if response_style in ("short", "moderate") and recent_replies:
+        bound = 150 if response_style == "short" else 300
+        if any(t and len(str(t).split()) > bound for t in recent_replies[-3:]):
+            lead = "Your recent replies ran longer than the target. "
+
+    return (f"[Reply length — {lead}{base} "
+            "End the reply when the scene beat is done; never end on a handover cue.]")
+
+
+def append_length_note(llm_messages: list, note: Optional[str]) -> list:
+    """Put the note in author's-note position: appended to the last user message,
+    or as a standalone user message if the last message isn't one.
+
+    Returns a new list; the input is not mutated."""
+    if not note:
+        return llm_messages
+    msgs = list(llm_messages)
+    if msgs and msgs[-1].get("role") == "user":
+        last = dict(msgs[-1])
+        last["content"] = (last.get("content") or "") + "\n\n" + note
+        msgs[-1] = last
+    else:
+        msgs.append({"role": "user", "content": note})
+    return msgs
 
 
 # ─── Streaming completions ───────────────────────────────────────

@@ -735,25 +735,20 @@ async def ws_chat(ws: WebSocket):
                         llm_messages, block_markers = db.build_llm_messages_from_stack(
                             stack_cfg, system_prompt, all_msgs,
                         )
+                        # Per-reply length note in author's-note position (last
+                        # user message) — length is imitated from history more
+                        # than obeyed from the system-prompt note alone.
+                        llm_messages = engine.append_length_note(
+                            llm_messages,
+                            engine.length_note_for_reply(
+                                school_response_style,
+                                [m.get("content", "") for m in all_msgs
+                                 if m.get("role") in ("character", "assistant")],
+                            ),
+                        )
 
-                        # ── Lorebook injection ──
-                        lb_filenames = []
-                        if sess.get("lorebooks"):
-                            try: lb_filenames = json.loads(sess["lorebooks"])
-                            except Exception: pass
-                        if lb_filenames:
-                            lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
-                            lb_injection = lorebook.build_lorebook_injection(
-                                lorebooks_data, all_msgs, scan_depth=10
-                            )
-                            if lb_injection:
-                                # Inject into the system message (first in llm_messages)
-                                if llm_messages and llm_messages[0]["role"] == "system":
-                                    llm_messages[0]["content"] += "\n\n" + lb_injection
-                                await ws.send_json({
-                                    "type": "console_event", "event": "lorebook_injection",
-                                    "content": lb_injection, "timestamp": engine._now_iso(),
-                                })
+                        # ── Lorebook injection (one helper: placement + console event) ──
+                        await lorebook.inject_lorebook(llm_messages, sess, all_msgs, ws.send_json)
 
                         # ── Notify frontend: character is responding ──
                         await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
@@ -967,24 +962,18 @@ async def ws_chat(ws: WebSocket):
                             llm_messages, block_markers = db.build_llm_messages_from_stack(
                                 stack_cfg, system_prompt, all_msgs,
                             )
+                            # Per-reply length note in author's-note position
+                            llm_messages = engine.append_length_note(
+                                llm_messages,
+                                engine.length_note_for_reply(
+                                    school_response_style,
+                                    [m.get("content", "") for m in all_msgs
+                                     if m.get("role") in ("character", "assistant")],
+                                ),
+                            )
 
-                            # ── Lorebook injection ──
-                            lb_filenames = []
-                            if sess.get("lorebooks"):
-                                try: lb_filenames = json.loads(sess["lorebooks"])
-                                except Exception: pass
-                            if lb_filenames:
-                                lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
-                                lb_injection = lorebook.build_lorebook_injection(
-                                    lorebooks_data, all_msgs, scan_depth=10
-                                )
-                                if lb_injection:
-                                    if llm_messages and llm_messages[0]["role"] == "system":
-                                        llm_messages[0]["content"] += "\n\n" + lb_injection
-                                    await ws.send_json({
-                                        "type": "console_event", "event": "lorebook_injection",
-                                        "content": lb_injection, "timestamp": engine._now_iso(),
-                                    })
+                            # ── Lorebook injection (one helper: placement + console event) ──
+                            await lorebook.inject_lorebook(llm_messages, sess, all_msgs, ws.send_json)
 
                             await ws.send_json({"type": "character_typing", "character_name": card.get("data", card).get("name", "Character")})
 
@@ -1119,23 +1108,8 @@ async def ws_chat(ws: WebSocket):
                                 stack_cfg, system_prompt, all_msgs,
                             )
 
-                            # ── Lorebook injection ──
-                            lb_filenames = []
-                            if sess.get("lorebooks"):
-                                try: lb_filenames = json.loads(sess["lorebooks"])
-                                except Exception: pass
-                            if lb_filenames:
-                                lorebooks_data = lorebook.load_lorebooks_for_session(lb_filenames)
-                                lb_injection = lorebook.build_lorebook_injection(
-                                    lorebooks_data, all_msgs, scan_depth=10
-                                )
-                                if lb_injection:
-                                    if llm_messages and llm_messages[0]["role"] == "system":
-                                        llm_messages[0]["content"] += "\n\n" + lb_injection
-                                    await ws.send_json({
-                                        "type": "console_event", "event": "lorebook_injection",
-                                        "content": lb_injection, "timestamp": engine._now_iso(),
-                                    })
+                            # ── Lorebook injection (one helper: placement + console event) ──
+                            await lorebook.inject_lorebook(llm_messages, sess, all_msgs, ws.send_json)
 
                             # ── /continue: transform stack to extend last response ──
                             last_char_content = ""

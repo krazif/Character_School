@@ -14,10 +14,23 @@ import config
 # ─── SQLite Database ─────────────────────────────────────────────
 DB_PATH = config.APP_DIR / "char_test.db"
 
+# How long a writer waits for the lock before giving up. SQLite's default is 5s;
+# a background summary save or console-events write can hold the lock briefly,
+# and 5s is tight enough that a slow disk plus a 3MB blob surfaces as a raw
+# "database is locked" error in the chat instead of a short wait.
+BUSY_TIMEOUT_MS = 15000
+
+
+def _connect() -> sqlite3.Connection:
+    """Open a connection with a generous busy timeout and WAL-friendly settings."""
+    conn = sqlite3.connect(str(DB_PATH), timeout=BUSY_TIMEOUT_MS / 1000)
+    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    return conn
+
 
 def init_db():
     """Create tables if they don't exist."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
@@ -198,7 +211,7 @@ def init_db():
 
 def _migrate_add_swipes():
     """Add swipes and active_swipe columns to rp_messages and school_messages if missing."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     cur = conn.cursor()
     try:
         for table in ("rp_messages", "school_messages"):
@@ -215,7 +228,7 @@ def _migrate_add_swipes():
 
 def _migrate_add_seed():
     """Add seed column to rp_messages and school_messages if missing."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     cur = conn.cursor()
     try:
         for table in ("rp_messages", "school_messages"):
@@ -230,7 +243,7 @@ def _migrate_add_seed():
 
 def _migrate_add_image_path():
     """Add image_path columns to message tables if they don't exist."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     cur = conn.cursor()
     try:
         for table in ("rp_messages", "school_messages"):
@@ -245,7 +258,7 @@ def _migrate_add_image_path():
 
 def _migrate_add_image_prompt():
     """Add image_prompt column to rp_messages and school_messages if missing."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     cur = conn.cursor()
     try:
         for table in ("rp_messages", "school_messages"):
@@ -264,7 +277,7 @@ init_db()
 def db_create_session(card_filename: str, system_prompt: str, analysis_prompt: str,
                        persona_filename: str = None) -> int:
     """Create a new session row, return its id."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     cur = conn.execute(
         "INSERT INTO sessions (card_filename, persona_filename, system_prompt, analysis_prompt) VALUES (?, ?, ?, ?)",
         (card_filename, persona_filename, system_prompt, analysis_prompt),
@@ -278,7 +291,7 @@ def db_create_session(card_filename: str, system_prompt: str, analysis_prompt: s
 def db_add_message(session_id: int, role: str, content: str,
                     is_first_mes: bool = False, analysis_json: str = None) -> int:
     """Insert a message, return its row id."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     # Get next seq
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
@@ -295,7 +308,7 @@ def db_add_message(session_id: int, role: str, content: str,
 def db_get_llm_messages(session_id: int) -> list[dict]:
     """Get all messages for LLM context, ordered by seq.
     The system prompt is stored in the sessions table and prepended here."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     sess = conn.execute(
         "SELECT system_prompt FROM sessions WHERE id = ?", (session_id,)
     ).fetchone()
@@ -313,7 +326,7 @@ def db_get_llm_messages(session_id: int) -> list[dict]:
 
 def db_get_assistant_messages(session_id: int) -> list[dict]:
     """Get all assistant messages with their analysis, ordered by seq."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     rows = conn.execute(
         "SELECT id, content, analysis_json, is_first_mes FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY seq",
         (session_id,),
@@ -328,7 +341,7 @@ def db_get_assistant_messages(session_id: int) -> list[dict]:
 
 def db_delete_message(session_id: int, message_id: int) -> bool:
     """Delete a message and all subsequent messages in the session."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute(
         "SELECT seq FROM messages WHERE id = ? AND session_id = ?", (message_id, session_id)
     ).fetchone()
@@ -347,7 +360,7 @@ def db_delete_message(session_id: int, message_id: int) -> bool:
 
 def db_clear_messages(session_id: int) -> None:
     """Delete all messages for a session (used by reset)."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
     conn.commit()
     conn.close()
@@ -355,7 +368,7 @@ def db_clear_messages(session_id: int) -> None:
 
 def db_get_session(session_id: int) -> Optional[dict]:
     """Get session metadata."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute(
         "SELECT id, card_filename, persona_filename, system_prompt, analysis_prompt FROM sessions WHERE id = ?",
         (session_id,),
@@ -542,7 +555,7 @@ def build_llm_messages_from_stack(stack_config: dict, system_prompt: str,
 def db_rp_create_session(characters: list[dict], persona_filename: str,
                          turn_routing: str, response_style: str,
                          stack_config: str = None) -> int:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     cur = conn.execute(
         "INSERT INTO rp_sessions (title, persona_filename, turn_routing, response_style, stack_config) VALUES (?, ?, ?, ?, ?)",
         (', '.join(c['name'] for c in characters), persona_filename, turn_routing, response_style, stack_config),
@@ -559,7 +572,7 @@ def db_rp_create_session(characters: list[dict], persona_filename: str,
 
 
 def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = None, persona_name: str = None, image_path: str = None, image_prompt: str = None, client_msg_id: str = None, seed: int = None) -> int:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM rp_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
@@ -574,7 +587,7 @@ def db_rp_add_message(session_id: int, role: str, content: str, speaker: str = N
 
 
 def db_rp_get_messages(session_id: int) -> list[dict]:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     rows = conn.execute(
         "SELECT id, seq, role, speaker, content, persona_name, image_path, image_prompt, seed, swipes, active_swipe, client_msg_id FROM rp_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
@@ -593,7 +606,7 @@ def db_rp_get_messages(session_id: int) -> list[dict]:
 
 
 def db_rp_get_session(session_id: int) -> Optional[dict]:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute(
         "SELECT id, title, persona_filename, turn_routing, response_style, stack_config, console_events, lorebooks, bg_image, pov, inner_monologue, auto_continue FROM rp_sessions WHERE id = ?",
         (session_id,),
@@ -620,8 +633,43 @@ def db_rp_get_session(session_id: int) -> Optional[dict]:
     }
 
 
+def _cap_console_events(events_json: str, max_events: int = 60,
+                        max_bytes: int = 512 * 1024) -> str:
+    """Keep only the newest console events before they hit the DB.
+
+    A single 'request' event carries the whole LLM message list (~50KB), and the
+    console had no limit by default, so an old session's row grew into the
+    multi-MB range and rewrote itself in full on every event — a long write
+    window that made lock contention much more likely. Trim to the byte budget
+    (and the event count) so the row stays small; what the console shows live is
+    unaffected.
+    """
+    if not events_json or len(events_json) <= max_bytes:
+        return events_json
+    try:
+        events = json.loads(events_json)
+    except Exception:
+        return events_json
+    if not isinstance(events, list):
+        return events_json
+
+    kept = []
+    used = 2  # "[]"
+    for ev in reversed(events):          # newest first
+        if len(kept) >= max_events:
+            break
+        size = len(json.dumps(ev)) + 1   # +1 for the comma
+        if kept and used + size > max_bytes:
+            break
+        kept.append(ev)
+        used += size
+    kept.reverse()
+    return json.dumps(kept)
+
+
 def db_rp_save_console_events(session_id: int, events_json: str):
-    conn = sqlite3.connect(str(DB_PATH))
+    events_json = _cap_console_events(events_json)
+    conn = _connect()
     conn.execute(
         "UPDATE rp_sessions SET console_events = ?, updated_at = datetime('now') WHERE id = ?",
         (events_json, session_id),
@@ -631,7 +679,7 @@ def db_rp_save_console_events(session_id: int, events_json: str):
 
 
 def db_rp_list_sessions() -> list[dict]:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     rows = conn.execute(
         "SELECT id, title, persona_filename, turn_routing, response_style, updated_at FROM rp_sessions ORDER BY updated_at DESC",
     ).fetchall()
@@ -641,7 +689,7 @@ def db_rp_list_sessions() -> list[dict]:
 
 
 def db_rp_delete_session(session_id: int) -> bool:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     _cleanup_image_files(conn, session_id, "rp_messages", 0)
     conn.execute("DELETE FROM rp_messages WHERE session_id = ?", (session_id,))
     conn.execute("DELETE FROM rp_characters WHERE session_id = ?", (session_id,))
@@ -669,7 +717,7 @@ def _cleanup_image_files(conn, session_id: int, table: str, deleted_seq: int):
 
 
 def db_rp_delete_message(session_id: int, message_id: int = None, client_msg_id: str = None) -> bool:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = None
     if message_id is not None:
         row = conn.execute("SELECT seq FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
@@ -688,7 +736,7 @@ def db_rp_delete_message(session_id: int, message_id: int = None, client_msg_id:
 
 def db_rp_delete_single_message(session_id: int, message_id: int = None, client_msg_id: str = None) -> bool:
     """Delete a single message and renumber remaining seq values."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = None
     if message_id is not None:
         row = conn.execute("SELECT seq FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
@@ -718,7 +766,7 @@ def db_rp_delete_single_message(session_id: int, message_id: int = None, client_
 
 def db_rp_add_swipe(session_id: int, message_id: int, new_content: str) -> dict:
     """Append a new swipe to a message. Returns {active_swipe, swipe_count}."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT content, swipes FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
     if not row:
         conn.close()
@@ -745,7 +793,7 @@ def db_rp_add_swipe(session_id: int, message_id: int, new_content: str) -> dict:
 
 def db_rp_switch_swipe(session_id: int, message_id: int, swipe_index: int) -> dict:
     """Switch active swipe. Returns {content, active_swipe, swipe_count} or empty."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT swipes FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
     if not row or not row[0]:
         conn.close()
@@ -773,7 +821,7 @@ def db_rp_switch_swipe(session_id: int, message_id: int, swipe_index: int) -> di
 
 def db_rp_truncate_after(session_id: int, message_id: int) -> bool:
     """Delete all messages after the given message (seq > target_seq), keeping the target."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT seq FROM rp_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
     if not row:
         conn.close()
@@ -787,7 +835,7 @@ def db_rp_truncate_after(session_id: int, message_id: int) -> bool:
 
 
 def db_rp_count_messages(session_id: int) -> int:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT COUNT(*) FROM rp_messages WHERE session_id = ?", (session_id,)).fetchone()
     conn.close()
     return row[0] if row else 0
@@ -796,7 +844,7 @@ def db_rp_count_messages(session_id: int) -> int:
 def db_rp_update_settings(session_id: int, turn_routing: str = None, response_style: str = None,
                            stack_config: str = None, lorebooks: str = None, bg_image: str = None,
                            pov: str = None, inner_monologue: bool = None, auto_continue: bool = None) -> None:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     updates = []
     params = []
     if turn_routing is not None:
@@ -833,7 +881,7 @@ def db_rp_update_settings(session_id: int, turn_routing: str = None, response_st
 
 def db_rp_add_character(session_id: int, filename: str, name: str) -> bool:
     """Add a character to an existing RP session. Returns True on success."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     # Check if already exists
     existing = conn.execute(
         "SELECT 1 FROM rp_characters WHERE session_id = ? AND card_filename = ?",
@@ -870,7 +918,7 @@ def db_rp_add_character(session_id: int, filename: str, name: str) -> bool:
 def db_rp_remove_character(session_id: int, filename: str) -> bool:
     """Remove a character from an existing RP session. Returns True on success.
     Messages from the removed character are preserved (historical record)."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     # Count remaining characters
     count_row = conn.execute(
         "SELECT COUNT(*) FROM rp_characters WHERE session_id = ?",
@@ -914,7 +962,7 @@ def db_rp_fork_session(session_id: int) -> Optional[dict]:
     sess = db_rp_get_session(session_id)
     if not sess:
         return None
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     try:
         # Copy session row with (fork) suffix
         fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
@@ -959,7 +1007,7 @@ def db_rp_fork_session(session_id: int) -> Optional[dict]:
 
 
 def db_rp_set_persona(session_id: int, persona_filename: str) -> None:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     conn.execute("UPDATE rp_sessions SET persona_filename = ?, updated_at = datetime('now') WHERE id = ?", (persona_filename, session_id))
     conn.commit()
     conn.close()
@@ -969,7 +1017,7 @@ def db_rp_set_persona(session_id: int, persona_filename: str) -> None:
 
 def db_school_create_session(card_filename: str, persona_filename: str = None,
                              stack_config: str = None, title: str = None) -> int:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     if title:
         _title = title
     else:
@@ -986,7 +1034,7 @@ def db_school_create_session(card_filename: str, persona_filename: str = None,
 
 def db_school_update_message_analysis(message_id: int, analysis_json: str) -> None:
     """Store analysis result on an existing school message."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     conn.execute("UPDATE school_messages SET analysis_json = ? WHERE id = ?", (analysis_json, message_id))
     conn.commit()
     conn.close()
@@ -994,7 +1042,7 @@ def db_school_update_message_analysis(message_id: int, analysis_json: str) -> No
 
 def db_school_add_message(session_id: int, role: str, content: str,
                           is_first_mes: bool = False, analysis_json: str = None, image_path: str = None, image_prompt: str = None, client_msg_id: str = None, seed: int = None) -> int:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM school_messages WHERE session_id = ?", (session_id,)).fetchone()
     next_seq = row[0]
     cur = conn.execute(
@@ -1009,7 +1057,7 @@ def db_school_add_message(session_id: int, role: str, content: str,
 
 
 def db_school_get_messages(session_id: int) -> list[dict]:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     rows = conn.execute(
         "SELECT id, seq, role, content, is_first_mes, analysis_json, image_path, image_prompt, seed, swipes, active_swipe, client_msg_id FROM school_messages WHERE session_id = ? ORDER BY seq",
         (session_id,),
@@ -1029,7 +1077,7 @@ def db_school_get_messages(session_id: int) -> list[dict]:
 
 
 def db_school_get_session(session_id: int) -> Optional[dict]:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute(
         "SELECT id, title, card_filename, persona_filename, stack_config, console_events, lorebooks, bg_image, pov, inner_monologue, auto_continue, response_style FROM school_sessions WHERE id = ?",
         (session_id,),
@@ -1050,7 +1098,7 @@ def db_school_get_session(session_id: int) -> Optional[dict]:
 
 
 def db_school_list_sessions() -> list[dict]:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     rows = conn.execute(
         "SELECT id, title, card_filename, persona_filename, updated_at FROM school_sessions ORDER BY updated_at DESC",
     ).fetchall()
@@ -1060,7 +1108,7 @@ def db_school_list_sessions() -> list[dict]:
 
 
 def db_school_delete_session(session_id: int) -> bool:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     _cleanup_image_files(conn, session_id, "school_messages", 0)
     conn.execute("DELETE FROM school_messages WHERE session_id = ?", (session_id,))
     cur = conn.execute("DELETE FROM school_sessions WHERE id = ?", (session_id,))
@@ -1071,7 +1119,7 @@ def db_school_delete_session(session_id: int) -> bool:
 
 
 def db_school_delete_message(session_id: int, message_id: int = None, client_msg_id: str = None) -> bool:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = None
     if message_id is not None:
         row = conn.execute("SELECT seq FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
@@ -1090,7 +1138,7 @@ def db_school_delete_message(session_id: int, message_id: int = None, client_msg
 
 def db_school_delete_single_message(session_id: int, message_id: int = None, client_msg_id: str = None) -> bool:
     """Delete a single message and renumber remaining seq values."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = None
     if message_id is not None:
         row = conn.execute("SELECT seq FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
@@ -1120,7 +1168,7 @@ def db_school_delete_single_message(session_id: int, message_id: int = None, cli
 
 def db_school_add_swipe(session_id: int, message_id: int, new_content: str) -> dict:
     """Append a new swipe to a message. Returns {active_swipe, swipe_count}."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT content, swipes FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
     if not row:
         conn.close()
@@ -1147,7 +1195,7 @@ def db_school_add_swipe(session_id: int, message_id: int, new_content: str) -> d
 
 def db_school_switch_swipe(session_id: int, message_id: int, swipe_index: int) -> dict:
     """Switch active swipe. Returns {content, active_swipe, swipe_count} or empty."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT swipes FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
     if not row or not row[0]:
         conn.close()
@@ -1171,7 +1219,7 @@ def db_school_switch_swipe(session_id: int, message_id: int, swipe_index: int) -
 
 def db_school_truncate_after(session_id: int, message_id: int) -> bool:
     """Delete all messages after the given message (seq > target_seq), keeping the target."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT seq FROM school_messages WHERE id = ? AND session_id = ?", (message_id, session_id)).fetchone()
     if not row:
         conn.close()
@@ -1187,7 +1235,7 @@ def db_school_truncate_after(session_id: int, message_id: int) -> bool:
 def db_school_update_session_meta(session_id: int, persona_filename: str = None,
                                   title: str = None) -> None:
     """Update persona_filename and/or title on an existing school session."""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     fields = []
     vals = []
     if persona_filename is not None:
@@ -1208,7 +1256,7 @@ def db_school_update_settings(session_id: int, stack_config: str = None, respons
                               lorebooks: str = None, bg_image: str = None,
                               pov: str = None, inner_monologue: bool = None,
                               auto_continue: bool = None) -> None:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     if stack_config is not None:
         conn.execute("UPDATE school_sessions SET stack_config = ?, updated_at = datetime('now') WHERE id = ?",
                      (stack_config, session_id))
@@ -1235,7 +1283,8 @@ def db_school_update_settings(session_id: int, stack_config: str = None, respons
 
 
 def db_school_save_console_events(session_id: int, events_json: str):
-    conn = sqlite3.connect(str(DB_PATH))
+    events_json = _cap_console_events(events_json)
+    conn = _connect()
     conn.execute("UPDATE school_sessions SET console_events = ?, updated_at = datetime('now') WHERE id = ?",
                  (events_json, session_id))
     conn.commit()
@@ -1243,14 +1292,14 @@ def db_school_save_console_events(session_id: int, events_json: str):
 
 
 def db_school_count_messages(session_id: int) -> int:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     row = conn.execute("SELECT COUNT(*) FROM school_messages WHERE session_id = ?", (session_id,)).fetchone()
     conn.close()
     return row[0] if row else 0
 
 
 def db_school_get_assistant_messages(session_id: int) -> list[dict]:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     rows = conn.execute(
         "SELECT id, content, analysis_json, is_first_mes FROM school_messages WHERE session_id = ? AND role = 'assistant' ORDER BY seq",
         (session_id,),
@@ -1267,7 +1316,7 @@ def db_school_fork_session(session_id: int) -> Optional[dict]:
     sess = db_school_get_session(session_id)
     if not sess:
         return None
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     try:
         fork_title = sess['title'] + ' (fork)' if sess['title'] else 'Untitled (fork)'
         cur = conn.execute(
@@ -1298,7 +1347,7 @@ def db_school_fork_session(session_id: int) -> Optional[dict]:
 
 
 def db_school_set_persona(session_id: int, persona_filename: str) -> None:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     conn.execute("UPDATE school_sessions SET persona_filename = ?, updated_at = datetime('now') WHERE id = ?",
                  (persona_filename, session_id))
     conn.commit()
@@ -1331,7 +1380,7 @@ def db_school_to_rp(session_id: int) -> Optional[int]:
     response_style = sess.get('response_style') or 'moderate'
     msgs = db_school_get_messages(session_id)
 
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     try:
         # Create RP session
         title = sess.get('title', char_name)

@@ -4,11 +4,12 @@
 
 Starts the mock LLM (tests/mock_llm.py) and a second Character School
 instance on its own port, in a throwaway copy of the repo so the dev
-database is never touched, then runs four scenarios:
+database is never touched, then runs five scenarios:
 
   A  School mode   deltas arrive spread over time and match the final message
   B  RP auto mode  "[Name]:" prefix never reaches the bubble, speaker does
   C  TRUNCATE      auto-continue keeps streaming into the same bubble
+  E  style 'short' ceiling does not bite a natural reply; cuts only a runaway
   D  endpoint rejects stream → plain-request fallback still answers
 
 Exits 0 only when every assertion passes.
@@ -182,9 +183,14 @@ async def scenario_c_auto_continue(uri, card_name):
 
 
 async def scenario_e_style_cap(uri, card_name):
-    """The response style must be enforced by a hard cap, not just the prompt."""
-    print("E. Response style 'short' — hard cap, nothing trimmed")
+    """Pyre's model: a ceiling that does not bite. A reply that wants the
+    length finishes on its own; only a runaway is cut — flagged truncated,
+    never trimmed and never silently continued."""
+    print("E. Response style 'short' — ceiling that does not bite, cuts only a runaway")
     import websockets
+
+    # E1: a long-but-natural reply (~470 words) fits under the 800-token
+    # ceiling and finishes on its own — no truncation at all.
     async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
         await ws.send(json.dumps({"type": "start", "card_filename": "p_ramlee.json"}))
         frames = await collect_until(ws, lambda f: f.get("type") == "session_started")
@@ -206,18 +212,50 @@ async def scenario_e_style_cap(uri, card_name):
     words = len(content.split())
     cap = req.get("max_tokens") if req else None
 
-    check("ceiling sent instead of the global 2000", cap is not None and 400 <= cap <= 500,
+    check("style ceiling sent instead of the global 2000", cap == 800,
           f"max_tokens={cap}")
-    check("auto-continue did NOT extend the capped reply",
+    check("length note rides the last user message (author's-note position)",
+          bool(req) and "[Reply length —" in (req.get("messages") or [{"content": ""}])[-1].get("content", ""),
+          f"last message ends: ...{(req['messages'][-1]['content'][-60:] if req else '')!r}")
+    check("a long-natural reply finishes on its own — no truncation",
+          final.get("truncated") is not True, f"truncated={final.get('truncated')!r}")
+    check("reply reached its natural length uncut", words > 400, f"{words} words")
+    check("auto-continue did NOT extend the reply",
           not any(e.get("event") == "auto_continue" for e in events))
-    check("ceiling cut the over-long reply", words < 400,
-          f"{words} words (uncapped reply is ~470)")
     check("stored message is exactly what was streamed", streamed == content,
           f"streamed {len(streamed)} chars, stored {len(content)}")
-    check("cut reply is flagged truncated for the client",
-          final.get("truncated") is True, f"truncated={final.get('truncated')!r}")
     check("no trim event — trimming was removed",
           not any(e.get("event") == "style_trim" for e in events))
+
+    # E2: a runaway reply (~1080 words) still hits the ceiling — cut, flagged
+    # truncated for the client, kept verbatim, and NOT auto-continued
+    # (continuing would defeat the cap).
+    async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
+        await ws.send(json.dumps({"type": "start", "card_filename": "p_ramlee.json"}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "session_started")
+        frames += await collect_until(ws, lambda f: f.get("type") == "character_message"
+                                      and f.get("is_first_mes"))
+        await ws.send(json.dumps({"type": "update_settings", "response_style": "short"}))
+        frames += await collect_until(ws, lambda f: f.get("type") == "settings_updated")
+        await ws.send(json.dumps({"type": "user_message", "content": "HUGEREPLY tell me everything."}))
+        frames += await collect_until(
+            ws, lambda f: f.get("type") == "character_message" and not f.get("is_first_mes"))
+
+    final = next(f for _, f in frames if f.get("type") == "character_message"
+                 and not f.get("is_first_mes"))
+    events = [f for _, f in frames if f.get("type") == "console_event"]
+    deltas = deltas_of(frames)
+    streamed = "".join(t for _, t in deltas)
+    content = final["content"]
+    words = len(content.split())
+
+    check("runaway reply cut at the ceiling", 500 < words < 600, f"{words} words")
+    check("cut reply is flagged truncated for the client",
+          final.get("truncated") is True, f"truncated={final.get('truncated')!r}")
+    check("style-cap cut is not auto-continued",
+          not any(e.get("event") == "auto_continue" for e in events))
+    check("cut reply kept verbatim — stored == streamed", streamed == content,
+          f"streamed {len(streamed)} chars, stored {len(content)}")
 
 
 async def scenario_d_fallback(uri, card_name):

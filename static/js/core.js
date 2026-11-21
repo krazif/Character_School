@@ -79,7 +79,8 @@ let personaEditorFilename = null;
 let consoleOpen = false;
 let consoleMaximized = false;
 let consoleEventCount = 0;
-let consoleLimit = parseInt(localStorage.getItem('cs_console_limit')) || 0; // 0 = unlimited; shared across School + RP consoles
+let consoleLimit = parseInt(localStorage.getItem('cs_console_limit')); // 0 = unlimited; shared across School + RP consoles
+if (isNaN(consoleLimit)) consoleLimit = 300; // sensible default so consoles don't grow without bound
 
 // Restore console limit inputs on load
 function initConsoleLimit() {

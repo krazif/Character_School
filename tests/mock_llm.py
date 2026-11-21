@@ -34,6 +34,9 @@ TRUNCATED = REPLY[: len(REPLY) // 2]
 # Long enough that any sane per-style token budget cuts it mid-sentence,
 # and punctuated so the client has sentence boundaries to trim back to
 LONG_REPLY = " ".join([REPLY + "." for _ in range(13)])
+# Past even the non-biting ceiling (~1080 words ≈ 1500 tokens): only a runaway
+# like this may be cut by the style budget
+HUGE_REPLY = " ".join([REPLY + "." for _ in range(30)])
 
 # Same assumption the client's mock math uses (the real one now sets a
 # headroom ceiling, so the mock just needs a stable tok/word ratio)
@@ -90,6 +93,8 @@ async def chat_completions(request: Request):
         reply, finish = CONTINUED, "stop"
     elif "TRUNCATE" in user_text:
         reply, finish = TRUNCATED, "length"
+    elif "HUGEREPLY" in user_text:
+        reply, finish = HUGE_REPLY, "stop"
     elif "LONGREPLY" in user_text:
         reply, finish = LONG_REPLY, "stop"
     else:
